@@ -1,0 +1,133 @@
+{
+    "competitors": [
+        {
+            "name": "CompetitorA"
+        },
+        {
+            "name": "CompetitorB"
+        }
+    ],
+    "simulator": {
+        "runs": 1,
+        "method": "real-time",
+        "tick_rate": 100,
+        "tick_duration": 0.01       
+    },
+    "track": {
+        "name": "spa",
+        "coordinate_file": "datasets/SpaCentreLine.csv",
+        "num_corners": 19,
+        "num_overtaking_zones": 9,
+        "distance": 7,
+        "mini_loops": {
+            "miniLoop1":{
+                "start_distance": 0,
+                "end_distance": 0.4,
+                "base_lap_time": 6.0,
+                "name": "Start to La Source"
+            },
+            "miniLoop2":{
+                "start_distance": 0.4,
+                "end_distance": 1.2,
+                "base_lap_time": 13.0,
+                "name": "La Source to Radillon"
+            },
+            "miniLoop3":{
+                "start_distance": 1.2,
+                "end_distance": 2.5,
+                "base_lap_time": 15.0,
+                "name": "Radillon to Les Combes"
+            },
+            "miniLoop4":{
+                "start_distance": 2.5,
+                "end_distance": 3.1,
+                "base_lap_time": 16.0,
+                "name": "Les Combes to Bruxelles"
+            },
+            "miniLoop5":{
+                "start_distance": 3.1,
+                "end_distance": 4,
+                "base_lap_time": 10.0,
+                "name": "Bruxelles to Pouhon"
+            },
+            "miniLoop6":{
+                "start_distance": 4,
+                "end_distance": 4.6,
+                "base_lap_time": 11.0,
+                "name": "Pouhon to Campus"
+            },
+            "miniLoop7":{
+                "start_distance": 4.6,
+                "end_distance": 4.9,
+                "base_lap_time": 5.0,
+                "name": "Campus to Stavelot"
+            },
+            "miniLoop8":{
+                "start_distance": 4.9,
+                "end_distance": 5.9,
+                "base_lap_time": 12.0,
+                "name": "Stavelot to Blanchimont"
+            },
+            "miniLoop9":{
+                "start_distance": 5.9,
+                "end_distance": 6.7,
+                "base_lap_time": 10.0,
+                "name": "Blanchimont to La Chicane"
+            },
+            "miniLoop10":{
+                "start_distance": 6.7,
+                "end_distance": 7.0,
+                "base_lap_time": 9.0,
+                "name": "La Chicane to Finish Line"
+            }
+        },
+        "overtakingZones": {
+            "overtakingZone1": {
+                "difficulty": 0.4,
+                "name": "La Source",
+                "distance_from_start": 0.4
+            },
+            "overtakingZone2": {
+                "difficulty": 0.8,
+                "name": "Raidillon and Eau Rouge",
+                "distance_from_start": 1.2
+            },
+            "overtakingZone3": {
+                "difficulty": 0.4,
+                "name": "Les Combes",
+                "distance_from_start": 2.5
+            },
+            "overtakingZone4": {
+                "difficulty": 0.4,
+                "name": "Bruxelles",
+                "distance_from_start": 3.1
+            },
+            "overtakingZone5": {
+                "difficulty": 0.6,
+                "name": "Pouhon",
+                "distance_from_start": 4
+            },
+            "overtakingZone6": {
+                "difficulty": 0.5,
+                "name": "Campus",
+                "distance_from_start": 4.6
+            },
+            "overtakingZone7": {
+                "difficulty": 0.3,
+                "name": "Stavelot",
+                "distance_from_start": 4.9
+            },
+            "overtakingZone8": {
+                "difficulty": 0.4,
+                "name": "Blanchimont",
+                "distance_from_start": 5.9
+            },
+            "overtakingZone9": {
+                "difficulty": 0.7,
+                "name": "La Chicane (Bus Stop)  ",
+                "distance_from_start": 6.7
+            }
+        }
+
+    }
+}
