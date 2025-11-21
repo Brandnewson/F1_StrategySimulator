@@ -7,6 +7,7 @@ def load_config(file_path: str) -> Dict:
         config_data = json.load(file)
 
     parsed_config = {
+        "debugMode": config_data.get("debugMode"),
         "track": config_data.get("track", {}),
         "simulator": config_data.get("simulator", {}),
         "competitors": config_data.get("competitors", {})

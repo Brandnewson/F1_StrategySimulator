@@ -15,7 +15,5 @@ print(json.dumps(config, indent=2, sort_keys=True))
 # Load track
 track = load_track(config)
 
-# Initialise simulator
+# Initialise race states
 race_state = init_race_state(config, track)
-
-# 

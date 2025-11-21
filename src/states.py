@@ -75,7 +75,7 @@ class RaceState:
             self.overtaking_zones = cfg_z
 
         # visualise overtaking zones for debugging
-        if isinstance(self.track_data, dict) and "coordinates" in self.track_data:
+        if isinstance(self.track_data, dict) and "coordinates" in self.track_data and self.config.get("debugMode", False):
             self._visualise_overtaking_zones()
         
         print(f"\nRace State Initialized:")
@@ -366,35 +366,37 @@ def init_race_state(config, track):
     for driver in drivers:
         print(f"  - {driver.name} (P{driver.position}) agent={driver.agent.name}")
 
-    # Simple demo run: ask each agent for an action at a decision point and optionally attempt overtakes
-    print("\nDemo: agent decisions at decision points:")
-    # If no overtaking zones configured, add a temporary demo zone so agents have context
-    demo_zone_added = False
-    if not race_state.overtaking_zones:
-        demo_zone = {"name": "DemoZone", "distance_from_start": 0.06, "difficulty": 0.3}
-        race_state.overtaking_zones.append(demo_zone)
-        demo_zone_added = True
+    if config.get("debugMode"):
+        print("Debug mode is ON. Testing demo agent decisions...")
+        # Simple demo run: ask each agent for an action at a decision point and optionally attempt overtakes
+        print("\nDemo: agent decisions at decision points:")
+        # If no overtaking zones configured, add a temporary demo zone so agents have context
+        demo_zone_added = False
+        if not race_state.overtaking_zones:
+            demo_zone = {"name": "DemoZone", "distance_from_start": 0.06, "difficulty": 0.3}
+            race_state.overtaking_zones.append(demo_zone)
+            demo_zone_added = True
 
-    # Place drivers near the demo zone for the demo
-    for i, d in enumerate(drivers):
-        # leader at zone distance, others slightly behind
-        d.current_distance = race_state.overtaking_zones[0].get("distance_from_start", 0.06) - (i * 0.01)
-        # simple gap estimate in seconds for agent inputs
-        d.gap_to_ahead = None if d.position == 1 else 0.8
+        # Place drivers near the demo zone for the demo
+        for i, d in enumerate(drivers):
+            # leader at zone distance, others slightly behind
+            d.current_distance = race_state.overtaking_zones[0].get("distance_from_start", 0.06) - (i * 0.01)
+            # simple gap estimate in seconds for agent inputs
+            d.gap_to_ahead = None if d.position == 1 else 0.8
 
-    # Let each agent decide and attempt an overtake if they choose to
-    for d in drivers:
-        action = d.agent.get_action(d, race_state)
-        print(f"  - {d.name}: risk={action.risk_level.name}, attempt_overtake={action.attempt_overtake}")
-        if action.attempt_overtake and d.position > 1 and race_state.overtaking_zones:
-            # find driver ahead by position
-            ahead = next((x for x in drivers if x.position == d.position - 1), None)
-            if ahead:
-                success = attempt_overtake(d, ahead, race_state.overtaking_zones[0], race_state)
-                print(f"    -> overtake attempted against {ahead.name}: {'SUCCESS' if success else 'FAIL'}")
+        # Let each agent decide and attempt an overtake if they choose to
+        for d in drivers:
+            action = d.agent.get_action(d, race_state)
+            print(f"  - {d.name}: risk={action.risk_level.name}, attempt_overtake={action.attempt_overtake}")
+            if action.attempt_overtake and d.position > 1 and race_state.overtaking_zones:
+                # find driver ahead by position
+                ahead = next((x for x in drivers if x.position == d.position - 1), None)
+                if ahead:
+                    success = attempt_overtake(d, ahead, race_state.overtaking_zones[0], race_state)
+                    print(f"    -> overtake attempted against {ahead.name}: {'SUCCESS' if success else 'FAIL'}")
 
-    # remove demo zone if it was added
-    if demo_zone_added:
-        race_state.overtaking_zones.pop(0)
+        # remove demo zone if it was added
+        if demo_zone_added:
+            race_state.overtaking_zones.pop(0)
 
     return race_state

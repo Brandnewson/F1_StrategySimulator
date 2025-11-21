@@ -79,26 +79,27 @@ def plot_miniloops(config):
 
     # Add a 'distance' column to the coordinates DataFrame
     coordinates["distance"] = coordinates.index / points_per_km
+    if config.get("debugMode", False):
 
-    # Plot the track with mini loops
-    plt.figure(figsize=(10, 6))
-    for loop_key, mini_loop in mini_loops.items():
-        start_distance = mini_loop.get("start_distance", 0)
-        end_distance = mini_loop.get("end_distance", 0)
-        loop_name = mini_loop.get("name", loop_key)
+        # Plot the track with mini loops
+        plt.figure(figsize=(10, 6))
+        for loop_key, mini_loop in mini_loops.items():
+            start_distance = mini_loop.get("start_distance", 0)
+            end_distance = mini_loop.get("end_distance", 0)
+            loop_name = mini_loop.get("name", loop_key)
 
-        # Filter points within the mini loop range
-        loop_points = coordinates[
-            (coordinates["distance"] >= start_distance) & (coordinates["distance"] <= end_distance)
-        ]
+            # Filter points within the mini loop range
+            loop_points = coordinates[
+                (coordinates["distance"] >= start_distance) & (coordinates["distance"] <= end_distance)
+            ]
 
-        # Plot the mini loop
-        plt.plot(loop_points["X"], loop_points["Y"], label=loop_name)
+            # Plot the mini loop
+            plt.plot(loop_points["X"], loop_points["Y"], label=loop_name)
 
-    plt.xlabel("X Coordinate")
-    plt.ylabel("Y Coordinate")
-    plt.title("Mini Loops on the Track")
-    plt.legend()
-    plt.grid()
-    plt.show(block=False)
+        plt.xlabel("X Coordinate")
+        plt.ylabel("Y Coordinate")
+        plt.title("Mini Loops on the Track")
+        plt.legend()
+        plt.grid()
+        plt.show(block=False)
     return coordinates
