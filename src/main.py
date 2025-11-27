@@ -6,6 +6,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.configUtils import load_config
 from src.track import load_track
 from src.states import init_race_state
+from src.simulator import init_simulator
 
 # Load configuration
 config = load_config("config.json")
@@ -17,3 +18,6 @@ track = load_track(config)
 
 # Initialise race states
 race_state = init_race_state(config, track)
+
+# Run simulator
+init_simulator(race_state, config, track)

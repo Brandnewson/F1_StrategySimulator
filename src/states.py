@@ -12,7 +12,8 @@ class DriverState:
     
     def __init__(self, name: str, starting_position: int, track_distance: float):
         self.name = name
-        self.current_distance = 0.0  # Current position on track in km
+        # default start at 0.0 — actual grid offsets are assigned in init_race_state
+        self.current_distance = 0.0
         self.current_lap = 0
         self.current_lap_time = 0.0  # Time spent on current lap in seconds
         self.total_race_time = 0.0  # Total elapsed time in seconds
@@ -335,6 +336,16 @@ def init_race_state(config, track):
         )
         drivers.append(driver)
     
+    # Assign realistic starting grid offsets:
+    # last car (highest starting_position) -> distance 0.0
+    # cars ahead -> positive distance ahead by grid_gap_meters each
+    num_drivers = len(drivers)
+    grid_gap_meters = 8  # 8 meters between grid positions (configurable)
+    for d in drivers:
+        # position: 1..N (1 is pole). compute distance ahead of the last car:
+        # distance_km = (num_drivers - starting_position) * gap_m
+        d.current_distance = ((num_drivers - d.position) * grid_gap_meters) / 1000.0
+
     # Initialize race state
     # Pass the full config to RaceState so it can extract simulator settings as needed
     race_state = RaceState(

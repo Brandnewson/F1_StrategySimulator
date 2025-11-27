@@ -1,5 +1,5 @@
 {
-    "debugMode": true,
+    "debugMode": false,
     "competitors": [
         {
             "name": "Vax Merstappen"
@@ -13,6 +13,10 @@
         "method": "real-time",
         "tick_rate": 100,
         "tick_duration": 0.01       
+    },
+    "race_settings": {
+        "total_laps": 1,
+        "weather": "dry"
     },
     "track": {
         "name": "spa",
