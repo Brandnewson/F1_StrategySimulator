@@ -39,8 +39,11 @@ class RaceSimulator:
         self.tick_duration = sim_config.get("tick_duration", 0.01)  # seconds
         self.tick_rate = sim_config.get("tick_rate", 100)  # Hz
         
-        # Time penalty for being overtaken (seconds)
+        # Time penalty for being overtaken (secs)
         self.overtake_time_penalty = 0.3
+
+        # Time penalty for failed overtake attempt (secs)   
+        self.failed_overtake_time_penalty = 0.4
         
         # Overtake cooldown to prevent rapid re-attempts (in ticks)
         self.overtake_cooldown_ticks = int(5.0 / self.tick_duration)  # 5 second cooldown
@@ -263,18 +266,26 @@ class RaceSimulator:
     
     def _attempt_overtake(self, overtaking_driver, target_driver, zone: Dict) -> bool:
         """Attempt an overtake with probability based on zone difficulty."""
-        difficulty = zone.get("difficulty", 0.5)
+        difficulty = zone.get("difficulty")
         success_probability = 1.0 - difficulty
         
-        # Apply risk level modifier from agent
-        if overtaking_driver.agent:
-            action = overtaking_driver.agent.get_action(overtaking_driver, self.race_state)
-            risk_modifier = {
-                "CONSERVATIVE": 0.7,
-                "NORMAL": 1.0,
-                "AGGRESSIVE": 1.3
-            }.get(action.risk_level.name, 1.0)
-            success_probability *= risk_modifier
+        # Apply mulitiplier for success probability as a function of speed difference and gap to car ahead
+        speed_diff = overtaking_driver.speed - target_driver.speed  # in km/h
+        gap = self._calculate_track_gap(overtaking_driver, target_driver)  # in km
+
+        # Favor overtakes when gap is small and speed difference is positive
+        if gap < 0.04:  # less than 40m
+            success_probability *= 1.1
+            print(f"    Small gap resulted in probability increasing from {success_probability/1.1:.2f} to {success_probability:.2f}")
+        else:  # penalize larger gaps larger than 40m
+            success_probability *= max(0.0, 1.0 - (gap - 0.04) * 5)  # reduce prob for larger gaps
+            print(f"    Larger gap resulted in probability decreasing from {success_probability / max(0.0, 1.0 - (gap - 0.04) * 5):.2f} to {success_probability:.2f}")
+        
+        # TODO: Favor overtakes when speed difference is significant (reflects tyre choices and car performance)
+        
+
+        # Print probability of overtaking each time 
+        print(f"  Overtake probability for {overtaking_driver.name} attempting to overtake {target_driver.name} at {zone.get('name')}: {success_probability:.2f}")
         
         success = np.random.random() < success_probability
         
@@ -295,6 +306,18 @@ class RaceSimulator:
             self.race_state.update_driver_positions()
             return True
         else:
+            # Apply distance penalty for failed attempt (lose 50m),
+            # clamp/wrap so we don't create negative/ambiguous positions.
+            penalty_km = 0.05
+            new_dist = overtaking_driver.current_distance - penalty_km
+            if new_dist < 0:
+                # wrap forward to maintain consistent lap semantics
+                new_dist = max(0.0, new_dist + self.track_distance)
+            overtaking_driver.current_distance = new_dist
+
+            # Update positions
+            self.race_state.update_driver_positions()
+
             print(f"  FAILED: {overtaking_driver.name} failed to overtake "
                   f"{target_driver.name} at {zone.get('name')}")
             return False

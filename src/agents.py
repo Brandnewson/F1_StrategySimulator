@@ -168,7 +168,7 @@ def make_param_agent(name: str, cons_weight: float, norm_weight: float, aggr_wei
         zone = find_upcoming_zone_for_driver(race_state, driver)
         if zone is None:
             return chosen, False
-        difficulty = float(zone.get("difficulty", 0.5))
+        difficulty = float(zone.get("difficulty"))
         gap = getattr(driver, "gap_to_ahead", None)
         # map chosen -> base_prob
         if chosen == RiskLevel.CONSERVATIVE:

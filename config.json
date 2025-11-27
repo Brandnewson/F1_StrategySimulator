@@ -88,42 +88,42 @@
         },
         "overtakingZones": {
             "overtakingZone1": {
-                "difficulty": 0.4,
+                "difficulty": 0.8,
                 "name": "La Source",
                 "distance_from_start": 0.4
             },
             "overtakingZone2": {
-                "difficulty": 0.8,
+                "difficulty": 0.9,
                 "name": "Raidillon and Eau Rouge",
                 "distance_from_start": 1.2
             },
             "overtakingZone3": {
-                "difficulty": 0.4,
+                "difficulty": 0.7,
                 "name": "Les Combes",
                 "distance_from_start": 2.5
             },
             "overtakingZone4": {
-                "difficulty": 0.4,
+                "difficulty": 0.7,
                 "name": "Bruxelles",
                 "distance_from_start": 3.1
             },
             "overtakingZone5": {
-                "difficulty": 0.6,
+                "difficulty": 0.7,
                 "name": "Pouhon",
                 "distance_from_start": 4
             },
             "overtakingZone6": {
-                "difficulty": 0.5,
+                "difficulty": 0.7,
                 "name": "Campus",
                 "distance_from_start": 4.6
             },
             "overtakingZone7": {
-                "difficulty": 0.3,
+                "difficulty": 0.7,
                 "name": "Stavelot",
                 "distance_from_start": 4.9
             },
             "overtakingZone8": {
-                "difficulty": 0.4,
+                "difficulty": 0.7,
                 "name": "Blanchimont",
                 "distance_from_start": 5.9
             },
