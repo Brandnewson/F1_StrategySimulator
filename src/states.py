@@ -256,7 +256,7 @@ class RaceState:
 def attempt_overtake(overtaking_driver: DriverState, target_driver: DriverState, 
                      overtaking_zone: Dict, race_state: RaceState) -> bool:
     """
-    Attempt an overtake maneuver.
+    Attempt an overtake maneuver. (DEBUGGING FUNCTION)
     
     Args:
         overtaking_driver: The driver attempting to overtake

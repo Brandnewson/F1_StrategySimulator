@@ -130,7 +130,7 @@ class RaceSimulator:
         """Update a single driver's position for one tick."""
         # Get current speed based on track position
         speed = self._get_speed_at_distance(driver.current_distance)
-        
+
         # Move driver forward
         distance_delta = speed * dt
         driver.current_distance += distance_delta
@@ -270,22 +270,25 @@ class RaceSimulator:
         success_probability = 1.0 - difficulty
         
         # Apply mulitiplier for success probability as a function of speed difference and gap to car ahead
+        # TODO: Favor overtakes when speed difference is significant (reflects tyre choices and car performance)
+
         speed_diff = overtaking_driver.speed - target_driver.speed  # in km/h
         gap = self._calculate_track_gap(overtaking_driver, target_driver)  # in km
 
         # Favor overtakes when gap is small and speed difference is positive
         if gap < 0.04:  # less than 40m
             success_probability *= 1.1
-            print(f"    Small gap resulted in probability increasing from {success_probability/1.1:.2f} to {success_probability:.2f}")
+            if self.config.get("debugMode", False):
+                print(f"  Small gap resulted in probability increasing from {success_probability/1.1:.2f} to {success_probability:.2f}")
         else:  # penalize larger gaps larger than 40m
             success_probability *= max(0.0, 1.0 - (gap - 0.04) * 5)  # reduce prob for larger gaps
-            print(f"    Larger gap resulted in probability decreasing from {success_probability / max(0.0, 1.0 - (gap - 0.04) * 5):.2f} to {success_probability:.2f}")
+            if self.config.get("debugMode", False):
+                print(f"  Larger gap resulted in probability decreasing from {success_probability / max(0.0, 1.0 - (gap - 0.04) * 5):.2f} to {success_probability:.2f}")
         
-        # TODO: Favor overtakes when speed difference is significant (reflects tyre choices and car performance)
         
-
         # Print probability of overtaking each time 
-        print(f"  Overtake probability for {overtaking_driver.name} attempting to overtake {target_driver.name} at {zone.get('name')}: {success_probability:.2f}")
+        if self.config.get("debugMode", False):
+            print(f"  Overtake probability for {overtaking_driver.name} attempting to overtake {target_driver.name} at {zone.get('name')}: {success_probability:.2f}")
         
         success = np.random.random() < success_probability
         
@@ -293,9 +296,9 @@ class RaceSimulator:
             print(f"  OVERTAKE: {overtaking_driver.name} overtook {target_driver.name} "
                   f"at {zone.get('name')}!")
             
-            # Apply time penalty to overtaken driver
-            target_driver.current_lap_time += self.overtake_time_penalty
-            target_driver.total_race_time += self.overtake_time_penalty
+            # # Apply time penalty to overtaken driver
+            # target_driver.current_lap_time += self.overtake_time_penalty
+            # target_driver.total_race_time += self.overtake_time_penalty
             
             # Swap track positions slightly
             old_distance = overtaking_driver.current_distance
@@ -363,9 +366,57 @@ class RaceSimulator:
         
         # Mark start/finish
         start_x, start_y = coords.at[0, "X"], coords.at[0, "Y"]
-        ax.scatter(start_x, start_y, s=200, c="green", marker="s", 
-                   zorder=10, label="Start/Finish")
+        # keep the start marker object so we can build the legend explicitly
+        start_marker = ax.scatter(start_x, start_y, s=200, c="green", marker="s",
+                                  zorder=10, label="Start/Finish")
         
+        # --- Overtaking zone side labels (placed off-track) ---
+        # Place a plain text label for each overtaking zone offset to the side of the circuit.
+        # Uses a small perpendicular offset from the track tangent and a slight stagger to reduce overlap.
+        if self.track_coords is not None and getattr(self.race_state, "overtaking_zones", None):
+            coords = self.track_coords
+            last_idx = len(coords) - 1
+            for i, zone in enumerate(self.race_state.overtaking_zones, start=1):
+                try:
+                    zone_dist = float(zone.get("distance_from_start", zone.get("distance", 0)))
+                except Exception:
+                    zone_dist = 0.0
+                # find nearest coordinate for this zone distance (coords['distance'] in same units as zone_dist)
+                nearest_idx = (coords["distance"] - zone_dist).abs().idxmin()
+                zx = coords.at[nearest_idx, "X"]
+                zy = coords.at[nearest_idx, "Y"]
+
+                # approximate tangent using neighbours
+                prev_idx = max(nearest_idx - 1, 0)
+                next_idx = min(nearest_idx + 1, last_idx)
+                tx = coords.at[next_idx, "X"] - coords.at[prev_idx, "X"]
+                ty = coords.at[next_idx, "Y"] - coords.at[prev_idx, "Y"]
+                norm = np.hypot(tx, ty) if (tx != 0 or ty != 0) else 1.0
+                # perpendicular direction (unit)
+                px, py = -ty / norm, tx / norm
+
+                # offset in meters (track coords appear to be in meters)
+                base_offset_m = 120  # base offset distance from track
+                stagger = (i % 3) * 25  # stagger every zone to reduce label overlap
+                offset_m = base_offset_m + stagger
+
+                label_x = zx + px * offset_m
+                label_y = zy + py * offset_m
+
+                # display label with difficulty in parentheses, wrapped if long
+                zone_name = zone.get("name", f"Zone {i}")
+                difficulty = zone.get("difficulty", None)
+                if difficulty is not None:
+                    label_text = f"{zone_name} ({difficulty:.2f})"
+                else:
+                    label_text = zone_name
+
+                # draw a subtle connector line and the label box on the side
+                ax.plot([zx, label_x], [zy, label_y], color="#666666", linewidth=0.8,
+                        alpha=0.6, zorder=14)
+                ax.text(label_x, label_y, label_text, fontsize=9, zorder=15,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, edgecolor="none"))
+
         # Initialize driver markers
         driver_dots = []
         for i, driver in enumerate(self.race_state.drivers):
@@ -385,7 +436,11 @@ class RaceSimulator:
                     fontsize=14, fontweight='bold')
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
-        ax.legend(loc="upper right")
+
+        # Build legend explicitly to avoid matplotlib auto-picking other artists (e.g. text bboxes)
+        legend_handles = [start_marker] + driver_dots
+        legend_labels = ["Start/Finish"] + [d.name for d in self.race_state.drivers]
+        ax.legend(legend_handles, legend_labels, loc="upper right", fontsize=9)
         ax.grid(alpha=0.3)
         
         def init():
@@ -418,10 +473,31 @@ class RaceSimulator:
                     leader_total = leader.completed_laps * self.track_distance + leader.current_distance
                     driver_total = driver.completed_laps * self.track_distance + driver.current_distance
                     gap_dist = leader_total - driver_total  # Positive if driver is behind
-                    
-                    # Convert distance gap to approximate time gap using average speed
-                    avg_speed = self.track_distance / self.race_state.base_lap_time if self.race_state.base_lap_time > 0 else 0.065
-                    gap_time = gap_dist / avg_speed if avg_speed > 0 else 0
+
+                    # Convert distance gap to an estimated time gap using current speeds.
+                    # Use closing-time if trailing car is faster: time = gap / (v_trailing - v_leader)
+                    # Otherwise fallback to leader's speed to estimate how long leader needs to cover that gap.
+                    # driver.speed and leader.speed are in km/h; convert to km/s.
+                    leader_kms = max(leader.speed / 3600.0, 1e-6)
+                    driver_kms = max(driver.speed / 3600.0, 1e-6)
+                    relative_kms = driver_kms - leader_kms
+
+                    if relative_kms > 1e-6:
+                        # trailing car is closing — estimate time until it reaches the leader's current position
+                        # gap_time = gap_dist / relative_kms
+                        gap_time = gap_dist / leader_kms
+                    else:
+                        # trailing car not closing — estimate time the leader needs to cover the gap
+                        gap_time = gap_dist / leader_kms
+
+                    # If gap_time is negative or NaN for any reason, clamp to 0
+                    try:
+                        gap_time = float(gap_time)
+                        if gap_time < 0 or np.isnan(gap_time) or np.isinf(gap_time):
+                            gap_time = 0.0
+                    except Exception:
+                        gap_time = 0.0
+
                     gap_str = f"+{gap_time:.2f}s" if gap_time > 0 else f"{gap_time:.2f}s"
                 info_lines.append(
                     f"P{driver.position}: {driver.name:20s} "
@@ -454,8 +530,12 @@ class RaceSimulator:
         
         fig.canvas.mpl_connect('close_event', on_close)
         
-        plt.tight_layout()
-        plt.show()
+        try:
+            plt.tight_layout()
+            plt.show()
+        except KeyboardInterrupt:
+            # allow graceful exit during debugging / long layout operations
+            print("Animation interrupted by user (KeyboardInterrupt). Closing.")
         
         # Print final results
         self._print_results()
