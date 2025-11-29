@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from scipy.interpolate import CubicSpline
 from typing import Dict, List
 from dataclasses import dataclass
 
@@ -34,6 +35,9 @@ class RaceSimulator:
         # Build mini-loop lookup for speed calculation
         self.mini_loops = self._build_mini_loops(track_config)
         
+        # Build smooth speed profile from mini-loops
+        self.speed_profile = self._build_speed_profile()
+        
         # Simulation settings
         sim_config = config.get("simulator", {})
         self.tick_duration = sim_config.get("tick_duration", 0.01)  # seconds
@@ -63,6 +67,10 @@ class RaceSimulator:
         
         # Colors for drivers
         self.driver_colors = plt.cm.tab10(np.linspace(0, 1, len(race_state.drivers)))
+
+        # plot speed profile for debugging
+        if self.config.get("debugMode"):
+            self.plot_speed_profile(show_loops=True)
         
     def _build_mini_loops(self, track_config: Dict) -> List[Dict]:
         """Build sorted list of mini loops with speed calculations."""
@@ -99,11 +107,192 @@ class RaceSimulator:
         processed_loops.sort(key=lambda x: x["start"])
         return processed_loops
     
+    def _build_speed_profile(self, speed_multiplier: float = 1.0) -> Dict:
+        """
+        Build a smooth speed profile that transitions gradually between mini-loops.
+        
+        Instead of sudden speed jumps at loop boundaries, this creates a continuous
+        speed curve using cubic spline interpolation. The profile is calibrated so
+        that the total time to traverse each loop matches its base_lap_time.
+        
+        Args:
+            speed_multiplier: Factor to adjust all speeds (e.g., for tyre compounds).
+                              >1.0 = faster, <1.0 = slower
+        
+        Returns:
+            Dict containing:
+                - 'spline': CubicSpline interpolator for speed lookup
+                - 'distances': Array of distance sample points
+                - 'speeds': Array of speed values at each distance
+                - 'multiplier': The speed multiplier used
+        """
+        if not self.mini_loops:
+            # Fallback if no loops defined
+            return {
+                'spline': None,
+                'distances': np.array([0, self.track_distance]),
+                'speeds': np.array([0.05, 0.05]),
+                'multiplier': speed_multiplier
+            }
+        
+        # Step 1: Create anchor points at loop midpoints with average speeds
+        anchor_distances = []
+        anchor_speeds = []
+        
+        for loop in self.mini_loops:
+            # Use midpoint of each loop as anchor
+            midpoint = (loop["start"] + loop["end"]) / 2
+            base_speed = loop["speed"] * speed_multiplier
+            anchor_distances.append(midpoint)
+            anchor_speeds.append(base_speed)
+        
+        # Step 2: Add boundary points for smooth wrap-around (track is circular)
+        # Extend anchors to handle the track boundary smoothly
+        
+        # Add a point before the first loop (wrap from last loop)
+        last_loop = self.mini_loops[-1]
+        last_speed = last_loop["speed"] * speed_multiplier
+        # Virtual point before track start (negative distance, wrapping from end)
+        pre_start_dist = -(self.track_distance - (last_loop["start"] + last_loop["end"]) / 2)
+        
+        # Add a point after the last loop (wrap to first loop)
+        first_loop = self.mini_loops[0]
+        first_speed = first_loop["speed"] * speed_multiplier
+        post_end_dist = self.track_distance + (first_loop["start"] + first_loop["end"]) / 2
+        
+        # Build extended arrays for periodic spline fitting
+        extended_distances = [pre_start_dist] + anchor_distances + [post_end_dist]
+        extended_speeds = [last_speed] + anchor_speeds + [first_speed]
+        
+        # Step 3: Create cubic spline interpolator
+        # Use 'natural' boundary condition for smooth transitions
+        spline = CubicSpline(extended_distances, extended_speeds, bc_type='natural')
+        
+        # Step 4: Sample the spline at high resolution for fast lookup
+        # Use enough points for smooth interpolation (~10m resolution)
+        num_samples = max(100, int(self.track_distance * 100))  # ~100 points per km
+        sample_distances = np.linspace(0, self.track_distance, num_samples)
+        sample_speeds = spline(sample_distances)
+        
+        # Ensure no negative speeds (can happen with aggressive spline fitting)
+        sample_speeds = np.maximum(sample_speeds, 0.01)
+        
+        # Step 5: Calibrate speeds to match expected loop times
+        # This is crucial: we want the integral of time = integral of (distance / speed)
+        # to match the sum of base_lap_times
+        calibrated_speeds = self._calibrate_speed_profile(sample_distances, sample_speeds)
+        
+        # Rebuild spline with calibrated speeds
+        calibrated_spline = CubicSpline(sample_distances, calibrated_speeds, bc_type='natural')
+        
+        return {
+            'spline': calibrated_spline,
+            'distances': sample_distances,
+            'speeds': calibrated_speeds,
+            'multiplier': speed_multiplier
+        }
+    
+    def _calibrate_speed_profile(self, distances: np.ndarray, speeds: np.ndarray) -> np.ndarray:
+        """
+        Calibrate the speed profile so total lap time matches sum of base_lap_times.
+        
+        This adjusts the overall speed scale while preserving the shape of the profile.
+        
+        Args:
+            distances: Array of distance sample points
+            speeds: Array of uncalibrated speed values
+            
+        Returns:
+            Calibrated speed array
+        """
+        # Calculate expected total lap time from config
+        expected_total_time = sum(loop["base_time"] for loop in self.mini_loops)
+        
+        # Calculate actual time with current speed profile
+        # Time = integral of (1/speed) over distance
+        # Using trapezoidal integration
+        dt = np.diff(distances)
+        avg_speeds = (speeds[:-1] + speeds[1:]) / 2
+        actual_time = np.sum(dt / avg_speeds)
+        
+        # Calculate scaling factor
+        if actual_time > 0:
+            scale_factor = actual_time / expected_total_time
+        else:
+            scale_factor = 1.0
+        
+        # Apply scaling to speeds (faster speeds = shorter time)
+        calibrated_speeds = speeds * scale_factor
+        
+        return calibrated_speeds
+    
+    def plot_speed_profile(self, show_loops: bool = True) -> None:
+        """
+        Plot the speed profile for debugging and visualization.
+        
+        Shows the smooth speed curve compared to the original step-function
+        speeds from mini-loops.
+        
+        Args:
+            show_loops: If True, overlay the original loop speeds as step function
+        """
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+        
+        distances = self.speed_profile['distances']
+        speeds_kms = self.speed_profile['speeds']
+        speeds_kmh = speeds_kms * 3600  # Convert to km/h for readability
+        
+        # Plot smooth speed profile
+        ax1.plot(distances, speeds_kmh, 'b-', linewidth=2, label='Smooth Speed Profile')
+        
+        if show_loops:
+            # Overlay original step-function speeds
+            for loop in self.mini_loops:
+                loop_speed_kmh = loop["speed"] * 3600
+                ax1.hlines(loop_speed_kmh, loop["start"], loop["end"], 
+                          colors='r', linestyles='--', linewidth=1.5, alpha=0.7)
+                ax1.axvline(loop["start"], color='gray', linestyle=':', alpha=0.5)
+                # Add loop name at midpoint
+                midpoint = (loop["start"] + loop["end"]) / 2
+                ax1.text(midpoint, loop_speed_kmh + 5, loop["name"], 
+                        ha='center', fontsize=8, rotation=45)
+        
+        ax1.set_ylabel('Speed (km/h)')
+        ax1.set_title('Smooth Speed Profile vs Original Loop Speeds')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot cumulative time along track
+        dt = np.diff(distances)
+        avg_speeds = (speeds_kms[:-1] + speeds_kms[1:]) / 2
+        segment_times = dt / avg_speeds
+        cumulative_time = np.concatenate([[0], np.cumsum(segment_times)])
+        
+        ax2.plot(distances, cumulative_time, 'g-', linewidth=2)
+        ax2.set_xlabel('Track Distance (km)')
+        ax2.set_ylabel('Cumulative Time (s)')
+        ax2.set_title(f'Cumulative Lap Time (Total: {cumulative_time[-1]:.2f}s)')
+        ax2.grid(True, alpha=0.3)
+        
+        # Add vertical lines at loop boundaries
+        for loop in self.mini_loops:
+            ax2.axvline(loop["start"], color='gray', linestyle=':', alpha=0.5)
+        
+        plt.tight_layout()
+        plt.show()
+    
     def _get_speed_at_distance(self, distance: float) -> float:
-        """Get the speed (km/s) for a given track distance."""
+        """Get the speed (km/s) for a given track distance using smooth profile."""
         # Wrap distance within track bounds
         wrapped_distance = distance % self.track_distance
         
+        # Use spline interpolation for smooth speed
+        if self.speed_profile['spline'] is not None:
+            speed = float(self.speed_profile['spline'](wrapped_distance))
+            # Ensure positive speed
+            return max(speed, 0.01)
+        
+        # Fallback to loop-based lookup
         for loop in self.mini_loops:
             if loop["start"] <= wrapped_distance < loop["end"]:
                 return loop["speed"]
