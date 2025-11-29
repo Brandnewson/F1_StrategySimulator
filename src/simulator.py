@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from typing import Dict, List
 from dataclasses import dataclass
 
@@ -63,8 +64,26 @@ class RaceSimulator:
         self.animation_interval = 50  # ms between frames (20 FPS for smooth viz)
         self.ticks_per_frame = max(1, int(self.animation_interval / 1000 / self.tick_duration))
         
-        # Colors for drivers
-        self.driver_colors = plt.cm.tab10(np.linspace(0, 1, len(race_state.drivers)))
+        # Colors for drivers: prefer explicit driver `colour`/`color` attribute when present
+        # otherwise fall back to a default colormap.
+        default_colors = plt.cm.tab10(np.linspace(0, 1, len(race_state.drivers)))
+        self.driver_colors = []
+        for i, driver in enumerate(race_state.drivers):
+            drv_color = getattr(driver, "colour", None) or getattr(driver, "color", None)
+            if drv_color:
+                try:
+                    # validate/convert color (accepts CSS names, hex, rgb tuples, etc.)
+                    rgba = mcolors.to_rgba(drv_color)
+                    # keep original string where possible (matplotlib accepts either)
+                    # but use rgba tuple to guarantee validity
+                    self.driver_colors.append(rgba)
+                except Exception:
+                    # invalid colour string -> fallback to colormap entry
+                    if self.config.get("debugMode", False):
+                        print(f"Invalid colour '{drv_color}' for {driver.name}; using default colormap")
+                    self.driver_colors.append(tuple(default_colors[i]))
+            else:
+                self.driver_colors.append(tuple(default_colors[i]))
 
         # plot speed profile for debugging
         if self.config.get("debugMode"):

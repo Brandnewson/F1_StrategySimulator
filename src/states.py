@@ -334,6 +334,28 @@ def init_race_state(config, track):
             starting_position=idx + 1,
             track_distance=config.get("track", {}).get("distance", 0)
         )
+        # Attach colour information from competitor config (support both British 'colour'
+        # and American 'color' keys). Normalize simple multi-word names by removing
+        # spaces (e.g. "dark blue" -> "darkblue") so they match matplotlib CSS names
+        # when possible. Hex strings (starting with '#') are preserved.
+        comp_colour = None
+        if isinstance(competitor, dict):
+            comp_colour = competitor.get("colour") or competitor.get("color")
+        if isinstance(comp_colour, str):
+            cc = comp_colour.strip()
+            # preserve hex codes and tuples — only collapse simple names with spaces
+            if cc.startswith("#"):
+                driver.colour = cc
+                driver.color = cc
+            else:
+                cleaned = cc.replace(" ", "")
+                driver.colour = cleaned
+                driver.color = cleaned
+                # Keep original around for debugging if needed
+                driver._original_colour = comp_colour
+        else:
+            driver.colour = None
+            driver.color = None
         drivers.append(driver)
     
     # Assign realistic starting grid offsets:

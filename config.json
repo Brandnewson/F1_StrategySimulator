@@ -2,10 +2,12 @@
     "debugMode": false,
     "competitors": [
         {
-            "name": "Vax Merstappen"
+            "name": "Vax Merstappen",
+            "colour": "#00008B"
         },
         {
-            "name": "Oscar Pastry"
+            "name": "Oscar Pastry",
+            "colour": "#FFA500"
         }
     ],
     "simulator": {
@@ -82,7 +84,7 @@
             "miniLoop10":{
                 "start_distance": 6.7,
                 "end_distance": 7.0,
-                "base_lap_time": 9.0,
+                "base_lap_time": 5.0,
                 "name": "La Chicane to Finish Line"
             }
         },
