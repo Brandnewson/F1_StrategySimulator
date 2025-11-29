@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import textwrap
 from matplotlib.lines import Line2D
