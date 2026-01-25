@@ -90,7 +90,7 @@
         },
         "overtakingZones": {
             "overtakingZone1": {
-                "difficulty": 0.8,
+                "difficulty": 0.2,
                 "name": "La Source",
                 "distance_from_start": 0.4
             },
