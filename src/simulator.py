@@ -24,6 +24,30 @@ class LapRecord:
 
 
 class RaceSimulator:
+
+    def race_reset(self):
+        """Reset all race state for a new run (for batch mode), restoring all driver fields to their initial values."""
+        self.race_finished = False
+        self.winner = None
+        self.lap_records = []
+        self.driver_overtake_cooldowns = {}
+        self.race_state.current_tick = 0
+        self.race_state.elapsed_time = 0.0
+        # On first call, store initial driver state for full reset
+        if not hasattr(self, '_initial_driver_states'):
+            self._initial_driver_states = []
+            for driver in self.race_state.drivers:
+                # Store a shallow copy of all __dict__ fields
+                self._initial_driver_states.append(driver.__dict__.copy())
+        # Restore all driver fields from initial state
+        for driver, init_state in zip(self.race_state.drivers, self._initial_driver_states):
+            driver.__dict__.clear()
+            driver.__dict__.update(init_state)
+        # Optionally reset other race_state fields if needed
+        if hasattr(self.race_state, 'overtaking_zones') and isinstance(self.race_state.overtaking_zones, list):
+            for zone in self.race_state.overtaking_zones:
+                if hasattr(zone, 'reset') and callable(zone.reset):
+                    zone.reset()
     """Main race simulator with live visualization."""
     
     def __init__(self, race_state, config: Dict, track: Dict):
@@ -322,22 +346,19 @@ class RaceSimulator:
         print(f"\n{'='*60}")
         print(f"Starting Race (Batch Mode): {self.total_laps} laps")
         print(f"{'='*60}\n")
-        
-        while not self.race_finished:
-            # Run many ticks per step for batch mode
-            for _ in range(1000):
-                if self.race_finished:
-                    break
-                    
+        runs = self.config.get('simulator', {}).get('runs')
+        for run_idx in range(runs):
+            print(f"\n=== Starting Simulation Run {run_idx + 1} of {runs} ===")
+            self.race_reset()
+            while not self.race_finished:
                 for driver in self.race_state.drivers:
                     self._update_driver(driver, self.tick_duration)
-                
                 self.race_state.update_driver_positions()
                 self._check_overtakes()
                 self.race_state.current_tick += 1
                 self.race_state.elapsed_time += self.tick_duration
-        
-        self._print_results()
+            self._print_results()
+
     
     def _print_results(self):
         """Print final race results and metrics."""
@@ -383,6 +404,7 @@ def init_simulator(race_state, config, track):
         simulator.run_with_visualization()
     elif method == 'batch':
         print("Starting batch simulator with no visualizations...")
+        # Run based on number of runs specified
         simulator.run_batch()
     else:
         # Default to real-time if method not specified
