@@ -31,6 +31,7 @@ class RaceSimulator:
         self.winner = None
         self.lap_records = []
         self.driver_overtake_cooldowns = {}
+        self.driver_finish_times = {}
         self.race_state.current_tick = 0
         self.race_state.elapsed_time = 0.0
         # On first call, store initial driver state for full reset
@@ -80,6 +81,7 @@ class RaceSimulator:
         self.lap_records: List[LapRecord] = []
         self.race_finished = False
         self.winner = None
+        self.driver_finish_times: Dict[str, float] = {}  # driver_name -> time when they finished
         
         # Track coordinates for visualization
         self.track_coords = track.get("coordinates") if isinstance(track, dict) else None
@@ -117,6 +119,11 @@ class RaceSimulator:
     
     def _update_driver(self, driver, dt: float):
         """Update a single driver's position for one tick."""
+        # Skip updating if driver has already finished
+        if driver.completed_laps >= self.total_laps:
+            driver.speed = 0.0
+            return
+        
         # Get current speed based on track position
         speed = get_speed_at_distance(driver.current_distance, 
                                       self.speed_profile, 
@@ -151,11 +158,18 @@ class RaceSimulator:
             
             driver.current_lap_time = 0.0
             
-            # Check for race finish
-            if driver.completed_laps >= self.total_laps and not self.race_finished:
-                self.race_finished = True
-                self.winner = driver
-                print(f"\nRACE FINISHED! Winner: {driver.name}")
+            # Record finish time when driver completes their laps
+            if driver.completed_laps >= self.total_laps and driver.name not in self.driver_finish_times:
+                self.driver_finish_times[driver.name] = driver.total_race_time
+                if self.winner is None:
+                    self.winner = driver
+                    print(f"  {driver.name} FINISHED! (1st to cross the line)")
+                else:
+                    print(f"  {driver.name} FINISHED!")
+    
+    def _all_drivers_finished(self) -> bool:
+        """Check if all drivers have completed the required laps."""
+        return all(driver.completed_laps >= self.total_laps for driver in self.race_state.drivers)
     
     def _calculate_gap_to_leader(self, driver) -> float:
         """Calculate time gap to race leader."""
@@ -350,13 +364,15 @@ class RaceSimulator:
         for run_idx in range(runs):
             print(f"\n=== Starting Simulation Run {run_idx + 1} of {runs} ===")
             self.race_reset()
-            while not self.race_finished:
+            while not self._all_drivers_finished():
                 for driver in self.race_state.drivers:
                     self._update_driver(driver, self.tick_duration)
                 self.race_state.update_driver_positions()
                 self._check_overtakes()
                 self.race_state.current_tick += 1
                 self.race_state.elapsed_time += self.tick_duration
+            self.race_finished = True
+            print(f"\nRACE FINISHED! All drivers have completed {self.total_laps} laps.")
             self._print_results()
 
     
@@ -366,19 +382,27 @@ class RaceSimulator:
         print("RACE RESULTS")
         print(f"{'='*60}")
         
-        # Sort drivers by position
-        sorted_drivers = sorted(self.race_state.drivers, key=lambda d: d.position)
+        # Sort drivers by finish time (or total_race_time if they didn't finish)
+        def get_sort_key(driver):
+            if driver.name in self.driver_finish_times:
+                return self.driver_finish_times[driver.name]
+            else:
+                return float('inf')  # unfinished drivers go to the end
+        
+        sorted_drivers = sorted(self.race_state.drivers, key=get_sort_key)
         
         print(f"\n{'Pos':<5} {'Driver':<25} {'Laps':<6} {'Total Time':<12} {'Gap':<10}")
         print("-" * 60)
         
-        leader_time = sorted_drivers[0].total_race_time if sorted_drivers else 0
+        # Use first finisher's time as reference
+        leader_time = next((self.driver_finish_times[d.name] for d in sorted_drivers if d.name in self.driver_finish_times), 0)
         
-        for driver in sorted_drivers:
-            gap = driver.total_race_time - leader_time
+        for i, driver in enumerate(sorted_drivers, 1):
+            finish_time = self.driver_finish_times.get(driver.name, driver.total_race_time)
+            gap = finish_time - leader_time
             gap_str = f"+{gap:.3f}s" if gap > 0 else "Leader"
-            print(f"P{driver.position:<4} {driver.name:<25} {driver.completed_laps:<6} "
-                  f"{driver.total_race_time:.3f}s   {gap_str}")
+            print(f"P{i:<4} {driver.name:<25} {driver.completed_laps:<6} "
+                  f"{finish_time:.3f}s   {gap_str}")
         
         # Fastest lap
         if self.lap_records:
