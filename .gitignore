@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# fastF1 cache
+fastf1_cache/
+
+# uv
+uv.lock
