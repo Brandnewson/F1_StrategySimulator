@@ -12,7 +12,7 @@
     ],
     "simulator": {
         "runs": 10,
-        "method": "real-time",
+        "method": "batch",
         "tick_rate": 100,
         "tick_duration": 0.01       
     },
