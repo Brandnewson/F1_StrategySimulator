@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from typing import Dict, List
 from dataclasses import dataclass
+from pathlib import Path
+from collections import defaultdict
 
 from helpers.simulatorHelpers import (
     build_mini_loops,
@@ -12,6 +14,8 @@ from helpers.simulatorHelpers import (
 )
 
 from helpers.simulatorVisualisers import run_visualisation
+from feedback import create_driver_feedback
+from agents.DQN import DQNAgent
 
 @dataclass
 class LapRecord:
@@ -114,9 +118,19 @@ class RaceSimulator:
         # plot speed profile for debugging
         if self.config.get("debugMode"):
             plot_speed_profile(self.speed_profile, self.mini_loops, show_loops=True)
-    
-    
-    
+
+        # set agents to training mode if config is set so
+        for driver in self.race_state.drivers:
+            if isinstance(driver.agent, DQNAgent) and self.config.get('simulator').get('agent_mode') == "training":
+                driver.agent.set_training_mode(True)
+            if isinstance(driver.agent, DQNAgent) and self.config.get('simulator').get('agent_mode') == "evaluation":
+                driver.agent.set_training_mode(False)
+        
+        # create dicts to store different visualisations
+        self.agent_learning_visualisations = defaultdict(dict)
+        self.race_results = defaultdict(dict)
+
+
     def _update_driver(self, driver, dt: float):
         """Update a single driver's position for one tick."""
         # Skip updating if driver has already finished
@@ -222,18 +236,27 @@ class RaceSimulator:
                 
                 # Approaching zone: between 0 and 200m before
                 if 0 < approach_distance <= 0.2:
-                    # Get agent decision
-                    action = driver.agent.get_action(driver, self.race_state)
-                    
+                    # Get agent decision with feedback
+                    action = driver.agent.get_action(driver, self.race_state, upcoming_zone=zone)
+                    # Store the last action for use at the zone
+                    driver.last_action = action
                     if action.attempt_overtake:
                         # Mark driver as attempting overtake
                         driver.attempting_overtake = True
                         break
-                
+
                 # At the zone: resolve overtake attempt
                 elif abs(driver.current_distance - zone_dist) < 0.05:  # Within 50m of zone
                     if driver.attempting_overtake:
                         success = self._attempt_overtake(driver, driver_ahead, zone)
+                        # Use the last action if available
+                        action = getattr(driver, "last_action", None)
+                        # Calculate reward for DQN agents
+                        if hasattr(driver.agent, 'store_transition') and action is not None:
+                            reward = self._calculate_reward(driver, success, action)
+                            next_zone = self._find_next_zone_for_driver(driver)
+                            done = driver.completed_laps >= self.total_laps
+                            driver.agent.store_transition(reward, driver, self.race_state, done, next_zone)
                         driver.attempting_overtake = False
                         # Set cooldown regardless of success
                         self.driver_overtake_cooldowns[driver.name] = current_tick + self.overtake_cooldown_ticks
@@ -269,6 +292,48 @@ class RaceSimulator:
         driver_total = driver.completed_laps * self.track_distance + driver.current_distance
         other_total = other.completed_laps * self.track_distance + other.current_distance
         return abs(other_total - driver_total)
+    
+    def _find_next_zone_for_driver(self, driver):
+        """Find the next overtaking zone ahead of the driver."""
+        zones = self.race_state.overtaking_zones
+        driver_dist = driver.current_distance
+        
+        # Find zones ahead
+        ahead_zones = [z for z in zones if z.get("distance_from_start", 0) > driver_dist]
+        
+        if ahead_zones:
+            # Return closest zone ahead
+            return min(ahead_zones, key=lambda z: z.get("distance_from_start", 0))
+        elif zones:
+            # Wrap around to first zone (on next lap)
+            return min(zones, key=lambda z: z.get("distance_from_start", 0))
+        else:
+            return None
+    
+    def _calculate_reward(self, driver, overtake_success, action):
+        """Calculate reward for an action taken by a DQN agent.
+        
+        Reward structure:
+        - Successful overtake: +10
+        - Failed overtake: -5
+        - Position improvement: +5
+        - Position loss: -5
+        - Small time penalty per step: -0.01 (encourages faster racing)
+        """
+        reward = 0.0
+        
+        # Overtake reward
+        if overtake_success:
+            reward += 10.0
+        else:
+            reward -= 5.0
+        
+        # Time penalty (encourage efficiency)
+        reward -= 0.01
+        
+        # Future: Add position-based rewards, tyre management, etc.
+        
+        return reward
     
     def _attempt_overtake(self, overtaking_driver, target_driver, zone: Dict) -> bool:
         """Attempt an overtake with probability based on zone difficulty."""
@@ -372,11 +437,53 @@ class RaceSimulator:
                 self.race_state.current_tick += 1
                 self.race_state.elapsed_time += self.tick_duration
             self.race_finished = True
+            
+            # Train DQN agents after each episode
+            if self.config.get('simulator').get('agent_mode') == 'training':
+                self._train_dqn_agents(run_idx)
+            
             print(f"\nRACE FINISHED! All drivers have completed {self.total_laps} laps.")
-            self._print_results()
+            self._print_results(run_idx)
 
+        # Run saving agent model after each batch run 
+        if self.config.get('simulator').get('agent_mode') == "training":
+            self._save_dqn_agents()
+        else:
+            print("Training mode disabled, if you want to save your results adjust agent_mode to be 'training' ")
+        
+        # Visualise the learning of the agents, over each run
+        if self.config.get("agent_review_mode"):
+            self._visualise_agent_learning()
+
+        self._visualise_results()
+
+    def _train_dqn_agents(self, run_number, num_train_steps: int = 10, batch_size: int = 64):
+        """Train all DQN agents using their replay buffers.
+        
+        Args:
+            num_train_steps: Number of training steps per agent
+            batch_size: Batch size for training
+        """
+        for driver in self.race_state.drivers:
+            if isinstance(driver.agent, DQNAgent):
+                losses = []
+                for _ in range(num_train_steps):
+                    loss = driver.agent.train_step(batch_size=batch_size)
+                    if loss is not None:
+                        losses.append(loss)
+                
+                if losses:
+                    avg_loss = sum(losses) / len(losses)
+                    print(f"  {driver.agent.name} - Avg Loss: {avg_loss:.4f}, "
+                          f"Epsilon: {driver.agent.epsilon:.4f}, "
+                          f"Buffer Size: {len(driver.agent.replay_buffer)}")
+                    self.agent_learning_visualisations[driver.agent][run_number] = {
+                        "avg_loss": avg_loss,
+                        "epsilon": driver.agent.epsilon,
+                        "buffer_size": len(driver.agent.replay_buffer)
+                    }
     
-    def _print_results(self):
+    def _print_results(self, run_number):
         """Print final race results and metrics."""
         print(f"\n{'='*60}")
         print("RACE RESULTS")
@@ -403,7 +510,15 @@ class RaceSimulator:
             gap_str = f"+{gap:.3f}s" if gap > 0 else "Leader"
             print(f"P{i:<4} {driver.name:<25} {driver.completed_laps:<6} "
                   f"{finish_time:.3f}s   {gap_str}")
-        
+            
+            if run_number is not None:
+                self.race_results[run_number][driver.name] = {
+                    "laps": driver.completed_laps,
+                    "finish_time": finish_time,
+                    "gap": gap,
+                    "position": i,
+                }
+
         # Fastest lap
         if self.lap_records:
             fastest = min(self.lap_records, key=lambda r: r.lap_time)
@@ -413,6 +528,117 @@ class RaceSimulator:
         print(f"\nTotal Race Time: {self.race_state.elapsed_time:.2f}s")
         print(f"Total Ticks: {self.race_state.current_tick:,}")
 
+    def _save_dqn_agents(self):
+        dqn_agents = []
+        for driver in self.race_state.drivers:
+            if isinstance(driver.agent, DQNAgent):
+                # Save trained models
+                dqn_agents.append(driver.agent)
+
+        print("\nSaving trained models...")
+        models_dir = Path("models")
+        models_dir.mkdir(exist_ok=True)
+        
+        for agent in dqn_agents:
+            model_path = models_dir / f"{agent.name}_trained.pth"
+            agent.save(str(model_path))
+            print(f"  Saved: {model_path}")
+
+    def _visualise_agent_learning(self):
+        """Visualise agent learning metrics (avg_loss, epsilon, buffer_size) per run for each agent."""
+        import matplotlib.pyplot as plt
+
+        if not self.agent_learning_visualisations:
+            print("No agent learning data to visualise.")
+            return
+
+        fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+        metric_names = ["avg_loss", "epsilon", "buffer_size"]
+        titles = ["Average Loss per Run", "Epsilon per Run", "Replay Buffer Size per Run"]
+
+        for agent, run_data in self.agent_learning_visualisations.items():
+            # Sort by run number for consistent plotting
+            runs = sorted(run_data.keys())
+            avg_losses = [run_data[r]["avg_loss"] for r in runs]
+            epsilons = [run_data[r]["epsilon"] for r in runs]
+            buffer_sizes = [run_data[r]["buffer_size"] for r in runs]
+            label = getattr(agent, "name", str(agent))
+
+            axes[0].plot(runs, avg_losses, marker='o', label=label)
+            axes[1].plot(runs, epsilons, marker='o', label=label)
+            axes[2].plot(runs, buffer_sizes, marker='o', label=label)
+
+        for ax, title, ylabel in zip(axes, titles, metric_names):
+            ax.set_title(title)
+            ax.set_ylabel(ylabel)
+            ax.legend()
+            ax.grid(True)
+
+        axes[-1].set_xlabel("Run Number")
+        plt.tight_layout()
+        plt.show()
+
+    def _visualise_results(self):
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        if not self.race_results:
+            print("No race results to visualise.")
+            return
+
+        # Prepare data
+        runs = sorted(self.race_results.keys())
+        driver_names = set()
+        for run in runs:
+            driver_names.update(self.race_results[run].keys())
+        driver_names = sorted(driver_names)
+
+        # 1. x-axis: run number, y-axis: finishing position for each driver
+        fig, axes = plt.subplots(3, 1, figsize=(12, 16))
+        for driver in driver_names:
+            positions = [self.race_results[run].get(driver, {}).get("position", np.nan) for run in runs]
+            axes[0].plot(runs, positions, marker='o', label=driver)
+        axes[0].set_title("Finishing Position per Run")
+        axes[0].set_xlabel("Run Number")
+        axes[0].set_ylabel("Finishing Position (1=Winner)")
+        axes[0].invert_yaxis()  # So 1st is at the top
+        axes[0].legend()
+        axes[0].grid(True)
+
+        # 2. Histogram of average driver finishes over all runs
+        avg_positions = []
+        for driver in driver_names:
+            pos = [self.race_results[run].get(driver, {}).get("position", np.nan) for run in runs]
+            pos = [p for p in pos if not np.isnan(p)]
+            avg = np.mean(pos) if pos else np.nan
+            avg_positions.append(avg)
+        colors1 = plt.cm.tab10(np.linspace(0, 1, len(driver_names)))
+        axes[1].bar(driver_names, avg_positions, color=colors1)
+        axes[1].set_title("Average Finishing Position per Driver")
+        axes[1].set_ylabel("Average Position (Lower is Better)")
+        axes[1].invert_yaxis()
+        axes[1].grid(axis='y')
+
+        # 3. Most positions gained per driver over all runs
+        # For each run, positions gained = starting position - finishing position
+        # Assume starting position is the order in driver_names (or you can store grid positions if available)
+        most_gained = []
+        for driver in driver_names:
+            gains = []
+            for run in runs:
+                finish_pos = self.race_results[run].get(driver).get("position")
+                start_pos = driver_names.index(driver) + 1  # 1-based grid
+                if not np.isnan(finish_pos):
+                    gains.append(start_pos - finish_pos)
+            most_gained.append(max(gains) if gains else 0)
+        colors2 = plt.cm.tab20(np.linspace(0, 1, len(driver_names)))
+        axes[2].bar(driver_names, most_gained, color=colors2)
+        axes[2].set_title("Most Positions Gained in a Single Run")
+        axes[2].set_ylabel("Max Positions Gained")
+        axes[2].grid(axis='y')
+
+        plt.tight_layout()
+        plt.show()
 
 def init_simulator(race_state, config, track):
     """ 

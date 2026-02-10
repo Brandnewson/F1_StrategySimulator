@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Callable, Optional, Tuple
 import numpy as np
 
-
 class RiskLevel(Enum):
     CONSERVATIVE = 0
     NORMAL = 1
@@ -52,7 +51,8 @@ def default_policy(driver, race_state) -> Tuple[RiskLevel, bool]:
     a small probability distribution over risk levels influenced by zone difficulty and gap,
     and (c) returns a sampled risk level and a probabilistic overtake decision.
 
-    RL policies can replace this by passing a custom callable to BaseAgent.
+    This is not intended to be the way that RL algorithms are implemented, but this is effectively
+    what we can start training any RL agents against, due to its inherent stochasticity.
     """
     zone = find_upcoming_zone_for_driver(race_state, driver)
 
@@ -125,7 +125,7 @@ class BaseAgent:
         """Set a new policy callable for this agent."""
         self.policy = policy
 
-    def get_action(self, driver, race_state) -> DriverAction:
+    def get_action(self, driver, race_state, upcoming_zone=None, **kwargs) -> DriverAction:
         """Compute action using the configured policy."""
         risk, attempt = self.policy(driver, race_state)
         # Ensure risk is a RiskLevel and attempt is bool
@@ -137,56 +137,3 @@ class BaseAgent:
                 risk = RiskLevel.NORMAL
         return DriverAction(risk_level=risk, attempt_overtake=bool(attempt))
 
-
-# Small convenience factory functions
-def make_random_agent(name: str = "RandomAgent") -> BaseAgent:
-    """Agent with a purely random policy over risk levels + small overtake chance."""
-
-    def rand_policy(driver, race_state):
-        risk = np.random.choice(list(RiskLevel))
-        attempt = np.random.random() < 0.3
-        return risk, attempt
-
-    return BaseAgent(name=name, policy=rand_policy)
-
-
-def make_param_agent(name: str, cons_weight: float, norm_weight: float, aggr_weight: float) -> BaseAgent:
-    """Create an agent that deterministically prefers risk levels according to weights.
-
-    The agent still uses heuristics for attempt probability based on chosen risk and zone difficulty.
-    This is useful for testing or as a deterministic policy baseline.
-    """
-    weights = np.array([cons_weight, norm_weight, aggr_weight], dtype=float)
-    weights = np.clip(weights, 0.0, None)
-    if weights.sum() <= 0:
-        weights = np.array([0.33, 0.34, 0.33])
-    probs = weights / weights.sum()
-
-    def param_policy(driver, race_state):
-        chosen = np.random.choice(list(RiskLevel), p=probs)
-        # reuse default attempt logic for compatibility
-        zone = find_upcoming_zone_for_driver(race_state, driver)
-        if zone is None:
-            return chosen, False
-        difficulty = float(zone.get("difficulty"))
-        gap = getattr(driver, "gap_to_ahead", None)
-        # map chosen -> base_prob
-        if chosen == RiskLevel.CONSERVATIVE:
-            base_prob = 0.25 * (1.0 - difficulty)
-        elif chosen == RiskLevel.NORMAL:
-            base_prob = 0.6 * (1.0 - difficulty)
-        else:
-            base_prob = 0.9 * (1.0 - 0.5 * difficulty)
-        if gap is None:
-            attempt_prob = base_prob * 0.4
-        else:
-            if gap < 0.6:
-                attempt_prob = min(0.99, base_prob * 1.6)
-            elif gap < 1.8:
-                attempt_prob = base_prob
-            else:
-                attempt_prob = base_prob * 0.3
-        attempt = np.random.random() < attempt_prob
-        return chosen, bool(attempt)
-
-    return BaseAgent(name=name, policy=param_policy)

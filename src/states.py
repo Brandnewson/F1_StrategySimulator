@@ -3,9 +3,12 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import textwrap
 from matplotlib.lines import Line2D
+from pathlib import Path
 
 # Agents
-from agents import BaseAgent, make_param_agent, make_random_agent
+from base_agents import BaseAgent
+from agents.DQN import DQNAgent
+from feedback import DriverFeedback
 
 class DriverState:
     """Represents the state of a single driver during the race."""
@@ -375,25 +378,45 @@ def init_race_state(config, track):
         config=config,
         track_data=track
     )
-    # Wire agents to drivers. If competitor config contains an 'agent' entry, use it.
+    # Wire agents to drivers. If competitor config contains an 'agent' entry, use it.        
+
+    models_dir = Path("models")
+
+    dqn_agents = []
     for idx, (driver, competitor) in enumerate(zip(drivers, competitors)):
         agent_spec = (competitor.get("agent") or "base").lower() if isinstance(competitor, dict) else "base"
-        if agent_spec == "random":
-            driver.agent = make_random_agent(name=f"{driver.name}_rand")
-        elif agent_spec.startswith("param:"):
-            # format: param:cons,norm,aggr  e.g. param:0.2,0.6,0.2
-            try:
-                parts = agent_spec.split(":", 1)[1].split(",")
-                c, n, a = [float(x) for x in parts]
-                driver.agent = make_param_agent(name=f"{driver.name}_param", cons_weight=c, norm_weight=n, aggr_weight=a)
-            except Exception:
-                driver.agent = BaseAgent(name=f"{driver.name}_base")
-        elif agent_spec in ("aggressive", "aggr"):
-            driver.agent = make_param_agent(name=f"{driver.name}_aggr", cons_weight=0.05, norm_weight=0.25, aggr_weight=0.7)
-        elif agent_spec in ("conservative", "cons"):
-            driver.agent = make_param_agent(name=f"{driver.name}_cons", cons_weight=0.7, norm_weight=0.25, aggr_weight=0.05)
+        if agent_spec == "ppo":
+            # Placeholder for PPO agent (to be implemented)
+            print(f"Warning: PPO agent not yet implemented, using BaseAgent for {driver.name}")
+            driver.agent = BaseAgent(name=f"{driver.name}_base")
+        elif agent_spec == "dqn":
+            # Initialize DQN agent with correct state dimension
+            state_dim = DriverFeedback.get_state_dim()
+            agent_name = f"{driver.name}_DQN"
+            model_path = models_dir / f"{agent_name}_trained.pth"
+            driver.agent = DQNAgent(
+                config=config,
+                state_dim=state_dim,
+                name=agent_name,
+                hidden_size=128,
+                learning_rate=1e-3,
+                gamma=0.99,
+                epsilon_start=1.0,
+                epsilon_min=0.05,
+                epsilon_decay=0.995
+            )
+            if model_path.exists() and config.get("simulator").get("agent_mode") == "evaluation":
+                print(f"Loading trained model for {driver.name} from {model_path}")
+                driver.agent.load(str(model_path))
+            else:
+                print(f"No trained model found for {driver.name}, initializing new agent.")
+            dqn_agents.append(driver.agent)
         else:
             driver.agent = BaseAgent(name=f"{driver.name}_base")
+
+    # inform user of active algorithms
+    if dqn_agents == []:
+        print("Note that we have no DQN agents this simulation!")
 
     print(f"\nInitialized {len(drivers)} drivers:")
     for driver in drivers:

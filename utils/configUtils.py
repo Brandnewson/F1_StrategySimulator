@@ -8,10 +8,11 @@ def load_config(file_path: str) -> Dict:
 
     parsed_config = {
         "debugMode": config_data.get("debugMode"),
-        "track": config_data.get("track", {}),
-        "simulator": config_data.get("simulator", {}),
-        "competitors": config_data.get("competitors", {}),
-        "race_settings": config_data.get("race_settings", {})
+        "agent_review_mode": config_data.get("agent_review_mode"),
+        "track": config_data.get("track"),
+        "simulator": config_data.get("simulator"),
+        "competitors": config_data.get("competitors"),
+        "race_settings": config_data.get("race_settings")
     }
 
     return parsed_config

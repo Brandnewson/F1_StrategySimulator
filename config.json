@@ -1,20 +1,29 @@
 {
     "debugMode": false,
+    "agent_review_mode": true,
     "competitors": [
         {
             "name": "Vax Merstappen",
+            "agent": "base",
             "colour": "#00008B"
         },
         {
             "name": "Oscar Pastry",
+            "agent": "base",
             "colour": "#FFA500"
+        },
+        {
+            "name": "Jackson Storm",
+            "agent": "dqn",
+            "colour": "#022050"
         }
     ],
     "simulator": {
-        "runs": 10,
-        "method": "real-time",
+        "runs": 1,
+        "method": "batch",
         "tick_rate": 100,
-        "tick_duration": 0.01       
+        "tick_duration": 0.01,
+        "agent_mode": "evaluation"       
     },
     "race_settings": {
         "total_laps": 1,

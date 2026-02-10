@@ -5,3 +5,4 @@ seaborn
 pyproj
 scipy
 fastf1
+torch
