@@ -109,7 +109,6 @@ def default_policy(driver, race_state) -> Tuple[RiskLevel, bool]:
 
     return chosen, bool(attempt)
 
-
 class BaseAgent:
     """Flexible agent that chooses among risk levels and whether to attempt overtakes.
 
@@ -137,3 +136,13 @@ class BaseAgent:
                 risk = RiskLevel.NORMAL
         return DriverAction(risk_level=risk, attempt_overtake=bool(attempt))
 
+def random_policy(driver, race_state):
+    import random
+    risk = random.choice([RiskLevel.CONSERVATIVE, RiskLevel.NORMAL, RiskLevel.AGGRESSIVE])
+    attempt = random.choice([True, False])
+    return risk, attempt
+
+class RandomAgent(BaseAgent):
+    """ By default literally just chooses a random choice from the action space"""
+    def __init__(self, name: str = "RandomAgent"):
+        super().__init__(name=name, policy=random_policy)

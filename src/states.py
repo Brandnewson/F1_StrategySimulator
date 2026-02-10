@@ -6,7 +6,7 @@ from matplotlib.lines import Line2D
 from pathlib import Path
 
 # Agents
-from base_agents import BaseAgent
+from base_agents import BaseAgent, RandomAgent
 from agents.DQN import DQNAgent
 from feedback import DriverFeedback
 
@@ -37,7 +37,9 @@ class DriverState:
         self.attempting_overtake = False
         # Agent assigned to this driver (set in init_simulator)
         self.agent: Optional[BaseAgent] = None
-        
+
+        # persistent vars
+        self.starting_position = starting_position        
 
 class RaceState:
     """Represents the overall state of the race.
@@ -327,7 +329,10 @@ def init_race_state(config, track):
     Initialise the simulator with the given configuration and track data.
     This gives us our race state, and driver state.
     """
+    import random 
+    
     competitors = config.get("competitors", [])
+    random.shuffle(competitors)  # Randomise grid order
 
     # Initialize driver states
     drivers = []
@@ -385,7 +390,10 @@ def init_race_state(config, track):
     dqn_agents = []
     for idx, (driver, competitor) in enumerate(zip(drivers, competitors)):
         agent_spec = (competitor.get("agent") or "base").lower() if isinstance(competitor, dict) else "base"
-        if agent_spec == "ppo":
+        if agent_spec == "random":
+            # an agent that picks absolutely random choices of the action space
+            driver.agent = RandomAgent(name=f"{driver.name}_random")
+        elif agent_spec == "ppo":
             # Placeholder for PPO agent (to be implemented)
             print(f"Warning: PPO agent not yet implemented, using BaseAgent for {driver.name}")
             driver.agent = BaseAgent(name=f"{driver.name}_base")
@@ -411,7 +419,7 @@ def init_race_state(config, track):
             else:
                 print(f"No trained model found for {driver.name}, initializing new agent.")
             dqn_agents.append(driver.agent)
-        else:
+        elif agent_spec == 'base':
             driver.agent = BaseAgent(name=f"{driver.name}_base")
 
     # inform user of active algorithms

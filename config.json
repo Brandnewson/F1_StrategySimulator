@@ -4,18 +4,18 @@
     "competitors": [
         {
             "name": "Vax Merstappen",
-            "agent": "base",
+            "agent": "random",
             "colour": "#00008B"
         },
         {
-            "name": "Oscar Pastry",
-            "agent": "base",
-            "colour": "#FFA500"
+            "name": "Jackson Storm",
+            "agent": "random",
+            "colour": "#022050"
         },
         {
-            "name": "Jackson Storm",
-            "agent": "dqn",
-            "colour": "#022050"
+            "name": "Oscar Pastry",
+            "agent": "random",
+            "colour": "#FFA500"
         }
     ],
     "simulator": {

@@ -517,6 +517,7 @@ class RaceSimulator:
                     "finish_time": finish_time,
                     "gap": gap,
                     "position": i,
+                    "starting_position": driver.starting_position
                 }
 
         # Fastest lap
@@ -594,7 +595,7 @@ class RaceSimulator:
         driver_names = sorted(driver_names)
 
         # 1. x-axis: run number, y-axis: finishing position for each driver
-        fig, axes = plt.subplots(3, 1, figsize=(12, 16))
+        fig, axes = plt.subplots(5, 1, figsize=(14, 24))
         for driver in driver_names:
             positions = [self.race_results[run].get(driver, {}).get("position", np.nan) for run in runs]
             axes[0].plot(runs, positions, marker='o', label=driver)
@@ -627,15 +628,46 @@ class RaceSimulator:
             gains = []
             for run in runs:
                 finish_pos = self.race_results[run].get(driver).get("position")
-                start_pos = driver_names.index(driver) + 1  # 1-based grid
-                if not np.isnan(finish_pos):
-                    gains.append(start_pos - finish_pos)
-            most_gained.append(max(gains) if gains else 0)
+                start_pos = self.race_results[run].get(driver).get("starting_position")
+                gains.append(start_pos - finish_pos)
+            most_gained.append(max(gains))
         colors2 = plt.cm.tab20(np.linspace(0, 1, len(driver_names)))
         axes[2].bar(driver_names, most_gained, color=colors2)
         axes[2].set_title("Most Positions Gained in a Single Run")
         axes[2].set_ylabel("Max Positions Gained")
         axes[2].grid(axis='y')
+
+        # 4. Absolute number of position changes per driver
+        abs_changes = []
+        for driver in driver_names:
+            changes = 0
+            for run in runs:
+                finish_pos = self.race_results[run].get(driver).get("position")
+                start_pos = driver_names.index(driver) + 1
+                if not np.isnan(finish_pos) and finish_pos != start_pos:
+                    changes += 1
+            abs_changes.append(changes)
+        colors3 = plt.cm.Paired(np.linspace(0, 1, len(driver_names)))
+        axes[3].bar(driver_names, abs_changes, color=colors3)
+        axes[3].set_title("Absolute Number of Position Changes per Driver")
+        axes[3].set_ylabel("Number of Runs with Position Change")
+        axes[3].grid(axis='y')
+
+        # 5. Total number of positions climbed per driver
+        total_climbed = []
+        for driver in driver_names:
+            climbed = 0
+            for run in runs:
+                finish_pos = self.race_results[run].get(driver).get("position")
+                start_pos = self.race_results[run].get(driver).get("starting_position")
+                if not np.isnan(finish_pos) and finish_pos < start_pos:
+                    climbed += (start_pos - finish_pos)
+            total_climbed.append(climbed)
+        colors4 = plt.cm.Set2(np.linspace(0, 1, len(driver_names)))
+        axes[4].bar(driver_names, total_climbed, color=colors4)
+        axes[4].set_title("Total Number of Positions Climbed per Driver")
+        axes[4].set_ylabel("Total Positions Climbed")
+        axes[4].grid(axis='y')
 
         plt.tight_layout()
         plt.show()
