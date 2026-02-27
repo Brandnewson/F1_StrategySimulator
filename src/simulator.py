@@ -16,6 +16,7 @@ from helpers.simulatorHelpers import (
 from helpers.simulatorVisualisers import run_visualisation
 from feedback import create_driver_feedback
 from agents.DQN import DQNAgent
+from base_agents import RiskLevel
 
 @dataclass
 class LapRecord:
@@ -44,10 +45,37 @@ class RaceSimulator:
             for driver in self.race_state.drivers:
                 # Store a shallow copy of all __dict__ fields
                 self._initial_driver_states.append(driver.__dict__.copy())
+        # Preserve career stats — these must survive the initial-state restore
+        career_stats = {
+            d.name: {
+                "cumulative_positions_gained": getattr(d, "cumulative_positions_gained", 0.0),
+                "runs_completed": getattr(d, "runs_completed", 0),
+            }
+            for d in self.race_state.drivers
+        }
         # Restore all driver fields from initial state
         for driver, init_state in zip(self.race_state.drivers, self._initial_driver_states):
             driver.__dict__.clear()
             driver.__dict__.update(init_state)
+            # Shallow copy shares list references — give each run fresh histories
+            driver.position_history = []
+            driver.gap_to_ahead_history = []
+            driver.gap_to_behind_history = []
+            driver.lap_progress_history = []
+            # Re-apply career stats that were accumulated before this reset
+            stats = career_stats[driver.name]
+            driver.cumulative_positions_gained = stats["cumulative_positions_gained"]
+            driver.runs_completed = stats["runs_completed"]
+        # Re-randomize starting grid so each run has a different grid order
+        import random
+        num_drivers = len(self.race_state.drivers)
+        grid_gap_meters = 8
+        new_positions = list(range(1, num_drivers + 1))
+        random.shuffle(new_positions)
+        for driver, pos in zip(self.race_state.drivers, new_positions):
+            driver.starting_position = pos
+            driver.position = pos
+            driver.current_distance = ((num_drivers - pos) * grid_gap_meters) / 1000.0
         # Optionally reset other race_state fields if needed
         if hasattr(self.race_state, 'overtaking_zones') and isinstance(self.race_state.overtaking_zones, list):
             for zone in self.race_state.overtaking_zones:
@@ -166,10 +194,17 @@ class RaceSimulator:
                 gap_to_leader=gap_to_leader
             )
             self.lap_records.append(lap_record)
-            
+
             print(f"  Lap {driver.completed_laps}/{self.total_laps}: "
                   f"{driver.name} - {driver.current_lap_time:.3f}s (P{driver.position})")
             
+            # --- Per-lap shaped reward for DQN agents ---
+            if hasattr(driver, 'agent') and hasattr(driver.agent, 'store_transition'):
+                lap_reward = self._calculate_lap_reward(driver)
+                next_zone = self._find_next_zone_for_driver(driver)
+                done = driver.completed_laps >= self.total_laps
+                driver.agent.store_transition(lap_reward, driver, self.race_state, done, next_zone)
+
             driver.current_lap_time = 0.0
             
             # Record finish time when driver completes their laps
@@ -248,12 +283,13 @@ class RaceSimulator:
                 # At the zone: resolve overtake attempt
                 elif abs(driver.current_distance - zone_dist) < 0.05:  # Within 50m of zone
                     if driver.attempting_overtake:
+                        pos_before = driver.position  # capture position before attempt updates it
                         success = self._attempt_overtake(driver, driver_ahead, zone)
                         # Use the last action if available
                         action = getattr(driver, "last_action", None)
                         # Calculate reward for DQN agents
                         if hasattr(driver.agent, 'store_transition') and action is not None:
-                            reward = self._calculate_reward(driver, success, action)
+                            reward = self._calculate_reward(driver, success, action, zone=zone, pos_before=pos_before)
                             next_zone = self._find_next_zone_for_driver(driver)
                             done = driver.completed_laps >= self.total_laps
                             driver.agent.store_transition(reward, driver, self.race_state, done, next_zone)
@@ -309,40 +345,150 @@ class RaceSimulator:
             return min(zones, key=lambda z: z.get("distance_from_start", 0))
         else:
             return None
-    
-    def _calculate_reward(self, driver, overtake_success, action):
+
+    def _record_tick_metrics(self):
+        """Record per-tick position and gap metrics for every driver.
+
+        Drivers are sorted by current race position so we can derive the
+        gap to the car immediately ahead and immediately behind using track
+        distance converted to an approximate time gap at the driver's current
+        speed.  The lap-progress value (completed_laps + fractional lap) is
+        stored so that visualisations can use laps as the x-axis.
+        """
+        sorted_drivers = sorted(self.race_state.drivers, key=lambda d: d.position)
+
+        for i, driver in enumerate(sorted_drivers):
+            lap_progress = driver.completed_laps + (
+                driver.current_distance / self.track_distance
+                if self.track_distance > 0 else 0.0
+            )
+            driver.lap_progress_history.append(lap_progress)
+            driver.position_history.append(driver.position)
+
+            driver_total_dist = (
+                driver.completed_laps * self.track_distance + driver.current_distance
+            )
+            speed_kms = driver.speed / 3600.0 if driver.speed > 0 else 1.0
+
+            # Gap to car ahead
+            if i > 0:
+                ahead = sorted_drivers[i - 1]
+                ahead_dist = ahead.completed_laps * self.track_distance + ahead.current_distance
+                driver.gap_to_ahead_history.append((ahead_dist - driver_total_dist) / speed_kms)
+            else:
+                driver.gap_to_ahead_history.append(0.0)
+
+            # Gap to car behind
+            if i < len(sorted_drivers) - 1:
+                behind = sorted_drivers[i + 1]
+                behind_dist = behind.completed_laps * self.track_distance + behind.current_distance
+                driver.gap_to_behind_history.append((driver_total_dist - behind_dist) / speed_kms)
+            else:
+                driver.gap_to_behind_history.append(0.0)
+
+    def _calculate_reward(self, driver, overtake_success, action, zone=None, pos_before=None):
         """Calculate reward for an action taken by a DQN agent.
-        
+
         Reward structure:
-        - Successful overtake: +10
-        - Failed overtake: -5
-        - Position improvement: +5
-        - Position loss: -5
-        - Small time penalty per step: -0.01 (encourages faster racing)
+        - Success: base +10, up to +5 bonus for harder zones, up to +30% late-race multiplier
+        - Failure: -2 (conservative), -5 (normal), -8 (aggressive)
+        - Position gained from this overtake: +2 per place
+        - Step penalty: -0.01
+        - End-of-race: +3 per net position gained from starting grid
         """
         reward = 0.0
-        
-        # Overtake reward
+
+        zone_difficulty = zone.get("difficulty", 0.5) if zone else 0.5
+        laps_done_frac = driver.completed_laps / max(self.total_laps, 1)
+
         if overtake_success:
-            reward += 10.0
+            # Higher reward for succeeding at harder zones
+            base = 10.0 + zone_difficulty * 5.0
+            # Late-race overtakes are worth more (up to 30% bonus)
+            late_race_mult = 1.0 + 0.3 * laps_done_frac
+            reward += base * late_race_mult
+            # Bonus for gaining a place from this specific overtake
+            if pos_before is not None:
+                reward += (pos_before - driver.position) * 2.0
         else:
-            reward -= 5.0
-        
-        # Time penalty (encourage efficiency)
+            # Risk-adjusted failure: bigger gamble = heavier penalty
+            risk_penalties = {"CONSERVATIVE": -2.0, "NORMAL": -5.0, "AGGRESSIVE": -8.0}
+            reward += risk_penalties.get(action.risk_level.name, -5.0)
+
+        # Step penalty (encourages efficiency)
         reward -= 0.01
-        
-        # Future: Add position-based rewards, tyre management, etc.
-        
+
+        # End-of-race bonus: reward overall improvement from starting position
+        if driver.completed_laps >= self.total_laps:
+            reward += (driver.starting_position - driver.position) * 3.0
+
         return reward
-    
+
+    def _calculate_lap_reward(self, driver) -> float:
+        """Calculate a per-lap shaped reward for DQN agents.
+
+        Provides frequent, informative gradient signals between the rare
+        overtake decision points. Rewards position changes DURING THIS LAP
+        to avoid reward scale inflation over multiple laps.
+
+        The magnitudes are deliberately smaller than overtake rewards so that
+        the agent still prioritises overtake decisions but gets enough signal
+        to learn positional awareness.
+        """
+        reward = 0.0
+        num_drivers = len(self.race_state.drivers)
+
+        # Reward position changes during THIS lap only (not cumulative from race start)
+        pos_hist = driver.position_history
+        if len(pos_hist) > 0:
+            ticks_per_lap = self.race_state.base_lap_ticks if self.race_state.base_lap_ticks > 0 else 100
+            start_of_lap_idx = max(0, len(pos_hist) - ticks_per_lap)
+            pos_start = pos_hist[start_of_lap_idx]
+            pos_end = driver.position
+            
+            # Reward position gained this lap only
+            positions_gained_this_lap = pos_start - pos_end
+            reward += positions_gained_this_lap * 0.5  # Small reward per position gained
+
+        # Small reward for being in a good absolute position (encourages
+        # staying at the front rather than being content with grid-relative gains)
+        # Best position = 1 → bonus ~0.1; worst = 0
+        reward += (num_drivers - driver.position) * 0.05
+
+        # End-of-race bonus (final lap only)
+        if driver.completed_laps >= self.total_laps:
+            reward += (driver.starting_position - driver.position) * 3.0
+
+        return reward
+
     def _attempt_overtake(self, overtaking_driver, target_driver, zone: Dict) -> bool:
-        """Attempt an overtake with probability based on zone difficulty."""
+        """Attempt an overtake with probability based on zone difficulty and risk level.
+
+        Risk level modifies both the success probability and the consequences:
+        - AGGRESSIVE: +0.15 success probability bonus, but 100m penalty on failure
+        - NORMAL:     standard probability, 50m penalty on failure (unchanged)
+        - CONSERVATIVE: -0.10 success probability penalty, but only 20m penalty on failure
+
+        This gives the agent a meaningful risk/reward trade-off to learn from.
+        """
         difficulty = zone.get("difficulty")
         success_probability = 1.0 - difficulty
-        
-        # Apply mulitiplier for success probability as a function of speed difference and gap to car ahead
-        # TODO: Favor overtakes when speed difference is significant (reflects tyre choices and car performance)
 
+        # Track attempt count on the driver
+        overtaking_driver.overtakes_attempted += 1
+
+        # --- Risk level modifies success probability ---
+        action = getattr(overtaking_driver, "last_action", None)
+        risk_level = action.risk_level if action is not None else RiskLevel.NORMAL
+
+        risk_prob_modifiers = {
+            RiskLevel.CONSERVATIVE: -0.10,
+            RiskLevel.NORMAL: 0.0,
+            RiskLevel.AGGRESSIVE: 0.15,
+        }
+        success_probability += risk_prob_modifiers.get(risk_level, 0.0)
+
+        # --- Gap and speed modifiers (unchanged logic) ---
         speed_diff = overtaking_driver.speed - target_driver.speed  # in km/h
         gap = self._calculate_track_gap(overtaking_driver, target_driver)  # in km
 
@@ -354,31 +500,42 @@ class RaceSimulator:
         else:  # penalize larger gaps larger than 40m
             success_probability *= max(0.0, 1.0 - (gap - 0.04) * 5)  # reduce prob for larger gaps
             if self.config.get("debugMode", False):
-                print(f"  Larger gap resulted in probability decreasing from {success_probability / max(0.0, 1.0 - (gap - 0.04) * 5):.2f} to {success_probability:.2f}")
-        
-        
-        # Print probability of overtaking each time 
+                print(f"  Larger gap resulted in probability decreasing from {success_probability / max(0.01, 1.0 - (gap - 0.04) * 5):.2f} to {success_probability:.2f}")
+
+        # Clamp probability to valid range
+        success_probability = np.clip(success_probability, 0.0, 0.95)
+
+        # Print probability of overtaking each time
         if self.config.get("debugMode", False):
-            print(f"  Overtake probability for {overtaking_driver.name} attempting to overtake {target_driver.name} at {zone.get('name')}: {success_probability:.2f}")
-        
+            print(f"  Overtake probability for {overtaking_driver.name} ({risk_level.name}) "
+                  f"attempting to overtake {target_driver.name} at {zone.get('name')}: {success_probability:.2f}")
+
         success = np.random.random() < success_probability
-        
+
         if success:
             print(f"  OVERTAKE: {overtaking_driver.name} overtook {target_driver.name} "
                   f"at {zone.get('name')}!")
-            
+
+            # Track successful overtake
+            overtaking_driver.overtakes_succeeded += 1
+
             # Swap track positions slightly
             old_distance = overtaking_driver.current_distance
             overtaking_driver.current_distance = target_driver.current_distance + 0.01
             target_driver.current_distance = old_distance
-            
+
             # Update positions
             self.race_state.update_driver_positions()
             return True
         else:
-            # Apply distance penalty for failed attempt (lose 50m),
-            # clamp/wrap so we don't create negative/ambiguous positions.
-            penalty_km = 0.05
+            # Risk-adjusted distance penalty on failure:
+            # AGGRESSIVE = 100m, NORMAL = 50m, CONSERVATIVE = 20m
+            risk_penalty_km = {
+                RiskLevel.CONSERVATIVE: 0.02,
+                RiskLevel.NORMAL: 0.05,
+                RiskLevel.AGGRESSIVE: 0.10,
+            }
+            penalty_km = risk_penalty_km.get(risk_level, 0.05)
             new_dist = overtaking_driver.current_distance - penalty_km
             if new_dist < 0:
                 # wrap forward to maintain consistent lap semantics
@@ -388,7 +545,7 @@ class RaceSimulator:
             # Update positions
             self.race_state.update_driver_positions()
 
-            print(f"  FAILED: {overtaking_driver.name} failed to overtake "
+            print(f"  FAILED: {overtaking_driver.name} ({risk_level.name}) failed to overtake "
                   f"{target_driver.name} at {zone.get('name')}")
             return False
     
@@ -407,10 +564,13 @@ class RaceSimulator:
             
             # Update positions
             self.race_state.update_driver_positions()
-            
+
             # Check overtakes
             self._check_overtakes()
-            
+
+            # Record per-tick metrics
+            self._record_tick_metrics()
+
             # Update race state
             self.race_state.current_tick += 1
             self.race_state.elapsed_time += self.tick_duration
@@ -434,6 +594,7 @@ class RaceSimulator:
                     self._update_driver(driver, self.tick_duration)
                 self.race_state.update_driver_positions()
                 self._check_overtakes()
+                self._record_tick_metrics()
                 self.race_state.current_tick += 1
                 self.race_state.elapsed_time += self.tick_duration
             self.race_finished = True
@@ -471,6 +632,9 @@ class RaceSimulator:
                     loss = driver.agent.train_step(batch_size=batch_size)
                     if loss is not None:
                         losses.append(loss)
+                
+                # Decay epsilon once per episode (not per training step)
+                driver.agent.on_episode_end()
                 
                 if losses:
                     avg_loss = sum(losses) / len(losses)
@@ -512,12 +676,20 @@ class RaceSimulator:
                   f"{finish_time:.3f}s   {gap_str}")
             
             if run_number is not None:
+                # Update career stats before storing results
+                driver.cumulative_positions_gained += driver.starting_position - i
+                driver.runs_completed += 1
+
                 self.race_results[run_number][driver.name] = {
                     "laps": driver.completed_laps,
                     "finish_time": finish_time,
                     "gap": gap,
                     "position": i,
-                    "starting_position": driver.starting_position
+                    "starting_position": driver.starting_position,
+                    "position_history": list(driver.position_history),
+                    "gap_to_ahead_history": list(driver.gap_to_ahead_history),
+                    "gap_to_behind_history": list(driver.gap_to_behind_history),
+                    "lap_progress_history": list(driver.lap_progress_history),
                 }
 
         # Fastest lap
@@ -587,89 +759,247 @@ class RaceSimulator:
             print("No race results to visualise.")
             return
 
-        # Prepare data
+        # Shared data prep
         runs = sorted(self.race_results.keys())
         driver_names = set()
         for run in runs:
             driver_names.update(self.race_results[run].keys())
         driver_names = sorted(driver_names)
+        run_ticks = list(runs)
 
-        # 1. x-axis: run number, y-axis: finishing position for each driver
-        fig, axes = plt.subplots(5, 1, figsize=(14, 24))
-        for driver in driver_names:
-            positions = [self.race_results[run].get(driver, {}).get("position", np.nan) for run in runs]
-            axes[0].plot(runs, positions, marker='o', label=driver)
-        axes[0].set_title("Finishing Position per Run")
-        axes[0].set_xlabel("Run Number")
-        axes[0].set_ylabel("Finishing Position (1=Winner)")
-        axes[0].invert_yaxis()  # So 1st is at the top
-        axes[0].legend()
-        axes[0].grid(True)
+        # ── Per-driver color and label lookups ───────────────────────────────
+        # Colors come from config (already resolved in __init__ as self.driver_colors)
+        driver_color_map = {
+            d.name: c
+            for d, c in zip(self.race_state.drivers, self.driver_colors)
+        }
+        # Fallback for any driver name not in the live driver list
+        fallback_colors = plt.cm.tab10(np.linspace(0, 1, max(len(driver_names), 1)))
+        for i, name in enumerate(driver_names):
+            if name not in driver_color_map:
+                driver_color_map[name] = fallback_colors[i]
 
-        # 2. Histogram of average driver finishes over all runs
+        # Agent type labels
+        agent_type_map: Dict[str, str] = {}
+        for driver in self.race_state.drivers:
+            cls = type(driver.agent).__name__ if driver.agent else "None"
+            if cls == "RandomAgent":
+                label = "random"
+            elif cls == "DQNAgent":
+                label = "DQN"
+            elif cls == "BaseAgent":
+                label = "base"
+            else:
+                label = cls
+            agent_type_map[driver.name] = label
+
+        def driver_label(name: str) -> str:
+            agent = agent_type_map.get(name, "?")
+            return f"{name} ({agent})"
+
+        bar_labels = [driver_label(d) for d in driver_names]
+        bar_colors = [driver_color_map[d] for d in driver_names]
+
+        # ── WINDOW 1: race performance across runs ───────────────────────────
+        fig1, axes1 = plt.subplots(2, 1, figsize=(14, 12))
+        fig1.suptitle("Race Performance — All Runs", fontsize=14, y=1.0)
+
+        # 1. Average finishing position per driver (bar chart)
         avg_positions = []
         for driver in driver_names:
-            pos = [self.race_results[run].get(driver, {}).get("position", np.nan) for run in runs]
+            pos = [
+                self.race_results[run].get(driver, {}).get("position", np.nan)
+                for run in runs
+            ]
             pos = [p for p in pos if not np.isnan(p)]
-            avg = np.mean(pos) if pos else np.nan
-            avg_positions.append(avg)
-        colors1 = plt.cm.tab10(np.linspace(0, 1, len(driver_names)))
-        axes[1].bar(driver_names, avg_positions, color=colors1)
-        axes[1].set_title("Average Finishing Position per Driver")
-        axes[1].set_ylabel("Average Position (Lower is Better)")
-        axes[1].invert_yaxis()
-        axes[1].grid(axis='y')
+            avg_positions.append(np.mean(pos) if pos else np.nan)
+        axes1[0].bar(bar_labels, avg_positions, color=bar_colors)
+        axes1[0].set_title("Average Finishing Position per Driver")
+        axes1[0].set_ylabel("Average Position (lower is better)")
+        axes1[0].invert_yaxis()
+        axes1[0].grid(axis='y')
 
-        # 3. Most positions gained per driver over all runs
-        # For each run, positions gained = starting position - finishing position
-        # Assume starting position is the order in driver_names (or you can store grid positions if available)
-        most_gained = []
+        # 2. Cumulative positions gained per run, per driver (line chart)
         for driver in driver_names:
-            gains = []
+            cumulative = 0
+            cumulative_series = []
             for run in runs:
-                finish_pos = self.race_results[run].get(driver).get("position")
-                start_pos = self.race_results[run].get(driver).get("starting_position")
-                gains.append(start_pos - finish_pos)
-            most_gained.append(max(gains))
-        colors2 = plt.cm.tab20(np.linspace(0, 1, len(driver_names)))
-        axes[2].bar(driver_names, most_gained, color=colors2)
-        axes[2].set_title("Most Positions Gained in a Single Run")
-        axes[2].set_ylabel("Max Positions Gained")
-        axes[2].grid(axis='y')
+                d_data = self.race_results[run].get(driver, {})
+                start_pos = d_data.get("starting_position", np.nan)
+                finish_pos = d_data.get("position", np.nan)
+                if not (np.isnan(start_pos) or np.isnan(finish_pos)):
+                    cumulative += start_pos - finish_pos
+                cumulative_series.append(cumulative)
+            axes1[1].plot(runs, cumulative_series, marker='o',
+                          label=driver_label(driver), color=driver_color_map[driver])
+        axes1[1].axhline(0, color='black', linewidth=0.8, linestyle='--')
+        axes1[1].set_title("Cumulative Positions Gained per Run")
+        axes1[1].set_xlabel("Run Number")
+        axes1[1].set_ylabel("Cumulative Positions Gained")
+        axes1[1].set_xticks(run_ticks)
+        axes1[1].legend()
+        axes1[1].grid(True)
 
-        # 4. Absolute number of position changes per driver
+        fig1.tight_layout()
+
+        # ── WINDOW 2: position change analysis ──────────────────────────────
+        fig2, axes2 = plt.subplots(2, 1, figsize=(14, 12))
+        fig2.suptitle("Position Change Analysis — All Runs", fontsize=14, y=1.0)
+
+        # 3. Total absolute position change across all runs per driver (bar chart)
+        # Walks per-tick position_history: counts every position change (gain or loss)
         abs_changes = []
         for driver in driver_names:
-            changes = 0
+            total = 0
             for run in runs:
-                finish_pos = self.race_results[run].get(driver).get("position")
-                start_pos = driver_names.index(driver) + 1
-                if not np.isnan(finish_pos) and finish_pos != start_pos:
-                    changes += 1
-            abs_changes.append(changes)
-        colors3 = plt.cm.Paired(np.linspace(0, 1, len(driver_names)))
-        axes[3].bar(driver_names, abs_changes, color=colors3)
-        axes[3].set_title("Absolute Number of Position Changes per Driver")
-        axes[3].set_ylabel("Number of Runs with Position Change")
-        axes[3].grid(axis='y')
+                pos_hist = self.race_results[run].get(driver, {}).get("position_history", [])
+                for t in range(1, len(pos_hist)):
+                    total += abs(pos_hist[t] - pos_hist[t - 1])
+            abs_changes.append(total)
+        axes2[0].bar(bar_labels, abs_changes, color=bar_colors)
+        axes2[0].set_title("Total Absolute Position Changes Across All Runs (per tick)")
+        axes2[0].set_ylabel("Total |Δposition| across all ticks and runs")
+        axes2[0].grid(axis='y')
 
-        # 5. Total number of positions climbed per driver
-        total_climbed = []
+        # 4. Total in-race position gains across all runs per driver (bar chart)
+        total_increments = []
         for driver in driver_names:
-            climbed = 0
+            increments = 0
             for run in runs:
-                finish_pos = self.race_results[run].get(driver).get("position")
-                start_pos = self.race_results[run].get(driver).get("starting_position")
-                if not np.isnan(finish_pos) and finish_pos < start_pos:
-                    climbed += (start_pos - finish_pos)
-            total_climbed.append(climbed)
-        colors4 = plt.cm.Set2(np.linspace(0, 1, len(driver_names)))
-        axes[4].bar(driver_names, total_climbed, color=colors4)
-        axes[4].set_title("Total Number of Positions Climbed per Driver")
-        axes[4].set_ylabel("Total Positions Climbed")
-        axes[4].grid(axis='y')
+                pos_hist = self.race_results[run].get(driver, {}).get("position_history", [])
+                for t in range(1, len(pos_hist)):
+                    delta = pos_hist[t - 1] - pos_hist[t]
+                    if delta > 0:
+                        increments += delta
+            total_increments.append(increments)
+        axes2[1].bar(bar_labels, total_increments, color=bar_colors)
+        axes2[1].set_title("Total In-Race Position Gains Across All Runs")
+        axes2[1].set_ylabel("Total Positions Gained (in-race, all runs)")
+        axes2[1].grid(axis='y')
 
-        plt.tight_layout()
+        fig2.tight_layout()
+
+        # ── WINDOW 3+: average finishing position by starting position ───────
+        # One subplot per driver in a 3x3 grid; paginated if > 9 drivers.
+        _GRID_ROWS = 3
+        _GRID_COLS = 3
+        _PER_PAGE = _GRID_ROWS * _GRID_COLS
+
+        # Build per-driver mapping: starting_position -> [finishing_positions]
+        driver_start_finish: Dict[str, Dict[int, list]] = {}
+        for driver in driver_names:
+            sf: Dict[int, list] = {}
+            for run in runs:
+                d_data = self.race_results[run].get(driver, {})
+                sp = d_data.get("starting_position", None)
+                fp = d_data.get("position", None)
+                if sp is not None and fp is not None and not (np.isnan(sp) or np.isnan(fp)):
+                    sf.setdefault(int(sp), []).append(fp)
+            driver_start_finish[driver] = sf
+
+        # Compute shared y-axis limits across all drivers for fair comparison
+        all_avg_finishes = [
+            np.mean(fps)
+            for sf in driver_start_finish.values()
+            for fps in sf.values()
+        ]
+        if all_avg_finishes:
+            global_y_min = min(all_avg_finishes)
+            global_y_max = max(all_avg_finishes)
+        else:
+            global_y_min, global_y_max = 1.0, float(len(driver_names))
+        y_pad = 0.5
+        shared_ylim = (global_y_min - y_pad, global_y_max + y_pad)
+
+        page_num = 0
+        for page_start in range(0, len(driver_names), _PER_PAGE):
+            page_drivers = driver_names[page_start:page_start + _PER_PAGE]
+            page_num += 1
+
+            fig_sp, axes_sp = plt.subplots(_GRID_ROWS, _GRID_COLS, figsize=(14, 12))
+            title_suffix = f" (page {page_num})" if len(driver_names) > _PER_PAGE else ""
+            fig_sp.suptitle(
+                f"Average Finishing Position by Starting Position{title_suffix}",
+                fontsize=14, y=1.0
+            )
+            axes_sp_flat = axes_sp.flatten()
+
+            for i, driver in enumerate(page_drivers):
+                ax = axes_sp_flat[i]
+                sf = driver_start_finish[driver]
+                if sf:
+                    start_positions = sorted(sf.keys())
+                    avg_finishes = [np.mean(sf[sp]) for sp in start_positions]
+                    ax.bar(
+                        start_positions, avg_finishes,
+                        color=driver_color_map[driver],
+                        edgecolor='#333333', linewidth=0.5
+                    )
+                    ax.set_title(driver_label(driver), fontsize=10)
+                    ax.set_xlabel("Starting Position")
+                    ax.set_ylabel("Avg Finish Position")
+                    ax.set_xticks(start_positions)
+                    ax.set_ylim(shared_ylim)
+                    ax.invert_yaxis()
+                    ax.grid(axis='y')
+                else:
+                    ax.set_visible(False)
+
+            # Hide any unused grid cells on the last page
+            for j in range(len(page_drivers), _GRID_ROWS * _GRID_COLS):
+                axes_sp_flat[j].set_visible(False)
+
+            fig_sp.tight_layout()
+
+        # ── WINDOW 4: per-tick telemetry for the last run ────────────────────
+        last_run = runs[-1]
+        fig3, axes3 = plt.subplots(3, 1, figsize=(14, 16))
+        fig3.suptitle(f"In-Race Telemetry \u2014 Run {last_run}", fontsize=14, y=1.0)
+
+        # 7. Position throughout the race (every tick)
+        for driver in driver_names:
+            d_data = self.race_results[last_run].get(driver, {})
+            lap_prog = d_data.get("lap_progress_history", [])
+            pos_hist = d_data.get("position_history", [])
+            if lap_prog and pos_hist:
+                axes3[0].plot(lap_prog, pos_hist, linewidth=0.8,
+                              label=driver_label(driver), color=driver_color_map[driver])
+        axes3[0].set_title("Race Position (every tick)")
+        axes3[0].set_xlabel("Race Progress (laps)")
+        axes3[0].set_ylabel("Race Position")
+        axes3[0].invert_yaxis()
+        axes3[0].legend()
+        axes3[0].grid(True)
+
+        # 8. Gap to car ahead (every tick)
+        for driver in driver_names:
+            d_data = self.race_results[last_run].get(driver, {})
+            lap_prog = d_data.get("lap_progress_history", [])
+            gap_ahead = d_data.get("gap_to_ahead_history", [])
+            if lap_prog and gap_ahead:
+                axes3[1].plot(lap_prog, gap_ahead, linewidth=0.8,
+                              label=driver_label(driver), color=driver_color_map[driver])
+        axes3[1].set_title("Gap to Car Ahead (every tick)")
+        axes3[1].set_xlabel("Race Progress (laps)")
+        axes3[1].set_ylabel("Gap (seconds)")
+        axes3[1].legend()
+        axes3[1].grid(True)
+
+        # 9. Gap to car behind (every tick)
+        for driver in driver_names:
+            d_data = self.race_results[last_run].get(driver, {})
+            lap_prog = d_data.get("lap_progress_history", [])
+            gap_behind = d_data.get("gap_to_behind_history", [])
+            if lap_prog and gap_behind:
+                axes3[2].plot(lap_prog, gap_behind, linewidth=0.8,
+                              label=driver_label(driver), color=driver_color_map[driver])
+        axes3[2].set_title("Gap to Car Behind (every tick)")
+        axes3[2].set_xlabel("Race Progress (laps)")
+        axes3[2].set_ylabel("Gap (seconds)")
+        axes3[2].legend()
+        axes3[2].grid(True)
+
+        fig3.tight_layout()
         plt.show()
 
 def init_simulator(race_state, config, track):

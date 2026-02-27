@@ -5,8 +5,8 @@ This module provides a flexible way to encode race state information
 for agents, allowing easy extension with new metrics.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from dataclasses import dataclass
+from typing import Optional
 import numpy as np
 
 
@@ -22,6 +22,7 @@ class DriverFeedback:
     # Driver state
     driver_name: str
     current_position: int
+    starting_position: int
     speed: float  # km/h
     current_distance: float  # km on track
     completed_laps: int
@@ -37,6 +38,11 @@ class DriverFeedback:
     total_laps: int = 0
     laps_remaining: int = 0
     track_distance: float = 0.0  # total track length in km
+    num_drivers: int = 3  # number of drivers in the race (used for normalization)
+
+    # Position change statistics
+    positions_gained_this_run: int = 0    # starting_position - current_position (positive = gained)
+    avg_positions_gained: float = 0.0     # mean of (start - finish) across previous completed runs
     
     # Relative positioning
     gap_to_ahead: Optional[float] = None  # seconds
@@ -45,15 +51,20 @@ class DriverFeedback:
     distance_to_behind: Optional[float] = None  # km on track
     position_ahead_name: Optional[str] = None
     position_behind_name: Optional[str] = None
-    
+
     # Overtaking zone context
     upcoming_zone_distance: Optional[float] = None  # km to zone
     upcoming_zone_difficulty: Optional[float] = None  # 0-1
     upcoming_zone_name: Optional[str] = None
     in_overtaking_zone: bool = False
-    
-    # Additional context (for future extensions)
-    extra_metrics: Dict[str, Any] = field(default_factory=dict)
+
+    # Relative performance vs car ahead
+    speed_diff_to_ahead: float = 0.0       # driver.speed - ahead.speed (km/h); positive = faster
+    gap_closing_rate: float = 0.0          # prev_gap - current_gap per tick; positive = closing
+
+    # Per-race overtake statistics
+    overtakes_attempted_this_race: int = 0
+    overtake_success_rate: float = 0.5     # 0.5 neutral prior when no attempts yet
     
     def to_vector(self, normalize: bool = True) -> np.ndarray:
         """Convert feedback to a fixed-size numpy array for NN input.
@@ -66,11 +77,19 @@ class DriverFeedback:
         """
         features = []
         
-        # Position features (normalize to 0-1 range based on typical grid sizes)
+        # Position features (normalize to 0-1 range based on actual driver count)
+        n = max(self.num_drivers, 1)
         if normalize:
-            features.append(self.current_position / 22.0)  # assume max 22 cars
+            features.append(self.current_position / n)
+            features.append(self.starting_position / n)
+            # Positions gained this run and career average (range -(n-1)..+(n-1))
+            features.append(self.positions_gained_this_run / n)
+            features.append(self.avg_positions_gained / n)
         else:
             features.append(float(self.current_position))
+            features.append(float(self.starting_position))
+            features.append(float(self.positions_gained_this_run))
+            features.append(float(self.avg_positions_gained))
         
         # Speed (normalize to typical F1 speeds: 0-350 km/h)
         if normalize:
@@ -92,21 +111,9 @@ class DriverFeedback:
             features.append(float(self.completed_laps))
             features.append(float(self.laps_remaining))
         
-        # Tyre age (normalize to typical stint length: 0-30 laps)
-        if normalize:
-            features.append(self.tyre_age / 30.0)
-        else:
-            features.append(float(self.tyre_age))
-        
-        # Fuel load (already 0-100, normalize to 0-1)
-        if normalize:
-            features.append(self.fuel_load / 100.0)
-        else:
-            features.append(self.fuel_load)
-        
-        # Tyre compound as one-hot encoding: [soft, medium, hard]
-        compound_encoding = {"soft": [1, 0, 0], "medium": [0, 1, 0], "hard": [0, 0, 1]}
-        features.extend(compound_encoding.get(self.tyre_compound, [0, 1, 0]))
+        # NOTE: tyre_age, fuel_load, tyre_compound are excluded from the state
+        # vector because they are currently static (never updated during the race).
+        # Re-add them once tyre degradation and fuel burn are modelled.
         
         # Gap to car ahead (normalize to typical gaps: 0-30 seconds)
         if self.gap_to_ahead is not None:
@@ -160,28 +167,53 @@ class DriverFeedback:
             features.append(0.5)  # Default difficulty
         
         features.append(1.0 if self.in_overtaking_zone else 0.0)
-        
+
+        # Speed differential to car ahead (positive = faster than them → better for overtake)
+        if normalize:
+            features.append(np.clip(self.speed_diff_to_ahead / 200.0, -1.0, 1.0))
+        else:
+            features.append(self.speed_diff_to_ahead)
+
+        # Gap closing rate (positive = gap decreasing → approaching car ahead)
+        if normalize:
+            features.append(np.clip(self.gap_closing_rate / 5.0, -1.0, 1.0))
+        else:
+            features.append(self.gap_closing_rate)
+
+        # Overtake attempts this race (normalize to expected max of ~20 per race)
+        if normalize:
+            features.append(min(self.overtakes_attempted_this_race / 20.0, 1.0))
+        else:
+            features.append(float(self.overtakes_attempted_this_race))
+
+        # Personal overtake success rate (already 0–1)
+        features.append(self.overtake_success_rate)
+
         return np.array(features, dtype=np.float32)
     
     @staticmethod
     def get_state_dim() -> int:
         """Return the dimensionality of the state vector."""
         # Count features from to_vector():
-        # 1: position
-        # 2: speed
-        # 3: distance progress
-        # 4-5: lap progress (completed, remaining)
-        # 6: tyre age
-        # 7: fuel load
-        # 8-10: tyre compound one-hot (3)
-        # 11: gap to ahead
-        # 12: gap to behind
-        # 13: distance to ahead
-        # 14: distance to behind
-        # 15: zone distance
-        # 16: zone difficulty
-        # 17: in zone
-        return 17
+        # 1: current_position
+        # 2: starting_position
+        # 3: positions_gained_this_run
+        # 4: avg_positions_gained (career average)
+        # 5: speed
+        # 6: distance progress
+        # 7-8: lap progress (completed, remaining)
+        # 9: gap to ahead
+        # 10: gap to behind
+        # 11: distance to ahead
+        # 12: distance to behind
+        # 13: zone distance
+        # 14: zone difficulty
+        # 15: in zone
+        # 16: speed_diff_to_ahead
+        # 17: gap_closing_rate
+        # 18: overtakes_attempted_this_race
+        # 19: overtake_success_rate
+        return 19
 
 
 def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
@@ -202,11 +234,13 @@ def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
     dist_behind = None
     name_ahead = None
     name_behind = None
-    
+    speed_diff_to_ahead = 0.0
+    gap_closing_rate = 0.0
+
     # Sort drivers by position to find adjacent cars
     sorted_drivers = sorted(race_state.drivers, key=lambda d: d.position)
     driver_idx = next((i for i, d in enumerate(sorted_drivers) if d == driver), None)
-    
+
     if driver_idx is not None:
         # Car ahead
         if driver_idx > 0:
@@ -216,7 +250,13 @@ def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
             driver_total_dist = driver.completed_laps * race_state.track_distance + driver.current_distance
             dist_ahead = ahead_total_dist - driver_total_dist
             name_ahead = ahead_driver.name
-        
+            # Speed differential (positive = this driver is faster → better for overtake)
+            speed_diff_to_ahead = driver.speed - ahead_driver.speed
+            # Gap closing rate: positive = gap decreased since last tick = closing in
+            gap_hist = getattr(driver, "gap_to_ahead_history", [])
+            if gap_hist:
+                gap_closing_rate = gap_hist[-1] - gap_ahead
+
         # Car behind
         if driver_idx < len(sorted_drivers) - 1:
             behind_driver = sorted_drivers[driver_idx + 1]
@@ -225,12 +265,17 @@ def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
             behind_total_dist = behind_driver.completed_laps * race_state.track_distance + behind_driver.current_distance
             dist_behind = driver_total_dist - behind_total_dist
             name_behind = behind_driver.name
-    
+
+    # Per-race overtake statistics
+    attempted = getattr(driver, "overtakes_attempted", 0)
+    succeeded = getattr(driver, "overtakes_succeeded", 0)
+    overtake_success_rate = (succeeded / attempted) if attempted > 0 else 0.5
+
     # Extract upcoming zone info
     zone_distance = None
     zone_difficulty = None
     zone_name = None
-    
+
     if upcoming_zone is not None:
         zone_dist_from_start = upcoming_zone.get("distance_from_start", 0.0)
         zone_distance = zone_dist_from_start - driver.current_distance
@@ -238,10 +283,18 @@ def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
             zone_distance += race_state.track_distance  # Handle wrap-around
         zone_difficulty = upcoming_zone.get("difficulty", 0.5)
         zone_name = upcoming_zone.get("name", "Unknown")
-    
+
+    total_laps_cfg = race_state.config.get("race_settings", {}).get("total_laps", 0)
+    runs_done = getattr(driver, "runs_completed", 0)
+    avg_gained = (
+        getattr(driver, "cumulative_positions_gained", 0.0) / runs_done
+        if runs_done > 0 else 0.0
+    )
+
     return DriverFeedback(
         driver_name=driver.name,
         current_position=driver.position,
+        starting_position=driver.starting_position,
         speed=driver.speed,
         current_distance=driver.current_distance,
         completed_laps=driver.completed_laps,
@@ -250,9 +303,12 @@ def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
         tyre_age=driver.tyre_age,
         fuel_load=driver.fuel_load,
         tyre_compound=driver.tyre_compound,
-        total_laps=race_state.config.get("race_settings", {}).get("total_laps", 0),
-        laps_remaining=race_state.config.get("race_settings", {}).get("total_laps", 0) - driver.completed_laps,
+        total_laps=total_laps_cfg,
+        laps_remaining=total_laps_cfg - driver.completed_laps,
         track_distance=race_state.track_distance,
+        num_drivers=len(race_state.drivers),
+        positions_gained_this_run=driver.starting_position - driver.position,
+        avg_positions_gained=avg_gained,
         gap_to_ahead=gap_ahead,
         gap_to_behind=gap_behind,
         distance_to_ahead=dist_ahead,
@@ -263,4 +319,8 @@ def create_driver_feedback(driver, race_state, upcoming_zone) -> DriverFeedback:
         upcoming_zone_difficulty=zone_difficulty,
         upcoming_zone_name=zone_name,
         in_overtaking_zone=getattr(driver, "in_overtaking_zone", False),
+        speed_diff_to_ahead=speed_diff_to_ahead,
+        gap_closing_rate=gap_closing_rate,
+        overtakes_attempted_this_race=attempted,
+        overtake_success_rate=overtake_success_rate,
     )

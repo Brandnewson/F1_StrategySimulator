@@ -39,7 +39,21 @@ class DriverState:
         self.agent: Optional[BaseAgent] = None
 
         # persistent vars
-        self.starting_position = starting_position        
+        self.starting_position = starting_position
+
+        # Per-tick metric histories (appended every simulation tick)
+        self.position_history: List[int] = []
+        self.gap_to_ahead_history: List[float] = []
+        self.gap_to_behind_history: List[float] = []
+        self.lap_progress_history: List[float] = []
+
+        # Cross-run career statistics (persist across race_reset; updated at race end)
+        self.cumulative_positions_gained: float = 0.0
+        self.runs_completed: int = 0
+
+        # Per-race overtake tracking (reset each run via race_reset)
+        self.overtakes_attempted: int = 0
+        self.overtakes_succeeded: int = 0
 
 class RaceState:
     """Represents the overall state of the race.

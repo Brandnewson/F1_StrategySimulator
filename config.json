@@ -8,25 +8,25 @@
             "colour": "#00008B"
         },
         {
-            "name": "Jackson Storm",
-            "agent": "random",
+            "name": "Jackson Storm 500 runs 10 laps v2",
+            "agent": "dqn",
             "colour": "#022050"
         },
         {
             "name": "Oscar Pastry",
-            "agent": "random",
+            "agent": "base",
             "colour": "#FFA500"
         }
     ],
     "simulator": {
-        "runs": 1,
+        "runs": 500,
         "method": "batch",
         "tick_rate": 100,
         "tick_duration": 0.01,
-        "agent_mode": "evaluation"       
+        "agent_mode": "training"       
     },
     "race_settings": {
-        "total_laps": 1,
+        "total_laps": 10,
         "weather": "dry"
     },
     "track": {

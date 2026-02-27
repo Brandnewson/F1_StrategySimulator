@@ -72,7 +72,7 @@ class DQNAgent(BaseAgent):
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
         epsilon_min: float = 0.05,
-        epsilon_decay: float = 0.995,
+        epsilon_decay: float = 0.9993,
         buffer_capacity: int = 10000,
         target_update_freq: int = 100,
     ):
@@ -100,6 +100,7 @@ class DQNAgent(BaseAgent):
         
         # Training state
         self.training_steps = 0
+        self.episodes_completed = 0  # Track episode count for epsilon decay
         self.training_mode = config.get("agent_mode") == "training"
         
         # Store last state and action for learning
@@ -215,15 +216,18 @@ class DQNAgent(BaseAgent):
         loss.backward()
         self.optimizer.step()
         
-        # Update epsilon
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-        
         # Update target network periodically
         self.training_steps += 1
         if self.training_steps % self.target_update_freq == 0:
             self.target_model.load_state_dict(self.model.state_dict())
         
         return loss.item()
+    
+    def on_episode_end(self):
+        """Call this at the end of each race episode to decay epsilon once per episode."""
+        if self.training_mode:
+            self.episodes_completed += 1
+            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
     
     def set_training_mode(self, training: bool):
         """Set agent to training or evaluation mode."""
