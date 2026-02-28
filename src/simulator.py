@@ -1,10 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import json
 from typing import Dict, List
 from dataclasses import dataclass
 from pathlib import Path
 from collections import defaultdict
+from datetime import datetime
 
 from helpers.simulatorHelpers import (
     build_mini_loops,
@@ -66,13 +68,38 @@ class RaceSimulator:
             stats = career_stats[driver.name]
             driver.cumulative_positions_gained = stats["cumulative_positions_gained"]
             driver.runs_completed = stats["runs_completed"]
-        # Re-randomize starting grid so each run has a different grid order
+        # Re-assign starting grid positions with balanced coverage for DQN drivers
         import random
         num_drivers = len(self.race_state.drivers)
         grid_gap_meters = 8
-        new_positions = list(range(1, num_drivers + 1))
-        random.shuffle(new_positions)
-        for driver, pos in zip(self.race_state.drivers, new_positions):
+
+        if not hasattr(self, "_start_pos_cycle_idx"):
+            self._start_pos_cycle_idx = 0
+
+        all_positions = list(range(1, num_drivers + 1))
+        used_positions = set()
+
+        dqn_drivers = [d for d in self.race_state.drivers if isinstance(d.agent, DQNAgent)]
+
+        # Assign DQN drivers positions in a round-robin cycle to ensure even coverage
+        for dqn_driver in dqn_drivers:
+            pos = all_positions[self._start_pos_cycle_idx % num_drivers]
+            self._start_pos_cycle_idx += 1
+            while pos in used_positions:
+                pos = all_positions[self._start_pos_cycle_idx % num_drivers]
+                self._start_pos_cycle_idx += 1
+            dqn_driver.starting_position = pos
+            dqn_driver.position = pos
+            dqn_driver.current_distance = ((num_drivers - pos) * grid_gap_meters) / 1000.0
+            used_positions.add(pos)
+
+        # Randomize remaining positions for non-DQN drivers
+        remaining_positions = [p for p in all_positions if p not in used_positions]
+        random.shuffle(remaining_positions)
+        for driver in self.race_state.drivers:
+            if driver in dqn_drivers:
+                continue
+            pos = remaining_positions.pop(0)
             driver.starting_position = pos
             driver.position = pos
             driver.current_distance = ((num_drivers - pos) * grid_gap_meters) / 1000.0
@@ -157,6 +184,110 @@ class RaceSimulator:
         # create dicts to store different visualisations
         self.agent_learning_visualisations = defaultdict(dict)
         self.race_results = defaultdict(dict)
+        self._initialise_run_logging()
+
+    def _initialise_run_logging(self):
+        """Set up disk-backed logging for race results and visualisation replay."""
+        sim_config = self.config.get("simulator", {})
+        run_count = int(sim_config.get("runs", 0) or 0)
+        visualise_from = str(sim_config.get("visualise_from_run_name", "")).strip()
+        logs_root = Path("logs")
+        logs_root.mkdir(exist_ok=True)
+
+        # Replay-only mode: do not create a new logs folder when runs == 0.
+        if run_count == 0:
+            self.run_name = None
+            self.run_dir = None
+            self.race_results_log_path = None
+            self.is_replay_only = True
+
+            if visualise_from:
+                candidate = logs_root / visualise_from / "race_results.jsonl"
+                if candidate.exists():
+                    self.visualisation_log_path = candidate
+                else:
+                    print(f"Requested visualise_from_run_name '{visualise_from}' not found.")
+                    self.visualisation_log_path = None
+            else:
+                self.visualisation_log_path = None
+            return
+
+        self.is_replay_only = False
+        configured_name = sim_config.get("run_name", "")
+
+        run_name = str(configured_name).strip() if configured_name is not None else ""
+        if not run_name:
+            track_name = self.config.get("track", {}).get("name", "track")
+            laps = self.config.get("race_settings", {}).get("total_laps", 0)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_name = f"{track_name}_{run_count}runs_{laps}laps_{timestamp}"
+
+        safe_run_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in run_name)
+        if not safe_run_name:
+            safe_run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+
+        run_dir = logs_root / safe_run_name
+        if run_dir.exists():
+            suffix = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_dir = logs_root / f"{safe_run_name}_{suffix}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        self.run_name = run_dir.name
+        self.run_dir = run_dir
+        self.race_results_log_path = run_dir / "race_results.jsonl"
+        self.race_results_log_path.write_text("", encoding="utf-8")
+
+        visualise_log_path = None
+        if visualise_from:
+            candidate = logs_root / visualise_from / "race_results.jsonl"
+            if candidate.exists():
+                visualise_log_path = candidate
+            else:
+                print(f"Requested visualise_from_run_name '{visualise_from}' not found; using current run logs.")
+        self.visualisation_log_path = visualise_log_path or self.race_results_log_path
+
+        metadata = {
+            "run_name": self.run_name,
+            "created_at": datetime.now().isoformat(),
+            "simulator": {
+                "runs": sim_config.get("runs"),
+                "method": sim_config.get("method"),
+                "agent_mode": sim_config.get("agent_mode"),
+                "tick_rate": sim_config.get("tick_rate"),
+                "tick_duration": sim_config.get("tick_duration"),
+            },
+            "race_settings": self.config.get("race_settings", {}),
+            "track": {
+                "name": self.config.get("track", {}).get("name"),
+                "distance": self.config.get("track", {}).get("distance"),
+            },
+        }
+        (run_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    def _append_result_record(self, record: Dict):
+        """Append one per-driver, per-run race record to JSONL logs."""
+        if not self.race_results_log_path:
+            return
+        with self.race_results_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+
+    def _load_race_results_from_logs(self) -> Dict[int, Dict[str, Dict]]:
+        """Load race results from disk logs into the legacy dict shape for plotting."""
+        loaded = defaultdict(dict)
+        if not hasattr(self, "visualisation_log_path") or not self.visualisation_log_path.exists():
+            return loaded
+
+        with self.visualisation_log_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                run_number = int(record.get("run_number"))
+                driver_name = record.get("driver_name")
+                data = record.get("data", {})
+                loaded[run_number][driver_name] = data
+        return loaded
 
 
     def _update_driver(self, driver, dt: float):
@@ -584,6 +715,10 @@ class RaceSimulator:
         """Run the simulation without visualization (fast mode)."""
         print(f"\n{'='*60}")
         print(f"Starting Race (Batch Mode): {self.total_laps} laps")
+        if self.run_dir:
+            print(f"Logging run data to: {self.run_dir}")
+        elif self.is_replay_only:
+            print("Replay mode: no new log folder will be created.")
         print(f"{'='*60}\n")
         runs = self.config.get('simulator', {}).get('runs')
         for run_idx in range(runs):
@@ -680,7 +815,7 @@ class RaceSimulator:
                 driver.cumulative_positions_gained += driver.starting_position - i
                 driver.runs_completed += 1
 
-                self.race_results[run_number][driver.name] = {
+                per_driver_result = {
                     "laps": driver.completed_laps,
                     "finish_time": finish_time,
                     "gap": gap,
@@ -690,7 +825,16 @@ class RaceSimulator:
                     "gap_to_ahead_history": list(driver.gap_to_ahead_history),
                     "gap_to_behind_history": list(driver.gap_to_behind_history),
                     "lap_progress_history": list(driver.lap_progress_history),
+                    "overtakes_attempted": getattr(driver, "overtakes_attempted", 0),
+                    "overtakes_succeeded": getattr(driver, "overtakes_succeeded", 0),
                 }
+                self._append_result_record(
+                    {
+                        "run_number": int(run_number),
+                        "driver_name": driver.name,
+                        "data": per_driver_result,
+                    }
+                )
 
         # Fastest lap
         if self.lap_records:
@@ -755,15 +899,16 @@ class RaceSimulator:
         import matplotlib.pyplot as plt
         import numpy as np
 
-        if not self.race_results:
+        race_results = self._load_race_results_from_logs()
+        if not race_results:
             print("No race results to visualise.")
             return
 
         # Shared data prep
-        runs = sorted(self.race_results.keys())
+        runs = sorted(race_results.keys())
         driver_names = set()
         for run in runs:
-            driver_names.update(self.race_results[run].keys())
+            driver_names.update(race_results[run].keys())
         driver_names = sorted(driver_names)
         run_ticks = list(runs)
 
@@ -808,7 +953,7 @@ class RaceSimulator:
         avg_positions = []
         for driver in driver_names:
             pos = [
-                self.race_results[run].get(driver, {}).get("position", np.nan)
+                race_results[run].get(driver, {}).get("position", np.nan)
                 for run in runs
             ]
             pos = [p for p in pos if not np.isnan(p)]
@@ -824,7 +969,7 @@ class RaceSimulator:
             cumulative = 0
             cumulative_series = []
             for run in runs:
-                d_data = self.race_results[run].get(driver, {})
+                d_data = race_results[run].get(driver, {})
                 start_pos = d_data.get("starting_position", np.nan)
                 finish_pos = d_data.get("position", np.nan)
                 if not (np.isnan(start_pos) or np.isnan(finish_pos)):
@@ -852,7 +997,7 @@ class RaceSimulator:
         for driver in driver_names:
             total = 0
             for run in runs:
-                pos_hist = self.race_results[run].get(driver, {}).get("position_history", [])
+                pos_hist = race_results[run].get(driver, {}).get("position_history", [])
                 for t in range(1, len(pos_hist)):
                     total += abs(pos_hist[t] - pos_hist[t - 1])
             abs_changes.append(total)
@@ -866,7 +1011,7 @@ class RaceSimulator:
         for driver in driver_names:
             increments = 0
             for run in runs:
-                pos_hist = self.race_results[run].get(driver, {}).get("position_history", [])
+                pos_hist = race_results[run].get(driver, {}).get("position_history", [])
                 for t in range(1, len(pos_hist)):
                     delta = pos_hist[t - 1] - pos_hist[t]
                     if delta > 0:
@@ -890,7 +1035,7 @@ class RaceSimulator:
         for driver in driver_names:
             sf: Dict[int, list] = {}
             for run in runs:
-                d_data = self.race_results[run].get(driver, {})
+                d_data = race_results[run].get(driver, {})
                 sp = d_data.get("starting_position", None)
                 fp = d_data.get("position", None)
                 if sp is not None and fp is not None and not (np.isnan(sp) or np.isnan(fp)):
@@ -958,7 +1103,7 @@ class RaceSimulator:
 
         # 7. Position throughout the race (every tick)
         for driver in driver_names:
-            d_data = self.race_results[last_run].get(driver, {})
+            d_data = race_results[last_run].get(driver, {})
             lap_prog = d_data.get("lap_progress_history", [])
             pos_hist = d_data.get("position_history", [])
             if lap_prog and pos_hist:
@@ -973,7 +1118,7 @@ class RaceSimulator:
 
         # 8. Gap to car ahead (every tick)
         for driver in driver_names:
-            d_data = self.race_results[last_run].get(driver, {})
+            d_data = race_results[last_run].get(driver, {})
             lap_prog = d_data.get("lap_progress_history", [])
             gap_ahead = d_data.get("gap_to_ahead_history", [])
             if lap_prog and gap_ahead:
@@ -987,7 +1132,7 @@ class RaceSimulator:
 
         # 9. Gap to car behind (every tick)
         for driver in driver_names:
-            d_data = self.race_results[last_run].get(driver, {})
+            d_data = race_results[last_run].get(driver, {})
             lap_prog = d_data.get("lap_progress_history", [])
             gap_behind = d_data.get("gap_to_behind_history", [])
             if lap_prog and gap_behind:
@@ -1000,6 +1145,115 @@ class RaceSimulator:
         axes3[2].grid(True)
 
         fig3.tight_layout()
+
+        # ── WINDOW 5: competitive analysis ───────────────────────────────────
+        # Adaptive rolling window: 50 runs or 10% of total runs, whichever is smaller.
+        roll_window = min(50, max(1, len(runs) // 10))
+
+        fig5, axes5 = plt.subplots(1, 3, figsize=(20, 6))
+        fig5.suptitle(
+            f"Competitive Analysis  (rolling window = {roll_window} runs)",
+            fontsize=14, y=1.02
+        )
+
+        # ── helper: generic rolling mean that tolerates NaN values ──────────
+        def _rolling_mean(values, window):
+            out = []
+            for i in range(len(values)):
+                start = max(0, i - window + 1)
+                valid = [v for v in values[start : i + 1] if not np.isnan(v)]
+                out.append(np.mean(valid) if valid else np.nan)
+            return out
+
+        # ── 10. Rolling average finishing position ───────────────────────────
+        ax_pos = axes5[0]
+        for driver in driver_names:
+            raw = [
+                race_results[run].get(driver, {}).get("position", np.nan)
+                for run in runs
+            ]
+            smoothed = _rolling_mean(raw, roll_window)
+            ax_pos.plot(
+                runs, smoothed,
+                label=driver_label(driver),
+                color=driver_color_map[driver],
+                linewidth=2
+            )
+        ax_pos.invert_yaxis()
+        ax_pos.set_title(f"Rolling {roll_window}-Run Avg Finishing Position")
+        ax_pos.set_xlabel("Run Number")
+        ax_pos.set_ylabel("Avg Position (lower = better)")
+        ax_pos.legend(fontsize=8)
+        ax_pos.grid(True)
+
+        # ── 11. Head-to-head win rate matrix ────────────────────────────────
+        ax_hth = axes5[1]
+        n_d = len(driver_names)
+        win_matrix = np.full((n_d, n_d), np.nan)
+        for i, d1 in enumerate(driver_names):
+            for j, d2 in enumerate(driver_names):
+                if i == j:
+                    continue
+                wins, total = 0, 0
+                for run in runs:
+                    p1 = race_results[run].get(d1, {}).get("position", None)
+                    p2 = race_results[run].get(d2, {}).get("position", None)
+                    if p1 is not None and p2 is not None:
+                        total += 1
+                        if p1 < p2:
+                            wins += 1
+                win_matrix[i, j] = (wins / total * 100) if total > 0 else np.nan
+
+        # Mask diagonal (NaN → white) for imshow
+        masked = np.ma.masked_invalid(win_matrix)
+        cmap_hth = plt.cm.RdYlGn.copy()
+        cmap_hth.set_bad(color="lightgrey")
+        im = ax_hth.imshow(masked, cmap=cmap_hth, vmin=0, vmax=100, aspect="auto")
+        plt.colorbar(im, ax=ax_hth, label="Win %", shrink=0.8)
+        tick_labels = [driver_label(d) for d in driver_names]
+        ax_hth.set_xticks(range(n_d))
+        ax_hth.set_yticks(range(n_d))
+        ax_hth.set_xticklabels(tick_labels, rotation=40, ha="right", fontsize=8)
+        ax_hth.set_yticklabels(tick_labels, fontsize=8)
+        ax_hth.set_title("Head-to-Head Win Rate (%)\nRow beats column")
+        for i in range(n_d):
+            for j in range(n_d):
+                val = win_matrix[i, j]
+                if not np.isnan(val):
+                    ax_hth.text(
+                        j, i, f"{val:.0f}%",
+                        ha="center", va="center",
+                        fontsize=9,
+                        color="black" if 20 < val < 80 else "white"
+                    )
+
+        # ── 12. Overtake success rate per agent (rolling average) ────────────
+        ax_ot = axes5[2]
+        for driver in driver_names:
+            raw_rates = []
+            for run in runs:
+                d_data = race_results[run].get(driver, {})
+                attempted = d_data.get("overtakes_attempted", 0)
+                succeeded = d_data.get("overtakes_succeeded", 0)
+                raw_rates.append(
+                    (succeeded / attempted * 100) if attempted > 0 else np.nan
+                )
+            smoothed_ot = _rolling_mean(raw_rates, roll_window)
+            ax_ot.plot(
+                runs, smoothed_ot,
+                label=driver_label(driver),
+                color=driver_color_map[driver],
+                linewidth=2
+            )
+        ax_ot.set_ylim(0, 100)
+        ax_ot.set_title(f"Rolling {roll_window}-Run Overtake Success Rate (%)")
+        ax_ot.set_xlabel("Run Number")
+        ax_ot.set_ylabel("Success Rate (%)")
+        ax_ot.legend(fontsize=8)
+        ax_ot.grid(True)
+
+        fig5.tight_layout()
+
         plt.show()
 
 def init_simulator(race_state, config, track):

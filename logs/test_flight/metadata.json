@@ -1,0 +1,19 @@
+{
+  "run_name": "test_flight",
+  "created_at": "2026-02-28T12:23:06.622103",
+  "simulator": {
+    "runs": 2,
+    "method": "batch",
+    "agent_mode": "training",
+    "tick_rate": 100,
+    "tick_duration": 0.01
+  },
+  "race_settings": {
+    "total_laps": 2,
+    "weather": "dry"
+  },
+  "track": {
+    "name": "spa",
+    "distance": 7
+  }
+}

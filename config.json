@@ -8,7 +8,7 @@
             "colour": "#00008B"
         },
         {
-            "name": "Jackson Storm 500 runs 10 laps v2",
+            "name": "Jackson Storm 500 runs 10 laps new graphs v4",
             "agent": "dqn",
             "colour": "#022050"
         },
@@ -19,14 +19,16 @@
         }
     ],
     "simulator": {
-        "runs": 500,
+        "runs": 0,
+        "run_name": "",
+        "visualise_from_run_name": "test_flight",
         "method": "batch",
         "tick_rate": 100,
         "tick_duration": 0.01,
         "agent_mode": "training"       
     },
     "race_settings": {
-        "total_laps": 10,
+        "total_laps": 2,
         "weather": "dry"
     },
     "track": {

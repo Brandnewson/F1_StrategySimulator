@@ -14,3 +14,5 @@ While that's my main project aim, I personally want to explore F1 strategy when 
 1. Install requirements from requirements.txt (preferably in a Virtual Environment such as Conda)
 2. Run the cells in f1StrategySimulatorMVP Jupyter to check if the MVP works.
 
+## To run only using visualisations
+- in config.json, set the visualise_from_run_name to the desired folder of choice, then set runs to 0
