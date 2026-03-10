@@ -14,21 +14,21 @@
         },
         {
             "name": "Oscar Pastry",
-            "agent": "base",
+            "agent": "random",
             "colour": "#FFA500"
         }
     ],
     "simulator": {
-        "runs": 0,
-        "run_name": "",
-        "visualise_from_run_name": "test_flight",
+        "runs": 1000,
+        "run_name": "Double randoms",
+        "visualise_from_run_name": "",
         "method": "batch",
         "tick_rate": 100,
         "tick_duration": 0.01,
-        "agent_mode": "training"       
+        "agent_mode": "evaluation"       
     },
     "race_settings": {
-        "total_laps": 2,
+        "total_laps": 10,
         "weather": "dry"
     },
     "track": {

@@ -211,3 +211,6 @@ fastf1_cache/
 
 # uv
 uv.lock
+
+# logs 
+logs
