@@ -107,14 +107,34 @@ def _ci95(values: List[float]) -> Dict[str, float]:
     }
 
 
+def _compute_win_flags_vs_group(
+    run_data: Dict[int, Dict[str, Dict]],
+    dqn_driver_names: List[str],
+    opponent_driver_names: List[str],
+) -> List[float]:
+    win_flags: List[float] = []
+    for run_idx in sorted(run_data.keys()):
+        per_driver = run_data[run_idx]
+        dqn_entries = [(name, data) for name, data in per_driver.items() if name in dqn_driver_names]
+        opp_entries = [(name, data) for name, data in per_driver.items() if name in opponent_driver_names]
+        if not dqn_entries or not opp_entries:
+            continue
+
+        best_dqn_position = min(float(d.get("position", 999)) for _, d in dqn_entries)
+        best_opp_position = min(float(d.get("position", 999)) for _, d in opp_entries)
+        win_flags.append(1.0 if best_dqn_position < best_opp_position else 0.0)
+    return win_flags
+
+
 def _compute_eval_metrics(
     records: List[Dict],
     dqn_driver_names: List[str],
+    baseline_driver_names: List[str],
+    random_driver_names: List[str],
     total_laps: int,
 ) -> Dict:
     run_data = _group_by_run(records)
 
-    dqn_win_flags: List[float] = []
     dqn_avg_positions: List[float] = []
     non_dqn_avg_positions: List[float] = []
     finish_time_deltas: List[float] = []
@@ -139,10 +159,6 @@ def _compute_eval_metrics(
         dqn_avg_positions.append(_mean(dqn_positions))
         non_dqn_avg_positions.append(_mean(non_dqn_positions))
 
-        best_dqn_position = min(dqn_positions)
-        best_overall_position = min(float(d.get("position", 999)) for _, d in per_driver.items())
-        dqn_win_flags.append(1.0 if best_dqn_position <= best_overall_position else 0.0)
-
         best_dqn_time = min(float(d.get("finish_time", 1e12)) for _, d in dqn_entries)
         best_non_dqn_time = min(float(d.get("finish_time", 1e12)) for _, d in non_dqn_entries)
         finish_time_deltas.append(best_non_dqn_time - best_dqn_time)
@@ -157,41 +173,52 @@ def _compute_eval_metrics(
             if laps < total_laps:
                 dqn_dnf_count += 1
 
-    win_rate = _mean(dqn_win_flags)
-    avg_position = _mean(dqn_avg_positions)
-    avg_position_delta = _mean([n - d for n, d in zip(non_dqn_avg_positions, dqn_avg_positions)])
+    win_flags_vs_baseline = _compute_win_flags_vs_group(run_data, dqn_driver_names, baseline_driver_names)
+    win_flags_vs_random = _compute_win_flags_vs_group(run_data, dqn_driver_names, random_driver_names)
+
+    win_rate_vs_baseline = _ci95(win_flags_vs_baseline)
+    win_rate_vs_random = _ci95(win_flags_vs_random)
+
+    overtake_attempt_rate = (
+        float(dqn_overtakes_attempted / dqn_driver_run_count) if dqn_driver_run_count > 0 else 0.0
+    )
     overtake_success_rate = (
         float(dqn_overtakes_succeeded / dqn_overtakes_attempted) if dqn_overtakes_attempted > 0 else 0.0
     )
     dnf_rate = float(dqn_dnf_count / dqn_driver_run_count) if dqn_driver_run_count > 0 else 0.0
-    avg_finish_time_delta_vs_non_dqn = _mean(finish_time_deltas)
-
-    score = (
-        (2.0 * win_rate)
-        + (0.75 * avg_position_delta)
-        + (0.2 * overtake_success_rate)
-        + (0.01 * avg_finish_time_delta_vs_non_dqn)
-        - (1.0 * dnf_rate)
-    )
 
     return {
-        "score": float(score),
-        "win_rate_dqn_best_finisher": _ci95(dqn_win_flags),
-        "avg_position_dqn": _ci95(dqn_avg_positions),
-        "avg_position_non_dqn": _ci95(non_dqn_avg_positions),
-        "avg_position_delta_non_dqn_minus_dqn": _ci95([n - d for n, d in zip(non_dqn_avg_positions, dqn_avg_positions)]),
-        "avg_finish_time_delta_vs_non_dqn_seconds": _ci95(finish_time_deltas),
-        "overtake_success_rate_dqn": {
-            "attempted": dqn_overtakes_attempted,
-            "succeeded": dqn_overtakes_succeeded,
-            "rate": overtake_success_rate,
+        "primary_objective": {
+            "name": "win_rate_vs_baseline",
+            "score": float(win_rate_vs_baseline["mean"]),
+            "details": win_rate_vs_baseline,
         },
-        "dnf_rate_dqn": {
-            "dnf_count": dqn_dnf_count,
-            "driver_runs": dqn_driver_run_count,
-            "rate": dnf_rate,
+        "win_rate_vs_baseline": win_rate_vs_baseline,
+        "win_rate_vs_random": win_rate_vs_random,
+        "race_quality": {
+            "avg_position_dqn": _ci95(dqn_avg_positions),
+            "avg_position_non_dqn": _ci95(non_dqn_avg_positions),
+            "avg_position_delta_non_dqn_minus_dqn": _ci95(
+                [n - d for n, d in zip(non_dqn_avg_positions, dqn_avg_positions)]
+            ),
+            "avg_finish_time_delta_vs_non_dqn_seconds": _ci95(finish_time_deltas),
         },
-        "num_eval_runs": len(_group_by_run(records)),
+        "tactical": {
+            "overtake_attempt_rate_per_driver_run": overtake_attempt_rate,
+            "overtake_success_rate": {
+                "attempted": dqn_overtakes_attempted,
+                "succeeded": dqn_overtakes_succeeded,
+                "rate": overtake_success_rate,
+            },
+        },
+        "stability": {
+            "dnf_rate_dqn": {
+                "dnf_count": dqn_dnf_count,
+                "driver_runs": dqn_driver_run_count,
+                "rate": dnf_rate,
+            },
+        },
+        "num_eval_runs": len(run_data),
     }
 
 
@@ -227,15 +254,38 @@ def _run_phase(cfg: Dict, seed: int, verbose: bool) -> Tuple[Path, List[Dict]]:
     return Path(race_log_path), records
 
 
+def _parse_seeds(eval_seeds: str, fallback_seed: int) -> List[int]:
+    if not eval_seeds.strip():
+        return [int(fallback_seed)]
+    seeds: List[int] = []
+    for token in eval_seeds.split(","):
+        t = token.strip()
+        if not t:
+            continue
+        seeds.append(int(t))
+    return seeds if seeds else [int(fallback_seed)]
+
+
+def _remap_run_numbers(records: List[Dict], run_offset: int) -> List[Dict]:
+    remapped: List[Dict] = []
+    for record in records:
+        rec = dict(record)
+        rec["run_number"] = int(rec.get("run_number", 0)) + int(run_offset)
+        remapped.append(rec)
+    return remapped
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train + evaluate candidate policy/model and emit autoresearch-friendly metrics.")
     parser.add_argument("--config", default="config.json", help="Path to base config JSON.")
     parser.add_argument("--train-runs", type=int, default=200, help="Number of batch runs for training phase.")
-    parser.add_argument("--eval-runs", type=int, default=200, help="Number of batch runs for evaluation phase.")
+    parser.add_argument("--eval-runs", type=int, default=200, help="Number of batch runs per evaluation seed.")
     parser.add_argument("--train-seed", type=int, default=1337, help="RNG seed for training phase.")
-    parser.add_argument("--eval-seed", type=int, default=7331, help="RNG seed for evaluation phase.")
+    parser.add_argument("--eval-seed", type=int, default=7331, help="Fallback RNG seed for evaluation phase.")
+    parser.add_argument("--eval-seeds", default="", help="Comma-separated list of eval seeds (e.g. '101,202,303').")
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase and only run evaluation using existing model files.")
     parser.add_argument("--verbose", action="store_true", help="Print simulator output during train/eval phases.")
+    parser.add_argument("--guardrail-runs", type=int, default=500, help="Minimum eval runs before no-benefit guardrail is activated.")
     parser.add_argument("--run-prefix", default="cand_eval", help="Prefix for generated run_name fields in logs/.")
     parser.add_argument("--out", default="metrics/latest_candidate_metrics.json", help="Path to write output metrics JSON.")
     args = parser.parse_args()
@@ -244,13 +294,38 @@ def main() -> None:
 
     base_config = _load_config((ROOT / args.config).resolve())
     competitors = base_config.get("competitors", [])
+
     dqn_driver_names = [
         c.get("name")
         for c in competitors
         if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn"
     ]
+    baseline_driver_names = [
+        c.get("name")
+        for c in competitors
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "base"
+    ]
+    random_driver_names = [
+        c.get("name")
+        for c in competitors
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "random"
+    ]
+
     if not dqn_driver_names:
         raise ValueError("No DQN competitors found in config. Add at least one competitor with agent='dqn'.")
+
+    if not baseline_driver_names:
+        baseline_driver_names = random_driver_names.copy()
+
+    if not baseline_driver_names:
+        baseline_driver_names = [
+            c.get("name")
+            for c in competitors
+            if isinstance(c, dict) and str(c.get("agent", "")).lower() != "dqn"
+        ]
+
+    if not baseline_driver_names:
+        raise ValueError("No baseline opponents found. Add at least one non-DQN competitor (base or random).")
 
     total_laps = int(base_config.get("race_settings", {}).get("total_laps", 0) or 0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -263,12 +338,73 @@ def main() -> None:
         print(f"[evaluate_candidate] Training phase: runs={args.train_runs}, seed={args.train_seed}, run_name={train_run_name}")
         train_log_path, train_records = _run_phase(train_cfg, seed=args.train_seed, verbose=args.verbose)
 
-    eval_run_name = f"{args.run_prefix}_eval_{timestamp}"
-    eval_cfg = _prepare_phase_config(base_config, phase="evaluation", runs=args.eval_runs, run_name=eval_run_name)
-    print(f"[evaluate_candidate] Evaluation phase: runs={args.eval_runs}, seed={args.eval_seed}, run_name={eval_run_name}")
-    eval_log_path, eval_records = _run_phase(eval_cfg, seed=args.eval_seed, verbose=args.verbose)
+    eval_seeds = _parse_seeds(args.eval_seeds, args.eval_seed)
+    all_eval_records: List[Dict] = []
+    eval_runs_meta: List[Dict] = []
+    run_offset = 0
 
-    eval_metrics = _compute_eval_metrics(eval_records, dqn_driver_names=dqn_driver_names, total_laps=total_laps)
+    for seed in eval_seeds:
+        eval_run_name = f"{args.run_prefix}_eval_{timestamp}_s{seed}"
+        eval_cfg = _prepare_phase_config(base_config, phase="evaluation", runs=args.eval_runs, run_name=eval_run_name)
+        print(f"[evaluate_candidate] Evaluation phase: runs={args.eval_runs}, seed={seed}, run_name={eval_run_name}")
+        eval_log_path, eval_records = _run_phase(eval_cfg, seed=seed, verbose=args.verbose)
+
+        remapped_records = _remap_run_numbers(eval_records, run_offset=run_offset)
+        all_eval_records.extend(remapped_records)
+        eval_runs_meta.append(
+            {
+                "seed": int(seed),
+                "runs": int(args.eval_runs),
+                "eval_log_path": str(eval_log_path),
+            }
+        )
+        run_offset += int(args.eval_runs)
+
+    eval_metrics = _compute_eval_metrics(
+        all_eval_records,
+        dqn_driver_names=dqn_driver_names,
+        baseline_driver_names=baseline_driver_names,
+        random_driver_names=random_driver_names,
+        total_laps=total_laps,
+    )
+
+    seed_level_win_rates: List[float] = []
+    for run_info in eval_runs_meta:
+        seed_records = _read_jsonl_records(Path(run_info["eval_log_path"]))
+        seed_metrics = _compute_eval_metrics(
+            seed_records,
+            dqn_driver_names=dqn_driver_names,
+            baseline_driver_names=baseline_driver_names,
+            random_driver_names=random_driver_names,
+            total_laps=total_laps,
+        )
+        seed_level_win_rates.append(float(seed_metrics["win_rate_vs_baseline"]["mean"]))
+
+    eval_metrics["stability"]["win_rate_vs_baseline_variance_across_seeds"] = float(
+        np.var(np.array(seed_level_win_rates, dtype=float), ddof=1)
+    ) if len(seed_level_win_rates) > 1 else 0.0
+
+    total_eval_runs = int(eval_metrics.get("num_eval_runs", 0))
+    baseline_ci_low = float(eval_metrics["win_rate_vs_baseline"].get("ci95_low", 0.0))
+    random_ci_low = float(eval_metrics["win_rate_vs_random"].get("ci95_low", 0.0)) if random_driver_names else 0.0
+
+    no_clear_benefit = (
+        total_eval_runs >= int(args.guardrail_runs)
+        and baseline_ci_low <= 0.5
+        and (not random_driver_names or random_ci_low <= 0.5)
+    )
+
+    eval_metrics["guardrail"] = {
+        "name": "no_clear_performance_benefit_after_guardrail_runs",
+        "guardrail_runs": int(args.guardrail_runs),
+        "triggered": bool(no_clear_benefit),
+        "reason": (
+            "No statistically clear benefit over baseline (and random when present)."
+            if no_clear_benefit
+            else "Guardrail not triggered."
+        ),
+    }
+
     train_summary = {
         "num_train_runs": len(_group_by_run(train_records)),
         "train_log_path": str(train_log_path) if train_log_path is not None else None,
@@ -277,7 +413,11 @@ def main() -> None:
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
+        "objective_name": "win_rate_vs_baseline",
+        "objective_score": float(eval_metrics["primary_objective"]["score"]),
         "dqn_driver_names": dqn_driver_names,
+        "baseline_driver_names": baseline_driver_names,
+        "random_driver_names": random_driver_names,
         "phases": {
             "training": {
                 "skipped": bool(args.skip_training),
@@ -286,9 +426,9 @@ def main() -> None:
                 **train_summary,
             },
             "evaluation": {
-                "runs": int(args.eval_runs),
-                "seed": int(args.eval_seed),
-                "eval_log_path": str(eval_log_path),
+                "runs_per_seed": int(args.eval_runs),
+                "seeds": [int(s) for s in eval_seeds],
+                "seed_runs": eval_runs_meta,
             },
         },
         "metrics": eval_metrics,
@@ -298,7 +438,8 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out_payload, indent=2), encoding="utf-8")
 
-    print(f"[evaluate_candidate] Score: {eval_metrics['score']:.6f}")
+    primary_score = float(eval_metrics["primary_objective"]["score"])
+    print(f"[evaluate_candidate] Primary objective (win_rate_vs_baseline): {primary_score:.6f}")
     print(f"[evaluate_candidate] Metrics written to: {out_path}")
 
 

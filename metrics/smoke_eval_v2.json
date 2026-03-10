@@ -1,0 +1,123 @@
+{
+  "created_at": "2026-03-10T21:41:14.100275",
+  "config_path": "C:\\Code\\F1_StrategySimulator\\config.json",
+  "dqn_driver_names": [
+    "Jackson Storm 500 runs 10 laps new graphs v4"
+  ],
+  "baseline_driver_names": [
+    "Vax Merstappen",
+    "Oscar Pastry"
+  ],
+  "random_driver_names": [
+    "Vax Merstappen",
+    "Oscar Pastry"
+  ],
+  "phases": {
+    "training": {
+      "skipped": true,
+      "runs": 200,
+      "seed": 1337,
+      "num_train_runs": 0,
+      "train_log_path": null
+    },
+    "evaluation": {
+      "runs_per_seed": 1,
+      "seeds": [
+        7331,
+        7332
+      ],
+      "seed_runs": [
+        {
+          "seed": 7331,
+          "runs": 1,
+          "eval_log_path": "logs\\cand_eval_eval_20260310_214056_s7331\\race_results.jsonl"
+        },
+        {
+          "seed": 7332,
+          "runs": 1,
+          "eval_log_path": "logs\\cand_eval_eval_20260310_214056_s7332\\race_results.jsonl"
+        }
+      ]
+    }
+  },
+  "metrics": {
+    "primary_objective": {
+      "name": "win_rate_vs_baseline",
+      "score": 0.5,
+      "details": {
+        "mean": 0.5,
+        "std": 0.7071067811865476,
+        "n": 2,
+        "ci95_low": -0.48,
+        "ci95_high": 1.48
+      }
+    },
+    "win_rate_vs_baseline": {
+      "mean": 0.5,
+      "std": 0.7071067811865476,
+      "n": 2,
+      "ci95_low": -0.48,
+      "ci95_high": 1.48
+    },
+    "win_rate_vs_random": {
+      "mean": 0.5,
+      "std": 0.7071067811865476,
+      "n": 2,
+      "ci95_low": -0.48,
+      "ci95_high": 1.48
+    },
+    "race_quality": {
+      "avg_position_dqn": {
+        "mean": 1.5,
+        "std": 0.7071067811865476,
+        "n": 2,
+        "ci95_low": 0.52,
+        "ci95_high": 2.48
+      },
+      "avg_position_non_dqn": {
+        "mean": 2.25,
+        "std": 0.3535533905932738,
+        "n": 2,
+        "ci95_low": 1.76,
+        "ci95_high": 2.74
+      },
+      "avg_position_delta_non_dqn_minus_dqn": {
+        "mean": 0.75,
+        "std": 1.0606601717798212,
+        "n": 2,
+        "ci95_low": -0.7199999999999998,
+        "ci95_high": 2.2199999999999998
+      },
+      "avg_finish_time_delta_vs_non_dqn_seconds": {
+        "mean": -0.12999999999988177,
+        "std": 4.157787873373118,
+        "n": 2,
+        "ci95_low": -5.89239999999464,
+        "ci95_high": 5.632399999994877
+      }
+    },
+    "tactical": {
+      "overtake_attempt_rate_per_driver_run": 3.5,
+      "overtake_success_rate": {
+        "attempted": 7,
+        "succeeded": 2,
+        "rate": 0.2857142857142857
+      }
+    },
+    "stability": {
+      "dnf_rate_dqn": {
+        "dnf_count": 0,
+        "driver_runs": 2,
+        "rate": 0.0
+      },
+      "win_rate_vs_baseline_variance_across_seeds": 0.5
+    },
+    "num_eval_runs": 2,
+    "guardrail": {
+      "name": "no_clear_performance_benefit_after_guardrail_runs",
+      "guardrail_runs": 500,
+      "triggered": false,
+      "reason": "Guardrail not triggered."
+    }
+  }
+}
