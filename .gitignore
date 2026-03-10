@@ -214,3 +214,9 @@ uv.lock
 
 # logs 
 logs
+
+# Autoresearch artifacts
+results.tsv
+metrics/
+.autoresearch_cache/
+*.lock

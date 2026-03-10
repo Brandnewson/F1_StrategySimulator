@@ -8,7 +8,7 @@
             "colour": "#00008B"
         },
         {
-            "name": "Jackson Storm 500 runs 10 laps new graphs v4",
+            "name": "Cruz Ramirez - AutoResearcher Alpha",
             "agent": "dqn",
             "colour": "#022050"
         },
@@ -25,7 +25,7 @@
         "method": "batch",
         "tick_rate": 100,
         "tick_duration": 0.01,
-        "agent_mode": "evaluation"       
+        "agent_mode": "training"       
     },
     "race_settings": {
         "total_laps": 10,

@@ -1,0 +1,4 @@
+# autoresearch dependencies
+# Install with: pip install -r requirements-autoresearch.txt
+
+anthropic>=0.7.0
