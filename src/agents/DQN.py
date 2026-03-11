@@ -98,10 +98,9 @@ class DQNAgent(BaseAgent):
         self.epsilon_decay = epsilon_decay
         self.target_update_freq = target_update_freq
         self.batch_size = 64
-        self.train_step = 0
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.target_update_freq = target_update_freq
+        
+        # Gradient clipping for training stability
+        self.max_grad_norm = 1.0
         
         # Training state
         self.training_steps = 0

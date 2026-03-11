@@ -134,14 +134,14 @@ def git_reset_hard() -> None:
 
 
 def run_evaluator_quick(
-    eval_runs: int = 50, eval_seeds: str = "101,202,303"
+    eval_runs: int = 50, eval_seeds: str = "101,202,303", train_runs: int = 200
 ) -> Optional[float]:
-    """Run quick evaluation phase. Returns objective_score or None if crashed."""
+    """Run train + quick evaluation phase. Returns objective_score or None if crashed."""
     METRICS_DIR.mkdir(exist_ok=True)
     out_file = METRICS_DIR / "candidate_eval.json"
     cmd = (
         f'C:/Users/brans/miniconda3/envs/f1StrategySim/python.exe {EVALUATOR_SCRIPT} '
-        f'--skip-training --eval-runs {eval_runs} --eval-seeds "{eval_seeds}" '
+        f'--train-runs {train_runs} --eval-runs {eval_runs} --eval-seeds "{eval_seeds}" '
         f'--out {out_file}'
     )
     try:
@@ -151,7 +151,7 @@ def run_evaluator_quick(
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=3600,
         )
         if result.returncode != 0:
             print(f"Evaluator failed: {result.stderr}")
@@ -178,7 +178,7 @@ def initialize_repo(branch: str) -> None:
         write_results_tsv({})
     
     print(f"[init] Verifying evaluator works...")
-    score = run_evaluator_quick(eval_runs=1, eval_seeds="101")
+    score = run_evaluator_quick(eval_runs=1, eval_seeds="101", train_runs=1)
     if score is None:
         print("ERROR: Evaluator failed on test run. Fix and retry.")
         sys.exit(1)
@@ -216,6 +216,11 @@ def main():
         type=float,
         default=0.02,
         help="Minimum improvement to promote to full phase (default: 0.02)",
+    )
+    parser.add_argument(
+        "--model",
+        default=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6"),
+        help="Claude model name (default: ANTHROPIC_MODEL or claude-opus-4-6)",
     )
     args = parser.parse_args()
 
@@ -274,8 +279,8 @@ Iteration: {iteration} / {args.max_iterations}
 
 === CURRENT CODE SNIPPETS ===
 
-**src/agents/DQN.py** (first 100 lines):
-{dqn_code[:3000]}
+**src/agents/DQN.py** (constructor + train_step context):
+{dqn_code[:9000]}
 
 **src/simulator.py** (reward shaping region, ~50 lines):
 {simulator_code[2000:4000] if len(simulator_code) > 2000 else simulator_code}
@@ -295,11 +300,12 @@ RESPOND with ONLY a JSON object (no markdown, no extra text):
 }}
 
 The change should be small and testable. Focus on one hyperparameter or simple logic tweak.
+Do NOT add or modify any attribute named self.train_step. It must remain a callable method.
 """
 
         print(f"[{iteration}] Asking Claude for suggestion...")
         response = client.messages.create(
-            model="claude-opus",
+            model=args.model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -336,6 +342,15 @@ The change should be small and testable. Focus on one hyperparameter or simple l
                 print(f"Looking for: {old_text[:100]}")
                 continue
             new_content = content.replace(old_text, new_text, 1)
+
+            if suggestion["file"] == "src/agents/DQN.py":
+                if re.search(r"\bself\.train_step\s*=", new_content):
+                    print(f"[{iteration}] ERROR: Rejected unsafe change (self.train_step assignment shadows method)")
+                    continue
+                if "def train_step(" not in new_content:
+                    print(f"[{iteration}] ERROR: Rejected unsafe change (train_step method missing)")
+                    continue
+
             write_file(file_path, new_content)
         except Exception as e:
             print(f"[{iteration}] ERROR: Could not apply change: {e}")
