@@ -168,6 +168,37 @@ def run_evaluator_quick(
         return None
 
 
+def run_smoke_test() -> bool:
+    """Run a 1-lap / 1-run simulation in evaluation mode to verify the code still works.
+    Returns True if the simulator ran without errors, False otherwise.
+    """
+    smoke_script = ROOT / "scripts" / "smoke_test.py"
+    cmd = f'C:/Users/brans/miniconda3/envs/f1StrategySim/python.exe {smoke_script}'
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            print(f"Smoke test FAILED (exit {result.returncode}):")
+            # Print last 20 lines of stderr/stdout for diagnosis
+            output = (result.stdout + result.stderr).strip()
+            for line in output.splitlines()[-20:]:
+                print(f"  {line}")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        print("Smoke test TIMED OUT after 60 seconds")
+        return False
+    except Exception as e:
+        print(f"Smoke test exception: {e}")
+        return False
+
+
 def initialize_repo(branch: str) -> None:
     """Initialize git branch and results.tsv."""
     print(f"[init] Creating branch {branch}...")
@@ -261,52 +292,103 @@ def main():
     print(f"Best baseline: {best_baseline:.6f}")
     print(f"{'='*60}\n")
 
+    iteration_history: List[dict] = []
+
     for iteration in range(1, args.max_iterations + 1):
         print(f"\n[{iteration}] ===== ITERATION {iteration} / {args.max_iterations} =====")
 
-        # Read current code
+        # Read current code for all relevant files
         dqn_code = read_file(ROOT / "src" / "agents" / "DQN.py")
-        simulator_code = read_file(ROOT / "src" / "simulator.py")
-        config = read_file(ROOT / "config.json")
+        feedback_code = read_file(ROOT / "src" / "feedback.py")
+        config_json = read_file(ROOT / "config.json")
+
+        # Extract reward functions from simulator.py
+        sim_full = read_file(ROOT / "src" / "simulator.py")
+        reward_start = sim_full.find("def _calculate_reward(")
+        lap_reward_end = sim_full.find("def _attempt_overtake(")
+        sim_reward_section = sim_full[reward_start:lap_reward_end].strip() if reward_start >= 0 else sim_full[2000:4500]
+
+        # Load last eval metrics if available
+        last_metrics_path = METRICS_DIR / "candidate_eval.json"
+        last_metrics_str = ""
+        if last_metrics_path.exists():
+            try:
+                with open(last_metrics_path, "r", encoding="utf-8") as f:
+                    last_m = json.load(f)
+                last_metrics_str = json.dumps({
+                    "objective_score": last_m.get("objective_score"),
+                    "win_rate_vs_baseline": last_m.get("metrics", {}).get("win_rate_vs_baseline"),
+                    "win_rate_vs_random": last_m.get("metrics", {}).get("win_rate_vs_random"),
+                    "tactical": last_m.get("metrics", {}).get("tactical"),
+                    "stability": last_m.get("metrics", {}).get("stability"),
+                }, indent=2)
+            except Exception:
+                pass
+
+        # Build iteration history summary
+        history_lines = []
+        for h in iteration_history[-10:]:
+            history_lines.append(
+                f"  Iter {h['iter']}: file={h['file']} score={h['score']} status={h['status']} | {h['reasoning'][:80]}"
+            )
+        history_str = "\n".join(history_lines) if history_lines else "  (no previous iterations yet)"
 
         # Ask Claude what to try
         prompt = f"""
 {program_context}
 
 === CURRENT STATE ===
-Current best objective_score: {best_baseline:.6f}
+Best win_rate_vs_baseline so far: {best_baseline:.6f}
 Iteration: {iteration} / {args.max_iterations}
 
-=== CURRENT CODE SNIPPETS ===
+=== RECENT ITERATION HISTORY (last 10) ===
+{history_str}
 
-**src/agents/DQN.py** (constructor + train_step context):
-{dqn_code[:9000]}
+=== LAST EVAL METRICS ===
+{last_metrics_str if last_metrics_str else '(none yet)'}
 
-**src/simulator.py** (reward shaping region, ~50 lines):
-{simulator_code[2000:4000] if len(simulator_code) > 2000 else simulator_code}
+=== CURRENT SOURCE FILES ===
 
-**config.json**:
-{config}
+--- src/agents/DQN.py ---
+{dqn_code}
+
+--- src/feedback.py (to_vector + get_state_dim) ---
+{feedback_code[feedback_code.find('def to_vector'):] if 'def to_vector' in feedback_code else feedback_code[-3000:]}
+
+--- src/simulator.py (reward functions) ---
+{sim_reward_section}
+
+--- config.json ---
+{config_json}
 
 === YOUR TASK ===
-Suggest ONE specific, focused code change to improve win_rate_vs_baseline.
+Based on the history and current code, suggest ONE specific, targeted change to improve
+win_rate_vs_baseline. Avoid repeating ideas that were already tried. Think about WHY the
+DQN might be underperforming (sparse rewards? bad features? wrong hyperparameters? reward
+scale mismatch?) and address the most likely root cause.
+
+Allowed target files:
+- src/agents/DQN.py
+- src/feedback.py
+- src/simulator.py
+- config.json
 
 RESPOND with ONLY a JSON object (no markdown, no extra text):
 {{
   "file": "src/agents/DQN.py",
-  "old_text": "exact string to find (must match exactly)",
+  "old_text": "exact string to find in the file (must match character-for-character)",
   "new_text": "replacement text",
-  "reasoning": "brief 1-2 sentence explanation"
+  "reasoning": "1-2 sentence explanation of what problem this solves"
 }}
 
-The change should be small and testable. Focus on one hyperparameter or simple logic tweak.
-Do NOT add or modify any attribute named self.train_step. It must remain a callable method.
+Do NOT assign self.train_step = any value. train_step must remain a callable method.
+If editing feedback.py to add/remove features, update get_state_dim() return value too.
 """
 
         print(f"[{iteration}] Asking Claude for suggestion...")
         response = client.messages.create(
             model=args.model,
-            max_tokens=1024,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
 
@@ -335,7 +417,17 @@ Do NOT add or modify any attribute named self.train_step. It must remain a calla
         print(f"[{iteration}] Applying change...")
 
         # Apply change
+        ALLOWED_FILES = {
+            "src/agents/DQN.py",
+            "src/feedback.py",
+            "src/simulator.py",
+            "config.json",
+        }
         try:
+            target_file = suggestion["file"]
+            if target_file not in ALLOWED_FILES:
+                print(f"[{iteration}] ERROR: Rejected — file '{target_file}' not in allowed list")
+                continue
             content = read_file(file_path)
             if old_text not in content:
                 print(f"[{iteration}] ERROR: old_text not found in file")
@@ -343,7 +435,7 @@ Do NOT add or modify any attribute named self.train_step. It must remain a calla
                 continue
             new_content = content.replace(old_text, new_text, 1)
 
-            if suggestion["file"] == "src/agents/DQN.py":
+            if target_file == "src/agents/DQN.py":
                 if re.search(r"\bself\.train_step\s*=", new_content):
                     print(f"[{iteration}] ERROR: Rejected unsafe change (self.train_step assignment shadows method)")
                     continue
@@ -366,6 +458,23 @@ Do NOT add or modify any attribute named self.train_step. It must remain a calla
             print(f"[{iteration}] ERROR: Could not commit: {e}")
             continue
 
+        # Smoke test: verify simulator still runs after the change
+        print(f"[{iteration}] Running smoke test (1 lap, eval mode)...")
+        if not run_smoke_test():
+            print(f"[{iteration}] SMOKE FAIL: reverting change")
+            iteration_history.append({"iter": iteration, "file": suggestion["file"], "score": "smoke_fail", "status": "crash", "reasoning": reasoning})
+            results[commit] = {
+                "commit": commit,
+                "objective_score": "0.000000",
+                "phase": "smoke",
+                "status": "crash",
+                "description": reasoning[:50],
+            }
+            git_reset_hard()
+            write_results_tsv(results)
+            continue
+        print(f"[{iteration}] Smoke test passed.")
+
         # Run evaluation
         print(f"[{iteration}] Running quick eval ({args.eval_runs} runs)...")
         score = run_evaluator_quick(
@@ -381,6 +490,7 @@ Do NOT add or modify any attribute named self.train_step. It must remain a calla
                 "status": "crash",
                 "description": reasoning[:50],
             }
+            iteration_history.append({"iter": iteration, "file": suggestion["file"], "score": "crash", "status": "crash", "reasoning": reasoning})
             git_reset_hard()
             write_results_tsv(results)
             continue
@@ -393,11 +503,11 @@ Do NOT add or modify any attribute named self.train_step. It must remain a calla
 
         if keep:
             status = "keep"
-            print(f"[{iteration}] ✓ KEEP (improvement: {improvement:+.6f})")
+            print(f"[{iteration}] KEEP (improvement: {improvement:+.6f})")
             best_baseline = max(best_baseline, score)
         else:
             status = "discard"
-            print(f"[{iteration}] ✗ DISCARD (decline: {improvement:+.6f})")
+            print(f"[{iteration}] DISCARD (decline: {improvement:+.6f})")
             git_reset_hard()
 
         results[commit] = {
@@ -407,6 +517,7 @@ Do NOT add or modify any attribute named self.train_step. It must remain a calla
             "status": status,
             "description": reasoning[:50],
         }
+        iteration_history.append({"iter": iteration, "file": suggestion["file"], "score": f"{score:.6f}", "status": status, "reasoning": reasoning})
         write_results_tsv(results)
 
         print(f"[{iteration}] Best so far: {best_baseline:.6f}")

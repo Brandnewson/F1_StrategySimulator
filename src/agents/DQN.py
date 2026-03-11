@@ -67,14 +67,14 @@ class DQNAgent(BaseAgent):
         config: dict,
         state_dim: int,
         name: str = "DQNAgent",
-        hidden_size: int = 128,
-        learning_rate: float = 1e-3,
+        hidden_size: int = 256,
+        learning_rate: float = 5e-4,
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
-        epsilon_min: float = 0.05,
-        epsilon_decay: float = 0.995,
-        buffer_capacity: int = 10000,
-        target_update_freq: int = 100,
+        epsilon_min: float = 0.03,
+        epsilon_decay: float = 0.99,
+        buffer_capacity: int = 50000,
+        target_update_freq: int = 50,
     ):
         super().__init__(name=name)
         
@@ -97,10 +97,10 @@ class DQNAgent(BaseAgent):
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
         self.target_update_freq = target_update_freq
-        self.batch_size = 64
+        self.batch_size = 128
         
         # Gradient clipping for training stability
-        self.max_grad_norm = 10.0
+        self.max_grad_norm = 5.0
         
         # Training state
         self.training_steps = 0
