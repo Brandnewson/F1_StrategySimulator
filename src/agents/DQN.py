@@ -100,7 +100,7 @@ class DQNAgent(BaseAgent):
         self.batch_size = 64
         
         # Gradient clipping for training stability
-        self.max_grad_norm = 1.0
+        self.max_grad_norm = 10.0
         
         # Training state
         self.training_steps = 0
