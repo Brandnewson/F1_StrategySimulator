@@ -250,8 +250,8 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6"),
-        help="Claude model name (default: ANTHROPIC_MODEL or claude-opus-4-6)",
+        default=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+        help="Claude model name (default: ANTHROPIC_MODEL or claude-haiku-4-5)",
     )
     args = parser.parse_args()
 

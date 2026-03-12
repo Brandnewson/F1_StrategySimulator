@@ -67,14 +67,14 @@ class DQNAgent(BaseAgent):
         config: dict,
         state_dim: int,
         name: str = "DQNAgent",
-        hidden_size: int = 256,
-        learning_rate: float = 5e-4,
+        hidden_size: int = 128,
+        learning_rate: float = 1e-3,
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
-        epsilon_min: float = 0.03,
-        epsilon_decay: float = 0.9995,
+        epsilon_min: float = 0.05,
+        epsilon_decay: float = 0.999,
         buffer_capacity: int = 50000,
-        target_update_freq: int = 50,
+        target_update_freq: int = 100,
     ):
         super().__init__(name=name)
         
