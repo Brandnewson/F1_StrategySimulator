@@ -222,7 +222,14 @@ def _compute_eval_metrics(
     }
 
 
-def _prepare_phase_config(base_config: Dict, phase: str, runs: int, run_name: str) -> Dict:
+def _prepare_phase_config(
+    base_config: Dict,
+    phase: str,
+    runs: int,
+    run_name: str,
+    total_laps: int | None = None,
+    checkpoint_tag: str | None = None,
+) -> Dict:
     cfg = copy.deepcopy(base_config)
     simulator_cfg = cfg.setdefault("simulator", {})
     simulator_cfg["method"] = "batch"
@@ -230,6 +237,14 @@ def _prepare_phase_config(base_config: Dict, phase: str, runs: int, run_name: st
     simulator_cfg["run_name"] = run_name
     simulator_cfg["visualise_from_run_name"] = ""
     simulator_cfg["agent_mode"] = phase
+    if checkpoint_tag:
+        simulator_cfg["checkpoint_tag"] = str(checkpoint_tag)
+    else:
+        simulator_cfg.pop("checkpoint_tag", None)
+
+    if total_laps is not None:
+        race_cfg = cfg.setdefault("race_settings", {})
+        race_cfg["total_laps"] = int(total_laps)
 
     cfg["agent_review_mode"] = False
     cfg["debugMode"] = False
@@ -287,6 +302,8 @@ def main() -> None:
     parser.add_argument("--verbose", action="store_true", help="Print simulator output during train/eval phases.")
     parser.add_argument("--guardrail-runs", type=int, default=500, help="Minimum eval runs before no-benefit guardrail is activated.")
     parser.add_argument("--run-prefix", default="cand_eval", help="Prefix for generated run_name fields in logs/.")
+    parser.add_argument("--total-laps", type=int, default=None, help="Override race_settings.total_laps for all phases.")
+    parser.add_argument("--checkpoint-tag", default="", help="Optional model checkpoint tag for training phase artifacts.")
     parser.add_argument("--out", default="metrics/latest_candidate_metrics.json", help="Path to write output metrics JSON.")
     args = parser.parse_args()
 
@@ -327,6 +344,9 @@ def main() -> None:
     if not baseline_driver_names:
         raise ValueError("No baseline opponents found. Add at least one non-DQN competitor (base or random).")
 
+    if args.total_laps is not None:
+        base_config.setdefault("race_settings", {})["total_laps"] = int(args.total_laps)
+
     total_laps = int(base_config.get("race_settings", {}).get("total_laps", 0) or 0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -334,7 +354,15 @@ def main() -> None:
     train_records: List[Dict] = []
     if not args.skip_training:
         train_run_name = f"{args.run_prefix}_train_{timestamp}"
-        train_cfg = _prepare_phase_config(base_config, phase="training", runs=args.train_runs, run_name=train_run_name)
+        train_checkpoint_tag = args.checkpoint_tag.strip() or train_run_name
+        train_cfg = _prepare_phase_config(
+            base_config,
+            phase="training",
+            runs=args.train_runs,
+            run_name=train_run_name,
+            total_laps=total_laps,
+            checkpoint_tag=train_checkpoint_tag,
+        )
         print(f"[evaluate_candidate] Training phase: runs={args.train_runs}, seed={args.train_seed}, run_name={train_run_name}")
         train_log_path, train_records = _run_phase(train_cfg, seed=args.train_seed, verbose=args.verbose)
 
@@ -345,7 +373,13 @@ def main() -> None:
 
     for seed in eval_seeds:
         eval_run_name = f"{args.run_prefix}_eval_{timestamp}_s{seed}"
-        eval_cfg = _prepare_phase_config(base_config, phase="evaluation", runs=args.eval_runs, run_name=eval_run_name)
+        eval_cfg = _prepare_phase_config(
+            base_config,
+            phase="evaluation",
+            runs=args.eval_runs,
+            run_name=eval_run_name,
+            total_laps=total_laps,
+        )
         print(f"[evaluate_candidate] Evaluation phase: runs={args.eval_runs}, seed={seed}, run_name={eval_run_name}")
         eval_log_path, eval_records = _run_phase(eval_cfg, seed=seed, verbose=args.verbose)
 

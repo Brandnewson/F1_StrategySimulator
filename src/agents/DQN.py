@@ -72,7 +72,7 @@ class DQNAgent(BaseAgent):
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
         epsilon_min: float = 0.05,
-        epsilon_decay: float = 0.9993,
+        epsilon_decay: float = 0.995,
         buffer_capacity: int = 10000,
         target_update_freq: int = 100,
     ):

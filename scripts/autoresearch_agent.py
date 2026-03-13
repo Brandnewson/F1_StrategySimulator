@@ -55,6 +55,7 @@ EVALUATOR_SCRIPT = ROOT / "scripts" / "evaluate_candidate.py"
 PROGRAM_MD = ROOT / "tools" / "autoresearch" / "program.md"
 RESULTS_TSV = ROOT / "results.tsv"
 METRICS_DIR = ROOT / "metrics"
+REPORT_MD = ROOT / "AUTORESEARCH_REPORT.md"
 
 
 def shell(cmd: str, check: bool = True) -> str:
@@ -134,15 +135,18 @@ def git_reset_hard() -> None:
 
 
 def run_evaluator_quick(
-    eval_runs: int = 50, eval_seeds: str = "101,202,303"
+    eval_runs: int = 50,
+    eval_seeds: str = "101,202,303",
+    total_laps: Optional[int] = None,
 ) -> Optional[float]:
     """Run quick evaluation phase. Returns objective_score or None if crashed."""
     METRICS_DIR.mkdir(exist_ok=True)
     out_file = METRICS_DIR / "candidate_eval.json"
+    total_laps_flag = f" --total-laps {int(total_laps)}" if total_laps is not None else ""
     cmd = (
         f'C:/Users/brans/miniconda3/envs/f1StrategySim/python.exe {EVALUATOR_SCRIPT} '
         f'--skip-training --eval-runs {eval_runs} --eval-seeds "{eval_seeds}" '
-        f'--out {out_file}'
+        f'--out {out_file}{total_laps_flag}'
     )
     try:
         result = subprocess.run(
@@ -168,6 +172,81 @@ def run_evaluator_quick(
         return None
 
 
+def run_evaluator_train(
+    train_runs: int = 20,
+    train_seed: int = 1337,
+    total_laps: Optional[int] = None,
+    checkpoint_tag: str = "",
+) -> Optional[float]:
+    """Run lightweight training + evaluation phase. Returns objective_score or None if crashed."""
+    METRICS_DIR.mkdir(exist_ok=True)
+    out_file = METRICS_DIR / "candidate_train_eval.json"
+    total_laps_flag = f" --total-laps {int(total_laps)}" if total_laps is not None else ""
+    checkpoint_flag = f" --checkpoint-tag {checkpoint_tag}" if checkpoint_tag else ""
+    cmd = (
+        f'C:/Users/brans/miniconda3/envs/f1StrategySim/python.exe {EVALUATOR_SCRIPT} '
+        f'--train-runs {train_runs} --train-seed {train_seed} --eval-runs 1 --eval-seeds "{train_seed}" '
+        f'--out {out_file}{total_laps_flag}{checkpoint_flag}'
+    )
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if result.returncode != 0:
+            print(f"Training evaluator failed: {result.stderr}")
+            return None
+        if not out_file.exists():
+            print(f"Training metrics file not created: {out_file}")
+            return None
+        with open(out_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        score = data.get("objective_score")
+        return float(score) if score is not None else None
+    except Exception as e:
+        print(f"Training evaluator exception: {e}")
+        return None
+
+
+def write_autoresearch_report(
+    branch: str,
+    max_iterations: int,
+    final_best: float,
+    iteration_rows: List[Dict[str, str]],
+) -> None:
+    created_at = datetime.now().isoformat()
+    lines: List[str] = []
+    lines.append("# AutoResearch Report")
+    lines.append("")
+    lines.append(f"- Created at: {created_at}")
+    lines.append(f"- Branch: {branch}")
+    lines.append(f"- Planned iterations: {max_iterations}")
+    lines.append(f"- Completed iterations: {len(iteration_rows)}")
+    lines.append(f"- Final best objective_score: {final_best:.6f}")
+    lines.append("")
+    lines.append("## Iteration Summary")
+    lines.append("")
+    lines.append("| Iteration | Commit | File | Status | Objective Score | Reasoning | Checkpoint Tag |")
+    lines.append("|---:|---|---|---|---:|---|---|")
+    for row in iteration_rows:
+        iteration = row.get("iteration", "")
+        commit = row.get("commit", "")
+        file_name = row.get("file", "")
+        status = row.get("status", "")
+        score = row.get("score", "")
+        reasoning = row.get("reasoning", "").replace("|", "/")
+        checkpoint_tag = row.get("checkpoint_tag", "")
+        lines.append(
+            f"| {iteration} | {commit} | {file_name} | {status} | {score} | {reasoning} | {checkpoint_tag} |"
+        )
+    lines.append("")
+    REPORT_MD.write_text("\n".join(lines), encoding="utf-8")
+
+
 def initialize_repo(branch: str) -> None:
     """Initialize git branch and results.tsv."""
     print(f"[init] Creating branch {branch}...")
@@ -178,7 +257,7 @@ def initialize_repo(branch: str) -> None:
         write_results_tsv({})
     
     print(f"[init] Verifying evaluator works...")
-    score = run_evaluator_quick(eval_runs=1, eval_seeds="101")
+    score = run_evaluator_quick(eval_runs=1, eval_seeds="101", total_laps=1)
     if score is None:
         print("ERROR: Evaluator failed on test run. Fix and retry.")
         sys.exit(1)
@@ -210,6 +289,30 @@ def main():
         "--eval-seeds",
         default="101,202,303",
         help="Comma-separated eval seeds (default: 101,202,303)",
+    )
+    parser.add_argument(
+        "--train-runs",
+        type=int,
+        default=20,
+        help="Training runs per iteration (default: 20)",
+    )
+    parser.add_argument(
+        "--train-seed",
+        type=int,
+        default=1337,
+        help="Training seed per iteration (default: 1337)",
+    )
+    parser.add_argument(
+        "--smoke-laps",
+        type=int,
+        default=1,
+        help="Laps for smoke test evaluation (default: 1)",
+    )
+    parser.add_argument(
+        "--eval-laps",
+        type=int,
+        default=10,
+        help="Laps for quick eval phase (default: 10)",
     )
     parser.add_argument(
         "--improvement-threshold",
@@ -256,6 +359,8 @@ def main():
     print(f"Best baseline: {best_baseline:.6f}")
     print(f"{'='*60}\n")
 
+    iteration_rows: List[Dict[str, str]] = []
+
     for iteration in range(1, args.max_iterations + 1):
         print(f"\n[{iteration}] ===== ITERATION {iteration} / {args.max_iterations} =====")
 
@@ -299,7 +404,7 @@ The change should be small and testable. Focus on one hyperparameter or simple l
 
         print(f"[{iteration}] Asking Claude for suggestion...")
         response = client.messages.create(
-            model="claude-opus",
+            model="claude-haiku-4-5",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -351,14 +456,77 @@ The change should be small and testable. Focus on one hyperparameter or simple l
             print(f"[{iteration}] ERROR: Could not commit: {e}")
             continue
 
+        checkpoint_tag = f"iter{iteration}_{commit}"
+
+        # Run lightweight training
+        print(f"[{iteration}] Running lightweight training ({args.train_runs} runs)...")
+        train_score = run_evaluator_train(
+            train_runs=args.train_runs,
+            train_seed=args.train_seed,
+            total_laps=args.eval_laps,
+            checkpoint_tag=checkpoint_tag,
+        )
+        if train_score is None:
+            print(f"[{iteration}] TRAINING FAILED: stopping immediately")
+            results[commit] = {
+                "commit": commit,
+                "objective_score": "0.000000",
+                "phase": "training",
+                "status": "crash",
+                "description": reasoning[:50],
+            }
+            write_results_tsv(results)
+            iteration_rows.append(
+                {
+                    "iteration": str(iteration),
+                    "commit": commit,
+                    "file": suggestion["file"],
+                    "status": "training_crash",
+                    "score": "0.000000",
+                    "reasoning": reasoning[:120],
+                    "checkpoint_tag": checkpoint_tag,
+                }
+            )
+            write_autoresearch_report(args.branch, args.max_iterations, best_baseline, iteration_rows)
+            sys.exit(1)
+
+        # Run smoke test (1 run x configurable laps)
+        print(f"[{iteration}] Running smoke eval (1 run, {args.smoke_laps} laps)...")
+        smoke_score = run_evaluator_quick(eval_runs=1, eval_seeds="101", total_laps=args.smoke_laps)
+        if smoke_score is None:
+            print(f"[{iteration}] SMOKE FAILED: stopping immediately")
+            results[commit] = {
+                "commit": commit,
+                "objective_score": "0.000000",
+                "phase": "smoke",
+                "status": "crash",
+                "description": reasoning[:50],
+            }
+            write_results_tsv(results)
+            iteration_rows.append(
+                {
+                    "iteration": str(iteration),
+                    "commit": commit,
+                    "file": suggestion["file"],
+                    "status": "smoke_crash",
+                    "score": "0.000000",
+                    "reasoning": reasoning[:120],
+                    "checkpoint_tag": checkpoint_tag,
+                }
+            )
+            write_autoresearch_report(args.branch, args.max_iterations, best_baseline, iteration_rows)
+            sys.exit(1)
+
         # Run evaluation
-        print(f"[{iteration}] Running quick eval ({args.eval_runs} runs)...")
+        print(f"[{iteration}] Running quick eval ({args.eval_runs} runs, {args.eval_laps} laps)...")
         score = run_evaluator_quick(
-            eval_runs=args.eval_runs, eval_seeds=args.eval_seeds
+            eval_runs=args.eval_runs,
+            eval_seeds=args.eval_seeds,
+            total_laps=args.eval_laps,
         )
 
         if score is None:
-            print(f"[{iteration}] CRASH: Evaluator failed")
+            print(f"[{iteration}] EVAL FAILED: stopping immediately")
             results[commit] = {
                 "commit": commit,
                 "objective_score": "0.000000",
@@ -366,9 +534,20 @@ The change should be small and testable. Focus on one hyperparameter or simple l
                 "status": "crash",
                 "description": reasoning[:50],
             }
-            git_reset_hard()
             write_results_tsv(results)
-            continue
+            iteration_rows.append(
+                {
+                    "iteration": str(iteration),
+                    "commit": commit,
+                    "file": suggestion["file"],
+                    "status": "eval_crash",
+                    "score": "0.000000",
+                    "reasoning": reasoning[:120],
+                    "checkpoint_tag": checkpoint_tag,
+                }
+            )
+            write_autoresearch_report(args.branch, args.max_iterations, best_baseline, iteration_rows)
+            sys.exit(1)
 
         print(f"[{iteration}] Score: {score:.6f}")
 
@@ -393,11 +572,24 @@ The change should be small and testable. Focus on one hyperparameter or simple l
             "description": reasoning[:50],
         }
         write_results_tsv(results)
+        iteration_rows.append(
+            {
+                "iteration": str(iteration),
+                "commit": commit,
+                "file": suggestion["file"],
+                "status": status,
+                "score": f"{score:.6f}",
+                "reasoning": reasoning[:120],
+                "checkpoint_tag": checkpoint_tag,
+            }
+        )
 
         print(f"[{iteration}] Best so far: {best_baseline:.6f}")
 
+    write_autoresearch_report(args.branch, args.max_iterations, best_baseline, iteration_rows)
     print(f"\n{'='*60}")
     print(f"Autoresearch complete. Results saved to {RESULTS_TSV}")
+    print(f"Report written to {REPORT_MD}")
     print(f"Final best: {best_baseline:.6f}")
     print(f"{'='*60}")
 

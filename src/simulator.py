@@ -855,11 +855,17 @@ class RaceSimulator:
         print("\nSaving trained models...")
         models_dir = Path("models")
         models_dir.mkdir(exist_ok=True)
+        checkpoint_tag = str(self.config.get("simulator", {}).get("checkpoint_tag", "")).strip()
+        safe_checkpoint_tag = "".join(ch for ch in checkpoint_tag if ch.isalnum() or ch in ("-", "_"))
         
         for agent in dqn_agents:
             model_path = models_dir / f"{agent.name}_trained.pth"
             agent.save(str(model_path))
             print(f"  Saved: {model_path}")
+            if safe_checkpoint_tag:
+                tagged_model_path = models_dir / f"{agent.name}_{safe_checkpoint_tag}.pth"
+                agent.save(str(tagged_model_path))
+                print(f"  Saved: {tagged_model_path}")
 
     def _visualise_agent_learning(self):
         """Visualise agent learning metrics (avg_loss, epsilon, buffer_size) per run for each agent."""
