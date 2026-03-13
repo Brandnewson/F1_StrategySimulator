@@ -390,8 +390,15 @@ def main():
         simulator_code = read_file(ROOT / "src" / "simulator.py")
         config = read_file(ROOT / "config.json")
 
-        # Ask Claude what to try
-        prompt = f"""
+        # Ask Claude what to try — up to 2 attempts with error feedback on retry
+        suggestion = None
+        suggestion_messages: List[dict] = []
+
+        for attempt in range(1, 3):
+            if attempt > 1:
+                print(f"[{iteration}] Retrying Claude suggestion (attempt {attempt}/2)...")
+
+            prompt = f"""
 {program_context}
 
 === CURRENT STATE ===
@@ -423,55 +430,79 @@ RESPOND with ONLY a JSON object (no markdown, no extra text):
 The change should be small and testable. Focus on one hyperparameter or simple logic tweak.
 """
 
-        print(f"[{iteration}] Asking Claude for suggestion...")
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
+            print(f"[{iteration}] Asking Claude for suggestion (attempt {attempt}/2)...")
+            response = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=1024,
+                messages=suggestion_messages + [{"role": "user", "content": prompt}],
+            )
 
-        resp_text = response.content[0].text.strip()
-        
-        # Extract JSON from response
-        json_match = re.search(r'\{.*\}', resp_text, re.DOTALL)
-        if not json_match:
-            print(f"[{iteration}] ERROR: Could not parse Claude response as JSON")
-            print(f"Response was: {resp_text[:200]}")
-            continue
+            resp_text = response.content[0].text.strip()
 
-        try:
-            suggestion = json.loads(json_match.group())
-        except json.JSONDecodeError as e:
-            print(f"[{iteration}] ERROR: JSON decode failed: {e}")
-            continue
-
-        file_path = ROOT / suggestion["file"]
-        old_text = suggestion["old_text"]
-        new_text = suggestion["new_text"]
-        reasoning = suggestion["reasoning"]
-
-        print(f"[{iteration}] File: {suggestion['file']}")
-        print(f"[{iteration}] Reasoning: {reasoning}")
-        print(f"[{iteration}] Applying change...")
-
-        # Apply change
-        try:
-            content = read_file(file_path)
-            if old_text not in content:
-                print(f"[{iteration}] ERROR: old_text not found in file")
-                print(f"Looking for: {old_text[:100]}")
+            # Extract JSON from response
+            json_match = re.search(r'\{.*\}', resp_text, re.DOTALL)
+            if not json_match:
+                print(f"[{iteration}] ERROR: Could not parse Claude response as JSON")
+                print(f"Response was: {resp_text[:200]}")
+                suggestion_messages.append({"role": "assistant", "content": resp_text})
+                suggestion_messages.append({"role": "user", "content": "Your response was not valid JSON. Please respond with ONLY a JSON object."})
                 continue
-            new_content = content.replace(old_text, new_text, 1)
-            write_file(file_path, new_content)
 
-            is_valid, validation_error = validate_candidate_edit(file_path)
-            if not is_valid:
-                print(f"[{iteration}] ERROR: Syntax gate failed for {suggestion['file']}")
-                print(validation_error[:1000])
-                write_file(file_path, content)
+            try:
+                suggestion = json.loads(json_match.group())
+            except json.JSONDecodeError as e:
+                print(f"[{iteration}] ERROR: JSON decode failed: {e}")
+                suggestion_messages.append({"role": "assistant", "content": resp_text})
+                suggestion_messages.append({"role": "user", "content": f"JSON parse error: {e}. Please respond with valid JSON only."})
+                suggestion = None
                 continue
-        except Exception as e:
-            print(f"[{iteration}] ERROR: Could not apply change: {e}")
+
+            file_path = ROOT / suggestion["file"]
+            old_text = suggestion["old_text"]
+            new_text = suggestion["new_text"]
+            reasoning = suggestion["reasoning"]
+
+            print(f"[{iteration}] File: {suggestion['file']}")
+            print(f"[{iteration}] Reasoning: {reasoning}")
+            print(f"[{iteration}] Applying change...")
+
+            # Apply change
+            try:
+                content = read_file(file_path)
+                if old_text not in content:
+                    err = f"old_text not found in {suggestion['file']}. The string must match exactly."
+                    print(f"[{iteration}] ERROR: {err}")
+                    suggestion_messages.append({"role": "assistant", "content": resp_text})
+                    suggestion_messages.append({"role": "user", "content": err + " Please try a different change."})
+                    suggestion = None
+                    continue
+
+                new_content = content.replace(old_text, new_text, 1)
+                write_file(file_path, new_content)
+
+                is_valid, validation_error = validate_candidate_edit(file_path)
+                if not is_valid:
+                    print(f"[{iteration}] ERROR: Syntax gate failed for {suggestion['file']}")
+                    print(validation_error[:500])
+                    write_file(file_path, content)  # revert
+                    suggestion_messages.append({"role": "assistant", "content": resp_text})
+                    suggestion_messages.append({"role": "user", "content": f"Syntax error after applying your change to {suggestion['file']}: {validation_error[:300]}. Please suggest a syntactically valid change."})
+                    suggestion = None
+                    continue
+
+            except Exception as e:
+                print(f"[{iteration}] ERROR: Could not apply change: {e}")
+                suggestion_messages.append({"role": "assistant", "content": resp_text})
+                suggestion_messages.append({"role": "user", "content": f"Error applying change: {e}. Please try again."})
+                suggestion = None
+                continue
+
+            # Success — exit retry loop
+            print(f"[{iteration}] Change applied and validated successfully")
+            break
+
+        if suggestion is None:
+            print(f"[{iteration}] SKIPPED: No valid suggestion after 2 attempts")
             continue
 
         # Commit change
