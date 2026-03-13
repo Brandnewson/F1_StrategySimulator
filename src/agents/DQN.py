@@ -96,6 +96,10 @@ class DQNAgent(BaseAgent):
         self.epsilon = epsilon_start
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
+        self.epsilon_start = epsilon_start
+        self.target_update_freq = target_update_freq
+        self.training_step = 0n_min = epsilon_min
+        self.epsilon_decay = epsilon_decay
         self.target_update_freq = target_update_freq
         
         # Training state
