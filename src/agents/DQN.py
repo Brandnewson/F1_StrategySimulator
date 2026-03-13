@@ -68,7 +68,7 @@ class DQNAgent(BaseAgent):
         state_dim: int,
         name: str = "DQNAgent",
         hidden_size: int = 128,
-        learning_rate: float = 1e-3,
+        learning_rate: float = 5e-3,
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
         epsilon_min: float = 0.05,
@@ -95,10 +95,6 @@ class DQNAgent(BaseAgent):
         self.gamma = gamma
         self.epsilon = epsilon_start
         self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_start = epsilon_start
-        self.target_update_freq = target_update_freq
-        self.training_step = 0n_min = epsilon_min
         self.epsilon_decay = epsilon_decay
         self.target_update_freq = target_update_freq
         

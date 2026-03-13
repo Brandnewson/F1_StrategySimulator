@@ -94,6 +94,30 @@ def write_file(path: Path, content: str) -> None:
         f.write(content)
 
 
+def validate_candidate_edit(file_path: Path) -> Tuple[bool, str]:
+    """Validate edited file syntax before commit."""
+    suffix = file_path.suffix.lower()
+    if suffix == ".py":
+        result = subprocess.run(
+            [sys.executable, "-m", "py_compile", str(file_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return False, (result.stderr or result.stdout or "Python syntax validation failed").strip()
+        return True, ""
+
+    if suffix == ".json":
+        try:
+            json.loads(read_file(file_path))
+            return True, ""
+        except Exception as e:
+            return False, f"JSON validation failed: {e}"
+
+    return True, ""
+
+
 def read_results_tsv() -> Dict[str, dict]:
     """Read results.tsv into dict."""
     results = {}
@@ -442,6 +466,13 @@ The change should be small and testable. Focus on one hyperparameter or simple l
                 continue
             new_content = content.replace(old_text, new_text, 1)
             write_file(file_path, new_content)
+
+            is_valid, validation_error = validate_candidate_edit(file_path)
+            if not is_valid:
+                print(f"[{iteration}] ERROR: Syntax gate failed for {suggestion['file']}")
+                print(validation_error[:1000])
+                write_file(file_path, content)
+                continue
         except Exception as e:
             print(f"[{iteration}] ERROR: Could not apply change: {e}")
             continue
