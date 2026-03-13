@@ -416,16 +416,33 @@ def init_race_state(config, track):
             state_dim = DriverFeedback.get_state_dim()
             agent_name = f"{driver.name}_DQN"
             model_path = models_dir / f"{agent_name}_trained.pth"
+            if "dqn_params" not in config:
+                raise KeyError(
+                    "config.json is missing required 'dqn_params' block. "
+                    "Add it with keys: hidden_size, learning_rate, gamma, "
+                    "epsilon_start, epsilon_min, epsilon_decay, buffer_capacity, target_update_freq"
+                )
+            dqn_params = config["dqn_params"]
+            required_keys = [
+                "hidden_size", "learning_rate", "gamma",
+                "epsilon_start", "epsilon_min", "epsilon_decay",
+                "buffer_capacity", "target_update_freq",
+            ]
+            missing = [k for k in required_keys if k not in dqn_params]
+            if missing:
+                raise KeyError(f"config.json 'dqn_params' is missing required keys: {missing}")
             driver.agent = DQNAgent(
                 config=config,
                 state_dim=state_dim,
                 name=agent_name,
-                hidden_size=128,
-                learning_rate=1e-3,
-                gamma=0.99,
-                epsilon_start=1.0,
-                epsilon_min=0.05,
-                epsilon_decay=0.995
+                hidden_size=int(dqn_params["hidden_size"]),
+                learning_rate=float(dqn_params["learning_rate"]),
+                gamma=float(dqn_params["gamma"]),
+                epsilon_start=float(dqn_params["epsilon_start"]),
+                epsilon_min=float(dqn_params["epsilon_min"]),
+                epsilon_decay=float(dqn_params["epsilon_decay"]),
+                buffer_capacity=int(dqn_params["buffer_capacity"]),
+                target_update_freq=int(dqn_params["target_update_freq"]),
             )
             if model_path.exists() and config.get("simulator").get("agent_mode") == "evaluation":
                 print(f"Loading trained model for {driver.name} from {model_path}")

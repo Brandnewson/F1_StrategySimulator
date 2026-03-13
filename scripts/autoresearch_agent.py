@@ -314,8 +314,8 @@ def main():
     parser.add_argument(
         "--train-runs",
         type=int,
-        default=20,
-        help="Training runs per iteration (default: 20)",
+        default=150,
+        help="Training runs per iteration (default: 150)",
     )
     parser.add_argument(
         "--train-seed",
@@ -388,7 +388,16 @@ def main():
         # Read current code
         dqn_code = read_file(ROOT / "src" / "agents" / "DQN.py")
         simulator_code = read_file(ROOT / "src" / "simulator.py")
-        config = read_file(ROOT / "config.json")
+        config_text = read_file(ROOT / "config.json")
+
+        # Build iteration history for Claude context (last 10 entries)
+        history_lines = []
+        for row in iteration_rows[-10:]:
+            history_lines.append(
+                f"  iter={row['iteration']} file={row['file']} status={row['status']} "
+                f"score={row['score']} | {row['reasoning'][:80]}"
+            )
+        history_block = "\n".join(history_lines) if history_lines else "  (no iterations yet)"
 
         # Ask Claude what to try — up to 2 attempts with error feedback on retry
         suggestion = None
@@ -405,29 +414,31 @@ def main():
 Current best objective_score: {best_baseline:.6f}
 Iteration: {iteration} / {args.max_iterations}
 
-=== CURRENT CODE SNIPPETS ===
+=== ITERATION HISTORY (most recent first — do NOT repeat these) ===
+{history_block}
 
-**src/agents/DQN.py** (first 100 lines):
-{dqn_code[:3000]}
+=== CURRENT DQN HYPERPARAMETERS (from config.json "dqn_params") ===
+These are the ACTIVE values used at runtime. Edit config.json to change them.
+{config_text}
 
-**src/simulator.py** (reward shaping region, ~50 lines):
+=== DQN TRAINING LOGIC (src/agents/DQN.py — train_step and select_action) ===
+{dqn_code[2000:5000] if len(dqn_code) > 2000 else dqn_code}
+
+=== SIMULATOR REWARD REGION (src/simulator.py) ===
 {simulator_code[2000:4000] if len(simulator_code) > 2000 else simulator_code}
 
-**config.json**:
-{config}
-
 === YOUR TASK ===
-Suggest ONE specific, focused code change to improve win_rate_vs_baseline.
+Suggest ONE change to improve win_rate_vs_baseline.
+DO NOT repeat any change already in the iteration history above.
+For hyperparameter changes, always target "config.json" not "src/agents/DQN.py".
 
 RESPOND with ONLY a JSON object (no markdown, no extra text):
 {{
-  "file": "src/agents/DQN.py",
-  "old_text": "exact string to find (must match exactly)",
-  "new_text": "replacement text",
+  "file": "config.json",
+  "old_text": "exact string to find (must match the file character for character)",
+  "new_text": "replacement string",
   "reasoning": "brief 1-2 sentence explanation"
 }}
-
-The change should be small and testable. Focus on one hyperparameter or simple logic tweak.
 """
 
             print(f"[{iteration}] Asking Claude for suggestion (attempt {attempt}/2)...")

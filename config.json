@@ -19,7 +19,7 @@
         }
     ],
     "simulator": {
-        "runs": 200,
+        "runs": 1,
         "run_name": "Double randoms",
         "visualise_from_run_name": "",
         "method": "batch",
@@ -147,5 +147,15 @@
             }
         }
 
+    },
+    "dqn_params": {
+        "hidden_size": 128,
+        "learning_rate": 1e-3,
+        "gamma": 0.99,
+        "epsilon_start": 1.0,
+        "epsilon_min": 0.05,
+        "epsilon_decay": 0.995,
+        "buffer_capacity": 10000,
+        "target_update_freq": 100
     }
 }
