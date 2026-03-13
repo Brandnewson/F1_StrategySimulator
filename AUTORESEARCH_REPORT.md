@@ -1,6 +1,6 @@
 # AutoResearch Report
 
-- Created at: 2026-03-13T16:14:45.840840
+- Created at: 2026-03-13T16:51:53.483360
 - Branch: autoresearch/0313
 - Planned iterations: 20
 - Completed iterations: 1
@@ -10,4 +10,4 @@
 
 | Iteration | Commit | File | Status | Objective Score | Reasoning | Checkpoint Tag |
 |---:|---|---|---|---:|---|---|
-| 3 | c6a4708 | src/agents/DQN.py | eval_crash | 0.000000 | Reduce learning rate from 0.01 to 0.005 to stabilize Q-value updates and prevent overshooting, which should improve conv | iter3_c6a4708 |
+| 1 | 51c296e | src/agents/DQN.py | eval_crash | 0.000000 | Double the learning rate from 5e-3 to 1e-2 to accelerate Q-value convergence during training, allowing the agent to lear | iter1_51c296e |

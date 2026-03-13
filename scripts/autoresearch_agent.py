@@ -67,7 +67,6 @@ def shell(cmd: str, check: bool = True) -> str:
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=600,
         )
         if check and result.returncode != 0:
             print(f"Command failed: {cmd}")
@@ -179,7 +178,6 @@ def run_evaluator_quick(
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=600,
         )
         if result.returncode != 0:
             print(f"Evaluator failed: {result.stderr}")
@@ -219,7 +217,6 @@ def run_evaluator_train(
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=600,
         )
         if result.returncode != 0:
             print(f"Training evaluator failed: {result.stderr}")
