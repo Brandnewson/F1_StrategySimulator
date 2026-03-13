@@ -19,7 +19,7 @@
         }
     ],
     "simulator": {
-        "runs": 1000,
+        "runs": 200,
         "run_name": "Double randoms",
         "visualise_from_run_name": "",
         "method": "batch",
