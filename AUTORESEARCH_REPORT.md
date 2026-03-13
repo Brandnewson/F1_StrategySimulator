@@ -1,6 +1,6 @@
 # AutoResearch Report
 
-- Created at: 2026-03-13T04:15:24.728474
+- Created at: 2026-03-13T12:10:02.888549
 - Branch: autoresearch/0313
 - Planned iterations: 2
 - Completed iterations: 2
@@ -10,5 +10,5 @@
 
 | Iteration | Commit | File | Status | Objective Score | Reasoning | Checkpoint Tag |
 |---:|---|---|---|---:|---|---|
-| 1 | 7fac4e8 | src/agents/DQN.py | discard | 0.400000 | Faster epsilon decay (0.995 vs 0.9993) accelerates the shift from exploration to exploitation during training, allowing  | iter1_7fac4e8 |
-| 2 | 7368f63 | src/agents/DQN.py | training_crash | 0.000000 | Complete the incomplete initialization block to properly store epsilon decay parameters and training step counter, which | iter2_7368f63 |
+| 1 | 7f81725 | src/agents/DQN.py | discard | 0.383333 | Reduce learning rate from 1e-2 to 5e-3 to improve training stability and convergence quality. Higher initial learning ra | iter1_7f81725 |
+| 2 | 585400e | src/agents/DQN.py | discard | 0.383333 | Reducing learning rate from 0.01 to 0.005 should stabilize Q-value updates and improve convergence, as the current rate  | iter2_585400e |
