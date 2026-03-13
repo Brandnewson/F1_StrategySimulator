@@ -68,7 +68,7 @@ class DQNAgent(BaseAgent):
         state_dim: int,
         name: str = "DQNAgent",
         hidden_size: int = 128,
-        learning_rate: float = 5e-3,
+        learning_rate: float = 1e-2,
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
         epsilon_min: float = 0.05,
