@@ -41,6 +41,21 @@ Write-Host "  F1 Strategy Simulator - Autoresearch Agent Launcher" -ForegroundCo
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Load ANTHROPIC_API_KEY from .env if needed
+if (-not $env:ANTHROPIC_API_KEY) {
+    $envPath = Join-Path (Get-Location) ".env"
+    if (Test-Path $envPath) {
+        $dotenvLine = Get-Content $envPath | Where-Object { $_ -match '^\s*ANTHROPIC_API_KEY\s*=' } | Select-Object -First 1
+        if ($dotenvLine) {
+            $keyValue = $dotenvLine -replace '^\s*ANTHROPIC_API_KEY\s*=\s*', ''
+            $keyValue = $keyValue.Trim().Trim('"').Trim("'")
+            if ($keyValue) {
+                $env:ANTHROPIC_API_KEY = $keyValue
+            }
+        }
+    }
+}
+
 # Check API key
 if (-not $env:ANTHROPIC_API_KEY) {
     Write-Host "[ERROR] ANTHROPIC_API_KEY not set" -ForegroundColor Red
