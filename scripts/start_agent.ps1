@@ -25,7 +25,7 @@ param(
     [int]$MaxIterations = 50,
     [string]$Branch = "",
     [int]$EvalRuns = 20,
-    [int]$TrainRuns = 20,
+    [int]$TrainRuns = 150,
     [int]$TrainSeed = 1337,
     [int]$SmokeLaps = 1,
     [int]$EvalLaps = 10
