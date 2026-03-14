@@ -155,7 +155,7 @@
         "epsilon_start": 1.0,
         "epsilon_min": 0.01,
         "epsilon_decay": 0.99,
-        "buffer_capacity": 10000,
+        "buffer_capacity": 20000,
         "target_update_freq": 100
     }
 }
