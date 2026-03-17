@@ -3,18 +3,13 @@
     "agent_review_mode": true,
     "competitors": [
         {
-            "name": "Vax Merstappen",
-            "agent": "base",
-            "colour": "#00008B"
-        },
-        {
-            "name": "Cruz Ramirez - AutoResearcher Alpha",
+            "name": "Cruz Ramirez - AutoResearcher Alpha_DQN_iter30_c908c6d",
             "agent": "dqn",
             "colour": "#022050"
         },
         {
             "name": "Oscar Pastry",
-            "agent": "random",
+            "agent": "base",
             "colour": "#FFA500"
         }
     ],
@@ -28,7 +23,7 @@
         "agent_mode": "training"       
     },
     "race_settings": {
-        "total_laps": 10,
+        "total_laps": 5,
         "weather": "dry"
     },
     "track": {
@@ -146,7 +141,6 @@
                 "distance_from_start": 6.7
             }
         }
-
     },
     "dqn_params": {
         "hidden_size": 128,

@@ -12,7 +12,8 @@ def load_config(file_path: str) -> Dict:
         "track": config_data.get("track"),
         "simulator": config_data.get("simulator"),
         "competitors": config_data.get("competitors"),
-        "race_settings": config_data.get("race_settings")
+        "race_settings": config_data.get("race_settings"),
+        "dqn_params": config_data.get("dqn_params"),
     }
 
     return parsed_config

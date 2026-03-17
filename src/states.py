@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import textwrap
 from matplotlib.lines import Line2D
 from pathlib import Path
+import torch
 
 # Agents
 from base_agents import BaseAgent, RandomAgent
@@ -416,6 +417,8 @@ def init_race_state(config, track):
             state_dim = DriverFeedback.get_state_dim()
             agent_name = f"{driver.name}_DQN"
             model_path = models_dir / f"{agent_name}_trained.pth"
+            simulator_cfg = config.get("simulator", {})
+            is_evaluation_mode = simulator_cfg.get("agent_mode") == "evaluation"
             if "dqn_params" not in config:
                 raise KeyError(
                     "config.json is missing required 'dqn_params' block. "
@@ -431,11 +434,31 @@ def init_race_state(config, track):
             missing = [k for k in required_keys if k not in dqn_params]
             if missing:
                 raise KeyError(f"config.json 'dqn_params' is missing required keys: {missing}")
+
+            # Checks what the size of the loaded parameter is, and use that
+            resolved_hidden_size = int(dqn_params["hidden_size"])
+            if is_evaluation_mode and model_path.exists():
+                try:
+                    checkpoint = torch.load(str(model_path), map_location="cpu")
+                    model_state = checkpoint.get("model_state_dict", {}) if isinstance(checkpoint, dict) else {}
+                    first_layer = model_state.get("net.0.weight")
+                    if first_layer is not None and hasattr(first_layer, "shape") and len(first_layer.shape) == 2:
+                        checkpoint_hidden_size = int(first_layer.shape[0])
+                        if checkpoint_hidden_size != resolved_hidden_size:
+                            print(
+                                f"Warning: dqn_params.hidden_size={resolved_hidden_size} differs from checkpoint "
+                                f"hidden_size={checkpoint_hidden_size} for {driver.name}. "
+                                f"Using checkpoint hidden_size for evaluation load."
+                            )
+                            resolved_hidden_size = checkpoint_hidden_size
+                except Exception as e:
+                    print(f"Warning: Could not inspect checkpoint architecture at {model_path}: {e}")
+
             driver.agent = DQNAgent(
                 config=config,
                 state_dim=state_dim,
                 name=agent_name,
-                hidden_size=int(dqn_params["hidden_size"]),
+                hidden_size=resolved_hidden_size,
                 learning_rate=float(dqn_params["learning_rate"]),
                 gamma=float(dqn_params["gamma"]),
                 epsilon_start=float(dqn_params["epsilon_start"]),
@@ -444,7 +467,7 @@ def init_race_state(config, track):
                 buffer_capacity=int(dqn_params["buffer_capacity"]),
                 target_update_freq=int(dqn_params["target_update_freq"]),
             )
-            if model_path.exists() and config.get("simulator").get("agent_mode") == "evaluation":
+            if model_path.exists() and is_evaluation_mode:
                 print(f"Loading trained model for {driver.name} from {model_path}")
                 driver.agent.load(str(model_path))
             else:

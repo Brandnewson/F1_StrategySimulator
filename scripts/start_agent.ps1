@@ -28,7 +28,7 @@ param(
     [int]$TrainRuns = 150,
     [int]$TrainSeed = 1337,
     [int]$SmokeLaps = 1,
-    [int]$EvalLaps = 10
+    [int]$EvalLaps = 5
 )
 
 # Defaults
