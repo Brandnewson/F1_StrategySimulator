@@ -22,7 +22,7 @@
 #>
 
 param(
-    [int]$MaxIterations = 50,
+    [int]$MaxIterations = 30,
     [string]$Branch = "",
     [int]$EvalRuns = 20,
     [int]$TrainRuns = 150,
