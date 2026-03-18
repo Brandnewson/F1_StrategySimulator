@@ -981,8 +981,13 @@ class RaceSimulator:
                 if not (np.isnan(start_pos) or np.isnan(finish_pos)):
                     cumulative += start_pos - finish_pos
                 cumulative_series.append(cumulative)
-                axes1[1].plot(runs, cumulative_series, marker='o',
-                  label=driver_label(driver), color=driver_color_map[driver])
+            axes1[1].plot(
+                runs,
+                cumulative_series,
+                marker='o',
+                label=driver_label(driver),
+                color=driver_color_map[driver],
+            )
         axes1[1].axhline(0, color='black', linewidth=0.8, linestyle='--')
         axes1[1].set_title("Cumulative Positions Gained per Run")
         axes1[1].set_xlabel("Run Number")
@@ -1006,20 +1011,27 @@ class RaceSimulator:
                 pos_hist = race_results[run].get(driver, {}).get("position_history", [])
                 for t in range(1, len(pos_hist)):
                     total += abs(pos_hist[t] - pos_hist[t - 1])
-                abs_changes.append(total)
+            abs_changes.append(total)
         
-        # Focus on top 20% of results
-        sorted_abs = sorted(abs_changes, reverse=True)
-        top_20_pct_idx = max(0, len(sorted_abs) // 5)
-        y_min_abs = sorted_abs[top_20_pct_idx] if top_20_pct_idx < len(sorted_abs) else min(abs_changes)
-        y_max_abs = max(abs_changes)
-        y_pad_abs = (y_max_abs - y_min_abs) * 0.1
+        # Keep full bar visibility (including low/zero values) by anchoring at 0.
+        y_max_abs = max(abs_changes) if abs_changes else 0
+        y_pad_abs = max(1.0, y_max_abs * 0.05)
         
-        axes2[0].bar(bar_labels, abs_changes, color=bar_colors)
+        bars_abs = axes2[0].bar(bar_labels, abs_changes, color=bar_colors)
         axes2[0].set_title("Total Absolute Position Changes Across All Runs (per tick)")
         axes2[0].set_ylabel("Total |Δposition| across all ticks and runs")
-        axes2[0].set_ylim(y_min_abs - y_pad_abs, y_max_abs + y_pad_abs)
+        axes2[0].set_ylim(0, y_max_abs + y_pad_abs)
         axes2[0].grid(axis='y')
+        label_offset_abs = max(0.2, y_pad_abs * 0.1)
+        for bar, value in zip(bars_abs, abs_changes):
+            axes2[0].text(
+                bar.get_x() + bar.get_width() / 2,
+                value + label_offset_abs,
+                f"{value:.0f}",
+                ha='center',
+                va='bottom',
+                fontsize=9,
+            )
 
         # 4. Total in-race position gains across all runs per driver (bar chart)
         total_increments = []
@@ -1031,20 +1043,27 @@ class RaceSimulator:
                     delta = pos_hist[t - 1] - pos_hist[t]
                     if delta > 0:
                         increments += delta
-                total_increments.append(increments)
+            total_increments.append(increments)
         
-        # Focus on top 20% of results
-        sorted_increments = sorted(total_increments, reverse=True)
-        top_20_pct_idx = max(0, len(sorted_increments) // 5)
-        y_min_inc = sorted_increments[top_20_pct_idx] if top_20_pct_idx < len(sorted_increments) else min(total_increments)
-        y_max_inc = max(total_increments)
-        y_pad_inc = (y_max_inc - y_min_inc) * 0.1 if (y_max_inc - y_min_inc) > 0 else 1
+        # Keep full bar visibility (including low/zero values) by anchoring at 0.
+        y_max_inc = max(total_increments) if total_increments else 0
+        y_pad_inc = max(1.0, y_max_inc * 0.05)
         
-        axes2[1].bar(bar_labels, total_increments, color=bar_colors)
+        bars_inc = axes2[1].bar(bar_labels, total_increments, color=bar_colors)
         axes2[1].set_title("Total In-Race Position Gains Across All Runs")
         axes2[1].set_ylabel("Total Positions Gained (in-race, all runs)")
-        axes2[1].set_ylim(y_min_inc - y_pad_inc, y_max_inc + y_pad_inc)
+        axes2[1].set_ylim(0, y_max_inc + y_pad_inc)
         axes2[1].grid(axis='y')
+        label_offset_inc = max(0.2, y_pad_inc * 0.1)
+        for bar, value in zip(bars_inc, total_increments):
+            axes2[1].text(
+                bar.get_x() + bar.get_width() / 2,
+                value + label_offset_inc,
+                f"{value:.0f}",
+                ha='center',
+                va='bottom',
+                fontsize=9,
+            )
 
         fig2.tight_layout()
 
