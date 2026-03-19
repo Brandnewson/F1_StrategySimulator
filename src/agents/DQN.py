@@ -114,12 +114,16 @@ class DQNAgent(BaseAgent):
     """DQN agent with config-driven variants for benchmarking."""
 
     ACTION_SPACE = [
-        (RiskLevel.CONSERVATIVE, False),
-        (RiskLevel.CONSERVATIVE, True),
         (RiskLevel.NORMAL, False),
+        (RiskLevel.CONSERVATIVE, True),
         (RiskLevel.NORMAL, True),
-        (RiskLevel.AGGRESSIVE, False),
         (RiskLevel.AGGRESSIVE, True),
+    ]
+    ACTION_LABELS = [
+        "HOLD",
+        "ATTEMPT_CONSERVATIVE",
+        "ATTEMPT_NORMAL",
+        "ATTEMPT_AGGRESSIVE",
     ]
 
     SUPPORTED_ALGOS = {"vanilla", "double", "dueling", "rainbow_lite"}
@@ -257,6 +261,15 @@ class DQNAgent(BaseAgent):
         risk, attempt = self._decode_action(action_idx)
         return DriverAction(risk_level=risk, attempt_overtake=attempt)
 
+    def get_last_decision_context(self) -> Optional[Dict]:
+        """Return a copy of the last selected state/action pair for delayed transition storage."""
+        if self.last_state is None or self.last_action_idx is None:
+            return None
+        return {
+            "state": np.array(self.last_state, dtype=np.float32, copy=True),
+            "action_idx": int(self.last_action_idx),
+        }
+
     def store_transition(self, reward: float, next_driver, next_race_state, done: bool, next_zone):
         if self.last_state is None or self.last_action_idx is None:
             return
@@ -267,6 +280,33 @@ class DQNAgent(BaseAgent):
         self._store_with_n_step(
             self.last_state,
             self.last_action_idx,
+            reward,
+            next_state,
+            done,
+        )
+
+    def store_transition_from_context(
+        self,
+        context: Optional[Dict],
+        reward: float,
+        next_driver,
+        next_race_state,
+        done: bool,
+        next_zone,
+    ):
+        """Store a transition using an explicit decision context captured earlier."""
+        if not context:
+            return
+        state = context.get("state")
+        action_idx = context.get("action_idx")
+        if state is None or action_idx is None:
+            return
+
+        next_feedback = create_driver_feedback(next_driver, next_race_state, next_zone)
+        next_state = next_feedback.to_vector(normalize=True)
+        self._store_with_n_step(
+            np.array(state, dtype=np.float32, copy=False),
+            int(action_idx),
             reward,
             next_state,
             done,

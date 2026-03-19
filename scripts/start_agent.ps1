@@ -23,7 +23,7 @@
 
 param(
     [int]$MaxIterations = 30,
-    [string]$Branch = "dqn-experiment",
+    [string]$Branch = "simplicity-experiment",
     [int]$EvalRuns = 20,
     [int]$TrainRuns = 150,
     [int]$TrainSeed = 1337,

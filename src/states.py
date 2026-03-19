@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 import matplotlib.pyplot as plt
 import textwrap
 from matplotlib.lines import Line2D
@@ -16,7 +16,7 @@ class DriverState:
     
     def __init__(self, name: str, starting_position: int, track_distance: float):
         self.name = name
-        # default start at 0.0 — actual grid offsets are assigned in init_race_state
+        # default start at 0.0 â€” actual grid offsets are assigned in init_race_state
         self.current_distance = 0.0
         self.current_lap = 0
         self.current_lap_time = 0.0  # Time spent on current lap in seconds
@@ -35,7 +35,10 @@ class DriverState:
         
         # Overtaking state
         self.in_overtaking_zone = False
-        self.attempting_overtake = False
+        self.pending_overtake_decisions: Dict[str, Dict] = {}
+        self.resolved_overtake_decision_keys: Set[str] = set()
+        self.decision_events: List[Dict] = []
+        self.terminal_bonus_awarded: bool = False
         # Agent assigned to this driver (set in init_simulator)
         self.agent: Optional[BaseAgent] = None
 
@@ -316,12 +319,12 @@ def attempt_overtake(overtaking_driver: DriverState, target_driver: DriverState,
     success = np.random.random() < base_success_rate
     
     if success:
-        print(f"  🏁 {overtaking_driver.name} successfully overtook {target_driver.name} at {overtaking_zone.get('name')}!")
+        print(f"  ðŸ {overtaking_driver.name} successfully overtook {target_driver.name} at {overtaking_zone.get('name')}!")
         # Swap positions slightly
         overtaking_driver.current_distance = target_driver.current_distance + 0.01
         return True
     else:
-        print(f"  ❌ {overtaking_driver.name} failed to overtake {target_driver.name} at {overtaking_zone.get('name')}")
+        print(f"  âŒ {overtaking_driver.name} failed to overtake {target_driver.name} at {overtaking_zone.get('name')}")
         return False
 
 
@@ -366,7 +369,7 @@ def init_race_state(config, track):
             comp_colour = competitor.get("colour") or competitor.get("color")
         if isinstance(comp_colour, str):
             cc = comp_colour.strip()
-            # preserve hex codes and tuples — only collapse simple names with spaces
+            # preserve hex codes and tuples â€” only collapse simple names with spaces
             if cc.startswith("#"):
                 driver.colour = cc
                 driver.color = cc
@@ -448,6 +451,13 @@ def init_race_state(config, track):
                     first_layer = model_state.get("net.0.weight")
                     if first_layer is not None and hasattr(first_layer, "shape") and len(first_layer.shape) == 2:
                         checkpoint_hidden_size = int(first_layer.shape[0])
+                        checkpoint_state_dim = int(first_layer.shape[1])
+                        if checkpoint_state_dim != state_dim:
+                            raise ValueError(
+                                f"Checkpoint at {model_path} expects state_dim={checkpoint_state_dim}, "
+                                f"but current feedback state_dim={state_dim}. "
+                                "Retrain this agent with the current observation contract."
+                            )
                         if checkpoint_hidden_size != resolved_hidden_size:
                             print(
                                 f"Warning: dqn_params.hidden_size={resolved_hidden_size} differs from checkpoint "
@@ -456,7 +466,10 @@ def init_race_state(config, track):
                             )
                             resolved_hidden_size = checkpoint_hidden_size
                 except Exception as e:
-                    print(f"Warning: Could not inspect checkpoint architecture at {model_path}: {e}")
+                    raise RuntimeError(
+                        f"Could not validate checkpoint architecture for {driver.name} at {model_path}. "
+                        f"Retrain required. Error: {e}"
+                    ) from e
 
             driver.agent = DQNAgent(
                 config=config,
@@ -478,10 +491,11 @@ def init_race_state(config, track):
                 try:
                     driver.agent.load(str(model_path))
                 except Exception as e:
-                    print(
-                        f"Warning: Could not load checkpoint for {driver.name} "
-                        f"(likely architecture/algo mismatch). Using fresh weights. Error: {e}"
-                    )
+                    raise RuntimeError(
+                        f"Failed to load checkpoint for {driver.name} at {model_path}. "
+                        "Retrain required for the current observation/action contract. "
+                        f"Error: {e}"
+                    ) from e
             else:
                 print(f"No trained model found for {driver.name}, initializing new agent.")
             dqn_agents.append(driver.agent)

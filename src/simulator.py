@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 from collections import defaultdict
@@ -16,7 +16,6 @@ from helpers.simulatorHelpers import (
 )
 
 from helpers.simulatorVisualisers import run_visualisation
-from feedback import create_driver_feedback
 from agents.DQN import DQNAgent
 from base_agents import RiskLevel
 
@@ -47,7 +46,7 @@ class RaceSimulator:
             for driver in self.race_state.drivers:
                 # Store a shallow copy of all __dict__ fields
                 self._initial_driver_states.append(driver.__dict__.copy())
-        # Preserve career stats — these must survive the initial-state restore
+        # Preserve career stats - these must survive the initial-state restore
         career_stats = {
             d.name: {
                 "cumulative_positions_gained": getattr(d, "cumulative_positions_gained", 0.0),
@@ -59,11 +58,15 @@ class RaceSimulator:
         for driver, init_state in zip(self.race_state.drivers, self._initial_driver_states):
             driver.__dict__.clear()
             driver.__dict__.update(init_state)
-            # Shallow copy shares list references — give each run fresh histories
+            # Shallow copy shares list references - give each run fresh histories
             driver.position_history = []
             driver.gap_to_ahead_history = []
             driver.gap_to_behind_history = []
             driver.lap_progress_history = []
+            driver.pending_overtake_decisions = {}
+            driver.resolved_overtake_decision_keys = set()
+            driver.decision_events = []
+            driver.terminal_bonus_awarded = False
             # Re-apply career stats that were accumulated before this reset
             stats = career_stats[driver.name]
             driver.cumulative_positions_gained = stats["cumulative_positions_gained"]
@@ -129,8 +132,15 @@ class RaceSimulator:
         
         # Simulation settings
         sim_config = config.get("simulator", {})
+        telemetry_cfg = sim_config.setdefault("telemetry", {})
+        telemetry_cfg.setdefault("include_legacy_tick_histories", False)
+        telemetry_cfg.setdefault("log_decision_events", True)
         self.tick_duration = sim_config.get("tick_duration", 0.01)  # seconds
         self.tick_rate = sim_config.get("tick_rate", 100)  # Hz
+        self.telemetry_include_legacy_tick_histories = bool(
+            telemetry_cfg.get("include_legacy_tick_histories", False)
+        )
+        self.telemetry_log_decision_events = bool(telemetry_cfg.get("log_decision_events", True))
         
         # Overtake cooldown to prevent rapid re-attempts (in ticks)
         self.overtake_cooldown_ticks = int(5.0 / self.tick_duration)  # 5 second cooldown
@@ -255,6 +265,7 @@ class RaceSimulator:
                 "agent_mode": sim_config.get("agent_mode"),
                 "tick_rate": sim_config.get("tick_rate"),
                 "tick_duration": sim_config.get("tick_duration"),
+                "telemetry": sim_config.get("telemetry", {}),
             },
             "race_settings": self.config.get("race_settings", {}),
             "track": {
@@ -329,13 +340,6 @@ class RaceSimulator:
             print(f"  Lap {driver.completed_laps}/{self.total_laps}: "
                   f"{driver.name} - {driver.current_lap_time:.3f}s (P{driver.position})")
             
-            # --- Per-lap shaped reward for DQN agents ---
-            if hasattr(driver, 'agent') and hasattr(driver.agent, 'store_transition'):
-                lap_reward = self._calculate_lap_reward(driver)
-                next_zone = self._find_next_zone_for_driver(driver)
-                done = driver.completed_laps >= self.total_laps
-                driver.agent.store_transition(lap_reward, driver, self.race_state, done, next_zone)
-
             driver.current_lap_time = 0.0
             
             # Record finish time when driver completes their laps
@@ -346,6 +350,7 @@ class RaceSimulator:
                     print(f"  {driver.name} FINISHED! (1st to cross the line)")
                 else:
                     print(f"  {driver.name} FINISHED!")
+                self._award_terminal_bonus_transition(driver)
     
     def _all_drivers_finished(self) -> bool:
         """Check if all drivers have completed the required laps."""
@@ -359,14 +364,7 @@ class RaceSimulator:
         return driver.total_race_time - leader.total_race_time
     
     def _check_overtakes(self):
-        """Check for overtake opportunities and process agent decisions.
-        
-        Overtake logic:
-        - Driver must be BEHIND another driver (by track position, not race position)
-        - Driver considers overtake when APPROACHING an overtaking zone (within 200m before)
-        - Overtake is resolved when driver ENTERS the zone
-        - Cooldown prevents rapid re-attempts
-        """
+        """Resolve one explicit decision per driver per zone-pass."""
         drivers = self.race_state.drivers
         zones = self.race_state.overtaking_zones
         current_tick = self.race_state.current_tick
@@ -381,56 +379,107 @@ class RaceSimulator:
                 continue
             
             # Find driver immediately ahead on track (by distance, accounting for laps)
-            driver_ahead = self._find_driver_ahead_on_track(driver)
+            driver_ahead, gap_distance = self._find_driver_ahead_on_track(driver)
             if driver_ahead is None:
                 continue
             
-            # Calculate actual gap on track
-            gap_distance = self._calculate_track_gap(driver, driver_ahead)
+            # Must be close enough for a meaningful overtake decision.
             if gap_distance > 0.1:  # Must be within 100m to consider overtake
                 continue
-                
-            # Check if approaching an overtaking zone (within 200m before the zone)
-            for zone in zones:
-                zone_dist = zone.get("distance_from_start", 0)
-                
-                # Driver should be approaching the zone (within 200m before)
-                approach_distance = zone_dist - driver.current_distance
-                # Handle wrap-around at track end
-                if approach_distance < -self.track_distance / 2:
-                    approach_distance += self.track_distance
-                
-                # Approaching zone: between 0 and 200m before
-                if 0 < approach_distance <= 0.2:
-                    # Get agent decision with feedback
-                    action = driver.agent.get_action(driver, self.race_state, upcoming_zone=zone)
-                    # Store the last action for use at the zone
-                    driver.last_action = action
-                    if action.attempt_overtake:
-                        # Mark driver as attempting overtake
-                        driver.attempting_overtake = True
-                        break
+            
+            for zone_idx, zone in enumerate(zones, start=1):
+                zone_dist = float(zone.get("distance_from_start", 0.0))
+                zone_id = str(zone.get("id") or f"zone_{zone_idx}")
+                zone_name = str(zone.get("name") or zone_id)
+                zone_difficulty = float(zone.get("difficulty", 0.5))
 
-                # At the zone: resolve overtake attempt
-                elif abs(driver.current_distance - zone_dist) < 0.05:  # Within 50m of zone
-                    if driver.attempting_overtake:
-                        pos_before = driver.position  # capture position before attempt updates it
-                        success = self._attempt_overtake(driver, driver_ahead, zone)
-                        # Use the last action if available
-                        action = getattr(driver, "last_action", None)
-                        # Calculate reward for DQN agents
-                        if hasattr(driver.agent, 'store_transition') and action is not None:
-                            reward = self._calculate_reward(driver, success, action, zone=zone, pos_before=pos_before)
-                            next_zone = self._find_next_zone_for_driver(driver)
-                            done = driver.completed_laps >= self.total_laps
-                            driver.agent.store_transition(reward, driver, self.race_state, done, next_zone)
-                        driver.attempting_overtake = False
-                        # Set cooldown regardless of success
-                        self.driver_overtake_cooldowns[driver.name] = current_tick + self.overtake_cooldown_ticks
-                        break
+                approach_distance = zone_dist - driver.current_distance
+                if approach_distance < 0:
+                    approach_distance += self.track_distance
+
+                pass_lap = self._zone_pass_lap(driver, zone_dist)
+                decision_key = f"{zone_id}|lap:{pass_lap}"
+                in_approach_window = 0.0 < approach_distance <= 0.2
+                at_zone = abs(driver.current_distance - zone_dist) < 0.05
+
+                # Create one decision per zone pass while in the approach window.
+                if (
+                    in_approach_window
+                    and decision_key not in driver.pending_overtake_decisions
+                    and decision_key not in driver.resolved_overtake_decision_keys
+                ):
+                    action = driver.agent.get_action(driver, self.race_state, upcoming_zone=zone)
+                    dqn_context = None
+                    if isinstance(driver.agent, DQNAgent):
+                        dqn_context = driver.agent.get_last_decision_context()
+                    driver.pending_overtake_decisions[decision_key] = {
+                        "zone_id": zone_id,
+                        "zone_name": zone_name,
+                        "zone_difficulty": zone_difficulty,
+                        "decision_tick": current_tick,
+                        "decision_lap": driver.completed_laps,
+                        "gap_to_ahead_km": float(gap_distance),
+                        "action": action,
+                        "action_label": self._action_label(action),
+                        "attempt": bool(action.attempt_overtake),
+                        "risk_level": action.risk_level.name,
+                        "dqn_context": dqn_context,
+                    }
+
+                # Resolve when the driver reaches the zone.
+                if at_zone and decision_key in driver.pending_overtake_decisions:
+                    decision = driver.pending_overtake_decisions.pop(decision_key)
+                    driver.resolved_overtake_decision_keys.add(decision_key)
+                    action = decision["action"]
+                    pos_before = driver.position
+                    success = False
+                    success_probability = 0.0
+                    if decision["attempt"]:
+                        success, success_probability = self._attempt_overtake(
+                            overtaking_driver=driver,
+                            target_driver=driver_ahead,
+                            zone=zone,
+                            risk_level=action.risk_level,
+                            gap_km=decision["gap_to_ahead_km"],
+                        )
+                        self.driver_overtake_cooldowns[driver.name] = (
+                            current_tick + self.overtake_cooldown_ticks
+                        )
+
+                    done = driver.completed_laps >= self.total_laps
+                    reward = self._calculate_decision_reward(action, success)
+                    if done and not getattr(driver, "terminal_bonus_awarded", False):
+                        reward += self._calculate_terminal_bonus(driver)
+                        driver.terminal_bonus_awarded = True
+
+                    next_zone = self._find_next_zone_for_driver(driver)
+                    if isinstance(driver.agent, DQNAgent):
+                        driver.agent.store_transition_from_context(
+                            context=decision.get("dqn_context"),
+                            reward=reward,
+                            next_driver=driver,
+                            next_race_state=self.race_state,
+                            done=done,
+                            next_zone=next_zone,
+                        )
+
+                    self._record_decision_event(
+                        driver=driver,
+                        decision=decision,
+                        zone_id=zone_id,
+                        zone_name=zone_name,
+                        zone_difficulty=zone_difficulty,
+                        gap_to_ahead_km=float(decision["gap_to_ahead_km"]),
+                        success=success,
+                        reward=float(reward),
+                        pos_before=pos_before,
+                        pos_after=driver.position,
+                        success_probability=float(success_probability),
+                    )
+                    break
     
-    def _find_driver_ahead_on_track(self, driver):
-        """Find the driver immediately ahead on track (by distance, same lap or ahead)."""
+    def _find_driver_ahead_on_track(self, driver) -> Tuple[Optional[object], Optional[float]]:
+        """Find the closest driver ahead on track and the corresponding gap in km."""
         drivers = self.race_state.drivers
         
         candidates = []
@@ -448,11 +497,11 @@ class RaceSimulator:
                 candidates.append((other, gap))
         
         if not candidates:
-            return None
+            return None, None
         
-        # Return the closest driver ahead
         candidates.sort(key=lambda x: x[1])
-        return candidates[0][0]
+        nearest = candidates[0]
+        return nearest[0], float(nearest[1])
     
     def _calculate_track_gap(self, driver, other):
         """Calculate the actual track gap in km between two drivers."""
@@ -486,6 +535,9 @@ class RaceSimulator:
         speed.  The lap-progress value (completed_laps + fractional lap) is
         stored so that visualisations can use laps as the x-axis.
         """
+        if not self.telemetry_include_legacy_tick_histories:
+            return
+
         sorted_drivers = sorted(self.race_state.drivers, key=lambda d: d.position)
 
         for i, driver in enumerate(sorted_drivers):
@@ -517,169 +569,216 @@ class RaceSimulator:
             else:
                 driver.gap_to_behind_history.append(0.0)
 
-    def _calculate_reward(self, driver, overtake_success, action, zone=None, pos_before=None):
-        """Calculate reward for an action taken by a DQN agent.
+    def _zone_pass_lap(self, driver, zone_dist: float) -> int:
+        """Lap number on which the driver will next pass this zone."""
+        return int(driver.completed_laps if zone_dist >= driver.current_distance else driver.completed_laps + 1)
 
-        Reward structure:
-        - Success: base +10, up to +5 bonus for harder zones, up to +30% late-race multiplier
-        - Failure: -2 (conservative), -5 (normal), -8 (aggressive)
-        - Position gained from this overtake: +2 per place
-        - Step penalty: -0.01
-        - End-of-race: +3 per net position gained from starting grid
-        """
-        reward = 0.0
+    def _action_label(self, action) -> str:
+        if not action.attempt_overtake:
+            return "HOLD"
+        return f"ATTEMPT_{action.risk_level.name}"
 
-        zone_difficulty = zone.get("difficulty", 0.5) if zone else 0.5
-        laps_done_frac = driver.completed_laps / max(self.total_laps, 1)
-
+    def _calculate_decision_reward(self, action, overtake_success: bool) -> float:
+        """Event-only reward for one zone decision."""
+        if not action.attempt_overtake:
+            return 0.0
         if overtake_success:
-            # Higher reward for succeeding at harder zones
-            base = 10.0 + zone_difficulty * 5.0
-            # Late-race overtakes are worth more (up to 30% bonus)
-            late_race_mult = 1.0 + 0.3 * laps_done_frac
-            reward += base * late_race_mult
-            # Bonus for gaining a place from this specific overtake
-            if pos_before is not None:
-                reward += (pos_before - driver.position) * 2.0
-        else:
-            # Risk-adjusted failure: bigger gamble = heavier penalty
-            risk_penalties = {"CONSERVATIVE": -2.0, "NORMAL": -5.0, "AGGRESSIVE": -8.0}
-            reward += risk_penalties.get(action.risk_level.name, -5.0)
-
-        # Step penalty (encourages efficiency)
-        reward -= 0.01
-
-        # End-of-race bonus: reward overall improvement from starting position
-        if driver.completed_laps >= self.total_laps:
-            reward += (driver.starting_position - driver.position) * 3.0
-
-        return reward
-
-    def _calculate_lap_reward(self, driver) -> float:
-        """Calculate a per-lap shaped reward for DQN agents.
-
-        Provides frequent, informative gradient signals between the rare
-        overtake decision points. Rewards position changes DURING THIS LAP
-        to avoid reward scale inflation over multiple laps.
-
-        The magnitudes are deliberately smaller than overtake rewards so that
-        the agent still prioritises overtake decisions but gets enough signal
-        to learn positional awareness.
-        """
-        reward = 0.0
-        num_drivers = len(self.race_state.drivers)
-
-        # Reward position changes during THIS lap only (not cumulative from race start)
-        pos_hist = driver.position_history
-        if len(pos_hist) > 0:
-            ticks_per_lap = self.race_state.base_lap_ticks if self.race_state.base_lap_ticks > 0 else 100
-            start_of_lap_idx = max(0, len(pos_hist) - ticks_per_lap)
-            pos_start = pos_hist[start_of_lap_idx]
-            pos_end = driver.position
-            
-            # Reward position gained this lap only
-            positions_gained_this_lap = pos_start - pos_end
-            reward += positions_gained_this_lap * 0.5  # Small reward per position gained
-
-        # Small reward for being in a good absolute position (encourages
-        # staying at the front rather than being content with grid-relative gains)
-        # Best position = 1 → bonus ~0.1; worst = 0
-        reward += (num_drivers - driver.position) * 0.05
-
-        # End-of-race bonus (final lap only)
-        if driver.completed_laps >= self.total_laps:
-            reward += (driver.starting_position - driver.position) * 3.0
-
-        return reward
-
-    def _attempt_overtake(self, overtaking_driver, target_driver, zone: Dict) -> bool:
-        """Attempt an overtake with probability based on zone difficulty and risk level.
-
-        Risk level modifies both the success probability and the consequences:
-        - AGGRESSIVE: +0.15 success probability bonus, but 100m penalty on failure
-        - NORMAL:     standard probability, 50m penalty on failure (unchanged)
-        - CONSERVATIVE: -0.10 success probability penalty, but only 20m penalty on failure
-
-        This gives the agent a meaningful risk/reward trade-off to learn from.
-        """
-        difficulty = zone.get("difficulty")
-        success_probability = 1.0 - difficulty
-
-        # Track attempt count on the driver
-        overtaking_driver.overtakes_attempted += 1
-
-        # --- Risk level modifies success probability ---
-        action = getattr(overtaking_driver, "last_action", None)
-        risk_level = action.risk_level if action is not None else RiskLevel.NORMAL
-
-        risk_prob_modifiers = {
-            RiskLevel.CONSERVATIVE: -0.10,
-            RiskLevel.NORMAL: 0.0,
-            RiskLevel.AGGRESSIVE: 0.15,
+            return 2.0
+        failure_penalties = {
+            RiskLevel.CONSERVATIVE: -0.5,
+            RiskLevel.NORMAL: -1.0,
+            RiskLevel.AGGRESSIVE: -1.5,
         }
-        success_probability += risk_prob_modifiers.get(risk_level, 0.0)
+        return float(failure_penalties.get(action.risk_level, -1.0))
 
-        # --- Gap and speed modifiers (unchanged logic) ---
-        speed_diff = overtaking_driver.speed - target_driver.speed  # in km/h
-        gap = self._calculate_track_gap(overtaking_driver, target_driver)  # in km
+    def _calculate_terminal_bonus(self, driver) -> float:
+        """Small end-of-race position bonus."""
+        return float((driver.starting_position - driver.position) * 0.25)
 
-        # Favor overtakes when gap is small and speed difference is positive
-        if gap < 0.04:  # less than 40m
-            success_probability *= 1.1
-            if self.config.get("debugMode", False):
-                print(f"  Small gap resulted in probability increasing from {success_probability/1.1:.2f} to {success_probability:.2f}")
-        else:  # penalize larger gaps larger than 40m
-            success_probability *= max(0.0, 1.0 - (gap - 0.04) * 5)  # reduce prob for larger gaps
-            if self.config.get("debugMode", False):
-                print(f"  Larger gap resulted in probability decreasing from {success_probability / max(0.01, 1.0 - (gap - 0.04) * 5):.2f} to {success_probability:.2f}")
+    def _award_terminal_bonus_transition(self, driver) -> None:
+        if not isinstance(driver.agent, DQNAgent):
+            return
+        if getattr(driver, "terminal_bonus_awarded", False):
+            return
+        bonus = self._calculate_terminal_bonus(driver)
+        next_zone = self._find_next_zone_for_driver(driver)
+        driver.agent.store_transition(
+            reward=bonus,
+            next_driver=driver,
+            next_race_state=self.race_state,
+            done=True,
+            next_zone=next_zone,
+        )
+        driver.terminal_bonus_awarded = True
 
-        # Clamp probability to valid range
-        success_probability = np.clip(success_probability, 0.0, 0.95)
+    def _record_decision_event(
+        self,
+        driver,
+        decision: Dict,
+        zone_id: str,
+        zone_name: str,
+        zone_difficulty: float,
+        gap_to_ahead_km: float,
+        success: bool,
+        reward: float,
+        pos_before: int,
+        pos_after: int,
+        success_probability: float,
+    ) -> None:
+        event = {
+            "tick": int(self.race_state.current_tick),
+            "lap": int(driver.completed_laps),
+            "zone_id": zone_id,
+            "zone_name": zone_name,
+            "zone_difficulty": float(zone_difficulty),
+            "gap_to_ahead_km": float(gap_to_ahead_km),
+            "action_label": str(decision["action_label"]),
+            "risk_level": str(decision["risk_level"]),
+            "attempt": bool(decision["attempt"]),
+            "success": bool(success),
+            "reward": float(reward),
+            "position_before": int(pos_before),
+            "position_after": int(pos_after),
+            "success_probability": float(success_probability),
+            "decision_tick": int(decision["decision_tick"]),
+            "decision_lap": int(decision["decision_lap"]),
+        }
+        driver.decision_events.append(event)
 
-        # Print probability of overtaking each time
+    def _build_decision_summary(self, events: List[Dict]) -> Dict:
+        action_keys = ["HOLD", "ATTEMPT_CONSERVATIVE", "ATTEMPT_NORMAL", "ATTEMPT_AGGRESSIVE"]
+        risk_keys = ["CONSERVATIVE", "NORMAL", "AGGRESSIVE"]
+        summary = {
+            "total_decisions": len(events),
+            "action_counts": {k: 0 for k in action_keys},
+            "risk_attempt_counts": {k: 0 for k in risk_keys},
+            "zone_stats": {},
+        }
+        for event in events:
+            action_label = str(event.get("action_label", "HOLD"))
+            risk_level = str(event.get("risk_level", "NORMAL"))
+            zone_id = str(event.get("zone_id", "unknown"))
+            zone_name = str(event.get("zone_name", zone_id))
+            zone_difficulty = float(event.get("zone_difficulty", 0.5))
+            attempt = bool(event.get("attempt", False))
+            success = bool(event.get("success", False))
+            reward = float(event.get("reward", 0.0))
+            gap = float(event.get("gap_to_ahead_km", 0.0))
+            success_probability = float(event.get("success_probability", 0.0))
+
+            summary["action_counts"].setdefault(action_label, 0)
+            summary["action_counts"][action_label] += 1
+            if attempt:
+                summary["risk_attempt_counts"].setdefault(risk_level, 0)
+                summary["risk_attempt_counts"][risk_level] += 1
+
+            zone_bucket = summary["zone_stats"].setdefault(
+                zone_id,
+                {
+                    "zone_name": zone_name,
+                    "zone_difficulty": zone_difficulty,
+                    "decisions": 0,
+                    "holds": 0,
+                    "attempts": 0,
+                    "successes": 0,
+                    "action_counts": {k: 0 for k in action_keys},
+                    "risk_attempt_counts": {k: 0 for k in risk_keys},
+                    "_reward_sum": 0.0,
+                    "_gap_sum": 0.0,
+                    "_success_prob_sum": 0.0,
+                },
+            )
+            zone_bucket["decisions"] += 1
+            zone_bucket["action_counts"].setdefault(action_label, 0)
+            zone_bucket["action_counts"][action_label] += 1
+            zone_bucket["_reward_sum"] += reward
+            zone_bucket["_gap_sum"] += gap
+            zone_bucket["_success_prob_sum"] += success_probability
+
+            if attempt:
+                zone_bucket["attempts"] += 1
+                zone_bucket["risk_attempt_counts"].setdefault(risk_level, 0)
+                zone_bucket["risk_attempt_counts"][risk_level] += 1
+                if success:
+                    zone_bucket["successes"] += 1
+            else:
+                zone_bucket["holds"] += 1
+
+        for zone_stats in summary["zone_stats"].values():
+            decisions = max(1, int(zone_stats["decisions"]))
+            attempts = int(zone_stats["attempts"])
+            zone_stats["attempt_rate"] = float(attempts / decisions)
+            zone_stats["success_rate"] = float(zone_stats["successes"] / attempts) if attempts > 0 else 0.0
+            zone_stats["avg_reward"] = float(zone_stats["_reward_sum"] / decisions)
+            zone_stats["avg_gap_to_ahead_km"] = float(zone_stats["_gap_sum"] / decisions)
+            zone_stats["avg_success_probability"] = float(zone_stats["_success_prob_sum"] / decisions)
+            zone_stats.pop("_reward_sum", None)
+            zone_stats.pop("_gap_sum", None)
+            zone_stats.pop("_success_prob_sum", None)
+
+        return summary
+
+    def _attempt_overtake(
+        self,
+        overtaking_driver,
+        target_driver,
+        zone: Dict,
+        risk_level: RiskLevel,
+        gap_km: Optional[float] = None,
+    ) -> Tuple[bool, float]:
+        """Attempt overtake using only zone difficulty, risk level, and gap."""
+        difficulty = float(zone.get("difficulty", 0.5))
+        gap = float(gap_km if gap_km is not None else self._calculate_track_gap(overtaking_driver, target_driver))
+
+        base_probability = 1.0 - difficulty
+        risk_prob_modifiers = {
+            RiskLevel.CONSERVATIVE: -0.08,
+            RiskLevel.NORMAL: 0.0,
+            RiskLevel.AGGRESSIVE: 0.12,
+        }
+        gap_norm = float(np.clip(gap / 0.1, 0.0, 1.0))
+        gap_modifier = (1.0 - gap_norm - 0.5) * 0.3
+        success_probability = float(
+            np.clip(base_probability + risk_prob_modifiers.get(risk_level, 0.0) + gap_modifier, 0.02, 0.95)
+        )
+
+        overtaking_driver.overtakes_attempted += 1
+        success = bool(np.random.random() < success_probability)
+
         if self.config.get("debugMode", False):
-            print(f"  Overtake probability for {overtaking_driver.name} ({risk_level.name}) "
-                  f"attempting to overtake {target_driver.name} at {zone.get('name')}: {success_probability:.2f}")
-
-        success = np.random.random() < success_probability
+            print(
+                f"  Overtake probability for {overtaking_driver.name} ({risk_level.name}) "
+                f"at {zone.get('name')}: {success_probability:.2f}"
+            )
 
         if success:
-            print(f"  OVERTAKE: {overtaking_driver.name} overtook {target_driver.name} "
-                  f"at {zone.get('name')}!")
-
-            # Track successful overtake
+            print(f"  OVERTAKE: {overtaking_driver.name} overtook {target_driver.name} at {zone.get('name')}!")
             overtaking_driver.overtakes_succeeded += 1
 
-            # Swap track positions slightly
             old_distance = overtaking_driver.current_distance
             overtaking_driver.current_distance = target_driver.current_distance + 0.01
             target_driver.current_distance = old_distance
-
-            # Update positions
             self.race_state.update_driver_positions()
-            return True
-        else:
-            # Risk-adjusted distance penalty on failure:
-            # AGGRESSIVE = 100m, NORMAL = 50m, CONSERVATIVE = 20m
-            risk_penalty_km = {
-                RiskLevel.CONSERVATIVE: 0.02,
-                RiskLevel.NORMAL: 0.05,
-                RiskLevel.AGGRESSIVE: 0.10,
-            }
-            penalty_km = risk_penalty_km.get(risk_level, 0.05)
-            new_dist = overtaking_driver.current_distance - penalty_km
-            if new_dist < 0:
-                # wrap forward to maintain consistent lap semantics
-                new_dist = max(0.0, new_dist + self.track_distance)
-            overtaking_driver.current_distance = new_dist
+            return True, success_probability
 
-            # Update positions
-            self.race_state.update_driver_positions()
+        risk_penalty_km = {
+            RiskLevel.CONSERVATIVE: 0.02,
+            RiskLevel.NORMAL: 0.05,
+            RiskLevel.AGGRESSIVE: 0.08,
+        }
+        penalty_km = float(risk_penalty_km.get(risk_level, 0.05))
+        new_dist = overtaking_driver.current_distance - penalty_km
+        if new_dist < 0:
+            new_dist = max(0.0, new_dist + self.track_distance)
+        overtaking_driver.current_distance = new_dist
 
-            print(f"  FAILED: {overtaking_driver.name} ({risk_level.name}) failed to overtake "
-                  f"{target_driver.name} at {zone.get('name')}")
-            return False
-    
+        self.race_state.update_driver_positions()
+        print(
+            f"  FAILED: {overtaking_driver.name} ({risk_level.name}) failed to overtake "
+            f"{target_driver.name} at {zone.get('name')}"
+        )
+        return False, success_probability
+
     def _simulation_step(self):
         """Execute one simulation step (multiple ticks for animation frame)."""
         if self.race_finished:
@@ -815,19 +914,25 @@ class RaceSimulator:
                 driver.cumulative_positions_gained += driver.starting_position - i
                 driver.runs_completed += 1
 
+                decision_events = list(getattr(driver, "decision_events", []))
+                decision_summary = self._build_decision_summary(decision_events)
                 per_driver_result = {
                     "laps": driver.completed_laps,
                     "finish_time": finish_time,
                     "gap": gap,
                     "position": i,
                     "starting_position": driver.starting_position,
-                    "position_history": list(driver.position_history),
-                    "gap_to_ahead_history": list(driver.gap_to_ahead_history),
-                    "gap_to_behind_history": list(driver.gap_to_behind_history),
-                    "lap_progress_history": list(driver.lap_progress_history),
                     "overtakes_attempted": getattr(driver, "overtakes_attempted", 0),
                     "overtakes_succeeded": getattr(driver, "overtakes_succeeded", 0),
+                    "decision_summary": decision_summary,
                 }
+                if self.telemetry_log_decision_events:
+                    per_driver_result["decision_events"] = decision_events
+                if self.telemetry_include_legacy_tick_histories:
+                    per_driver_result["position_history"] = list(driver.position_history)
+                    per_driver_result["gap_to_ahead_history"] = list(driver.gap_to_ahead_history)
+                    per_driver_result["gap_to_behind_history"] = list(driver.gap_to_behind_history)
+                    per_driver_result["lap_progress_history"] = list(driver.lap_progress_history)
                 self._append_result_record(
                     {
                         "run_number": int(run_number),
@@ -918,7 +1023,7 @@ class RaceSimulator:
         driver_names = sorted(driver_names)
         run_ticks = list(runs)
 
-        # ── Per-driver color and label lookups ───────────────────────────────
+        # Per-driver color and label lookups
         # Colors come from config (already resolved in __init__ as self.driver_colors)
         driver_color_map = {
             d.name: c
@@ -951,9 +1056,9 @@ class RaceSimulator:
         bar_labels = [driver_label(d) for d in driver_names]
         bar_colors = [driver_color_map[d] for d in driver_names]
 
-        # ── WINDOW 1: race performance across runs ───────────────────────────
+        # WINDOW 1: race performance across runs
         fig1, axes1 = plt.subplots(2, 1, figsize=(14, 12))
-        fig1.suptitle("Race Performance — All Runs", fontsize=14, y=1.0)
+        fig1.suptitle("Race Performance - All Runs", fontsize=14, y=1.0)
 
         # 1. Average finishing position per driver (bar chart)
         avg_positions = []
@@ -998,9 +1103,9 @@ class RaceSimulator:
 
         fig1.tight_layout()
 
-        # ── WINDOW 2: position change analysis ──────────────────────────────
+        # WINDOW 2: position change analysis
         fig2, axes2 = plt.subplots(2, 1, figsize=(14, 12))
-        fig2.suptitle("Position Change Analysis — All Runs", fontsize=14, y=1.0)
+        fig2.suptitle("Position Change Analysis - All Runs", fontsize=14, y=1.0)
 
         # 3. Total absolute position change across all runs per driver (bar chart)
         # Walks per-tick position_history: counts every position change (gain or loss)
@@ -1019,7 +1124,7 @@ class RaceSimulator:
         
         bars_abs = axes2[0].bar(bar_labels, abs_changes, color=bar_colors)
         axes2[0].set_title("Total Absolute Position Changes Across All Runs (per tick)")
-        axes2[0].set_ylabel("Total |Δposition| across all ticks and runs")
+        axes2[0].set_ylabel("Total |dPosition| across all ticks and runs")
         axes2[0].set_ylim(0, y_max_abs + y_pad_abs)
         axes2[0].grid(axis='y')
         label_offset_abs = max(0.2, y_pad_abs * 0.1)
@@ -1067,7 +1172,7 @@ class RaceSimulator:
 
         fig2.tight_layout()
 
-        # ── WINDOW 3+: average finishing position by starting position ───────
+        # WINDOW 3+: average finishing position by starting position
         # One subplot per driver in a 3x3 grid; paginated if > 9 drivers.
         _GRID_ROWS = 3
         _GRID_COLS = 3
@@ -1139,7 +1244,7 @@ class RaceSimulator:
 
             fig_sp.tight_layout()
 
-        # ── WINDOW 4: per-tick telemetry for the last run ────────────────────
+        # WINDOW 4: per-tick telemetry for the last run
         last_run = runs[-1]
         fig3, axes3 = plt.subplots(3, 1, figsize=(14, 16))
         fig3.suptitle(f"In-Race Telemetry \u2014 Run {last_run}", fontsize=14, y=1.0)
@@ -1189,7 +1294,7 @@ class RaceSimulator:
 
         fig3.tight_layout()
 
-        # ── WINDOW 5: competitive analysis ───────────────────────────────────
+        # WINDOW 5: competitive analysis
         # Adaptive rolling window: 50 runs or 10% of total runs, whichever is smaller.
         roll_window = min(50, max(1, len(runs) // 10))
 
@@ -1199,7 +1304,7 @@ class RaceSimulator:
             fontsize=14, y=1.02
         )
 
-        # ── helper: generic rolling mean that tolerates NaN values ──────────
+        # Helper: generic rolling mean that tolerates NaN values
         def _rolling_mean(values, window):
             out = []
             for i in range(len(values)):
@@ -1208,7 +1313,7 @@ class RaceSimulator:
                 out.append(np.mean(valid) if valid else np.nan)
             return out
 
-        # ── 10. Rolling average finishing position ───────────────────────────
+        # 10. Rolling average finishing position
         ax_pos = axes5[0]
         for driver in driver_names:
             raw = [
@@ -1229,7 +1334,7 @@ class RaceSimulator:
         ax_pos.legend(fontsize=8)
         ax_pos.grid(True)
 
-        # ── 11. Head-to-head win rate matrix ────────────────────────────────
+        # 11. Head-to-head win rate matrix
         ax_hth = axes5[1]
         n_d = len(driver_names)
         win_matrix = np.full((n_d, n_d), np.nan)
@@ -1247,7 +1352,7 @@ class RaceSimulator:
                             wins += 1
                 win_matrix[i, j] = (wins / total * 100) if total > 0 else np.nan
 
-        # Mask diagonal (NaN → white) for imshow
+        # Mask diagonal (NaN -> white) for imshow
         masked = np.ma.masked_invalid(win_matrix)
         cmap_hth = plt.cm.RdYlGn.copy()
         cmap_hth.set_bad(color="lightgrey")
@@ -1270,7 +1375,7 @@ class RaceSimulator:
                         color="black" if 20 < val < 80 else "white"
                     )
 
-        # ── 12. Overtake success rate per agent (rolling average) ────────────
+        # 12. Overtake success rate per agent (rolling average)
         ax_ot = axes5[2]
         for driver in driver_names:
             raw_rates = []
