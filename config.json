@@ -159,7 +159,7 @@
         "gamma": 0.99,
         "epsilon_start": 1.0,
         "epsilon_min": 0.02,
-        "epsilon_decay": 0.9995,
+        "epsilon_decay": 0.999,
         "buffer_capacity": 150000,
         "target_update_freq": 1000
     }
