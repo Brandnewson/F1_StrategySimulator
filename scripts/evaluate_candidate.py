@@ -311,6 +311,11 @@ def main() -> None:
 
     base_config = _load_config((ROOT / args.config).resolve())
     competitors = base_config.get("competitors", [])
+    dqn_cfg = base_config.get("dqn_params", {}) if isinstance(base_config.get("dqn_params", {}), dict) else {}
+    algo_name = str(dqn_cfg.get("algo", "vanilla")).strip().lower() or "vanilla"
+    algo_options = dqn_cfg.get("algo_options", {})
+    if not isinstance(algo_options, dict):
+        algo_options = {}
 
     dqn_driver_names = [
         c.get("name")
@@ -447,6 +452,11 @@ def main() -> None:
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
+        "algorithm": {
+            "family": "dqn",
+            "name": algo_name,
+            "options": algo_options,
+        },
         "objective_name": "win_rate_vs_baseline",
         "objective_score": float(eval_metrics["primary_objective"]["score"]),
         "dqn_driver_names": dqn_driver_names,

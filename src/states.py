@@ -434,6 +434,10 @@ def init_race_state(config, track):
             missing = [k for k in required_keys if k not in dqn_params]
             if missing:
                 raise KeyError(f"config.json 'dqn_params' is missing required keys: {missing}")
+            algo = str(dqn_params.get("algo", "vanilla")).strip().lower()
+            algo_options = dqn_params.get("algo_options", {})
+            if not isinstance(algo_options, dict):
+                raise TypeError("config.json 'dqn_params.algo_options' must be an object/dict when provided")
 
             # Checks what the size of the loaded parameter is, and use that
             resolved_hidden_size = int(dqn_params["hidden_size"])
@@ -466,10 +470,18 @@ def init_race_state(config, track):
                 epsilon_decay=float(dqn_params["epsilon_decay"]),
                 buffer_capacity=int(dqn_params["buffer_capacity"]),
                 target_update_freq=int(dqn_params["target_update_freq"]),
+                algo=algo,
+                algo_options=algo_options,
             )
             if model_path.exists() and is_evaluation_mode:
                 print(f"Loading trained model for {driver.name} from {model_path}")
-                driver.agent.load(str(model_path))
+                try:
+                    driver.agent.load(str(model_path))
+                except Exception as e:
+                    print(
+                        f"Warning: Could not load checkpoint for {driver.name} "
+                        f"(likely architecture/algo mismatch). Using fresh weights. Error: {e}"
+                    )
             else:
                 print(f"No trained model found for {driver.name}, initializing new agent.")
             dqn_agents.append(driver.agent)

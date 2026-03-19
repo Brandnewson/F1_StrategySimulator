@@ -143,6 +143,13 @@
         }
     },
     "dqn_params": {
+        "algo": "dueling",
+        "algo_options": {
+            "n_step": 3,
+            "per_alpha": 0.6,
+            "per_beta_start": 0.4,
+            "per_beta_frames": 100000
+        },
         "hidden_size": 256,
         "learning_rate": 2e-4,
         "gamma": 0.99,
