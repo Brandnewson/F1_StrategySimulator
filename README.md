@@ -48,6 +48,7 @@ The experiment interface is now externalized in `config.json`:
 - `feedback`: observation schema and active features by complexity
 - `reward`: invariant finish-first reward contract, component weights, normalization, activation
 - `protocol`: stage order, seed sets, train/eval budgets, algorithm comparison matrix
+- `protocol.benchmark_contract`: locked Track A/Track B definitions, reproducibility reruns, and medium-promotion gate checks
 - `stochasticity`: named presets (`s0`, `s1`, `s2`) for overtake randomness/noise
 
 This keeps environment/reward/feedback/protocol identical across DQN variants, so comparisons remain methodological.
@@ -82,10 +83,23 @@ Legacy aliases are still supported:
 - `A` -> `smoke`
 - `B` -> `benchmark`
 
-Optional overrides:
+Run individual tracks when needed:
 
 ```bash
-python scripts/run_benchmark_matrix.py --config config.json --stage candidate --complexity-profile low --stochasticity-level s1
+python scripts/run_benchmark_matrix.py --config config.json --stage candidate --track low_primary
+python scripts/run_benchmark_matrix.py --config config.json --stage candidate --track low_robustness
+```
+
+Notes:
+
+- With benchmark lock enabled in config, algorithm/seed/budget CLI overrides are intentionally blocked.
+- Runner validates reward/feedback/protocol/stochasticity contract before launching trials (fail-fast on invalid config).
+- `summary.json` and `summary.md` include fairness audit, CI ranking relation to vanilla, reproducibility checks, robustness diagnostics, and promotion gate pass/fail.
+
+Optional lock-safe override:
+
+```bash
+python scripts/run_benchmark_matrix.py --config config.json --stage candidate --skip-existing
 ```
 
 ## How-To: Tune Reward/Feedback Without Code Changes

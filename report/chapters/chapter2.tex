@@ -1,8 +1,6 @@
 \chapter{Methodology}
 \label{chapter2}
 
-<Everything that comes under the `Methodology' criterion in the mark scheme should be described in one, or possibly more than one, chapter(s).>
-
 \section{Designing the simulator}
 The current simulator is intentionally a \textbf{low-complexity tactical benchmark}, not yet a full race strategist. The learning agent does not control tyres, pit windows, fuel modes, or pace programmes. It currently learns one focused tactical problem: whether to hold position or attempt an overtake, with a selectable risk level, near configured overtaking zones.
 
@@ -76,32 +74,32 @@ The objective hierarchy is finish-first:
 Thus, overtaking is not the target itself; it is only valuable when it contributes to final race outcome.
 
 \subsection{Complexity and stochasticity roadmap}
-The methodology follows two independent expansion axes controlled in config:
+This dissertation stage uses a fixed two-track protocol at \textbf{low complexity only}:
 \begin{enumerate}
-    \item Train and validate on low complexity first.
-    \item Increase complexity (low $\rightarrow$ medium $\rightarrow$ high) with the same reward schema.
-    \item For each complexity level, evaluate across stochasticity presets (\texttt{s0} $\rightarrow$ \texttt{s1} $\rightarrow$ \texttt{s2}).
+    \item \textbf{Track A (primary ranking):} low+\texttt{s0}. This is the only track used to rank algorithms.
+    \item \textbf{Track B (robustness):} low+\texttt{s1} and low+\texttt{s2}. This is used to measure degradation and stability under increased stochasticity.
 \end{enumerate}
-Stochasticity levels are defined separately in \texttt{stochasticity.levels}, so robustness can be evaluated as performance drop under stress, not only raw score.
+Medium-MARL is explicitly a future stage. It is not implemented or reported as a result in this dissertation stage. Progression to medium is gated by evidence quality from Track A and Track B.
 
 \section{Algorithm comparison protocol}
 All comparison controls are externalised to \texttt{config.json}:
 \begin{itemize}
     \item \texttt{protocol.seed\_sets}, \texttt{protocol.train\_runs}, and \texttt{protocol.eval\_runs} fix budgets and seeds,
     \item \texttt{protocol.comparison\_matrix.algorithms} fixes the DQN-family lineup,
-    \item complexity and stochasticity schedules are controlled without editing agent internals.
+    \item \texttt{protocol.benchmark\_contract.tracks} fixes Track A/Track B definitions,
+    \item \texttt{protocol.benchmark\_contract.promotion\_gate} fixes go/no-go criteria for medium-stage implementation.
 \end{itemize}
 
 Fairness is enforced by keeping the environment contract (state/reward/stochasticity) identical across vanilla, double, dueling, and rainbow-lite; only learning internals vary by algorithm.
 
 \section{Evaluation and test protocol}
-Testing is split into contract correctness, behavioural sanity, and benchmark fairness:
+Testing is split into protocol correctness, fairness, statistical validity, and robustness evidence:
 \begin{enumerate}
-    \item \textbf{Config contract checks} before runs: validate reward/feedback/protocol/stochasticity keys, types, ranges, and compatibility.
-    \item \textbf{Reward correctness checks} on each reward edit: verify total reward equals weighted normalised component sum and inactive low-tier components remain exactly zero.
-    \item \textbf{Feedback correctness checks} on each feedback edit: verify state dimension matches configured active features and is identical across algorithms for the same scenario.
-    \item \textbf{Behavioural sanity micro-scenarios}: safe hold, successful overtake, failed aggressive attempt, and persistent position gain; confirm finish-first dominance over overtake-count maximisation.
-    \item \textbf{Fairness checks} on every benchmark matrix: identical seeds, train/eval budgets, complexity profile, and stochasticity level across algorithms.
+    \item \textbf{Protocol correctness tests}: validate config contract before execution and ensure Track A/Track B run with expected seeds, budgets, complexity, and stochasticity settings.
+    \item \textbf{Fairness tests}: assert all algorithms receive identical non-learning conditions; fairness audit must pass with zero violations.
+    \item \textbf{Statistical tests}: report confidence intervals and across-seed variance for all algorithms; use CI-gated ranking decisions, not mean-only decisions.
+    \item \textbf{Reproducibility tests}: rerun Track A with the same locked config/seeds and confirm ranking class consistency (winner/overlap/inconclusive).
+    \item \textbf{Robustness tests}: report s0$\rightarrow$s1$\rightarrow$s2 degradation, variance trend, reward-component stability trend, and starting-position exposure parity trend.
 \end{enumerate}
 
 Recommended run cadence is:
@@ -110,7 +108,7 @@ Recommended run cadence is:
     \item candidate: 5 seeds,
     \item benchmark/dissertation: 5 seeds with larger run budgets, fixed per comparison cell.
 \end{itemize}
-This provides statistical consistency while keeping computational cost manageable.
+Stage 3 (medium complexity implementation) proceeds only if promotion-gate requirements are met: fairness pass, CI-stable Track A ranking, reproducibility consistency, and available robustness evidence from Track B.
 
 \section{Project management}
 In order to maintain structure, and uphold good coding practices, the following standards were upheld.

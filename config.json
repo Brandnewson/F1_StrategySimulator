@@ -208,6 +208,47 @@
                 "dueling",
                 "rainbow_lite"
             ]
+        },
+        "benchmark_contract": {
+            "lock_enabled": true,
+            "immutable_comparison_matrix": true,
+            "immutable_seed_sets": true,
+            "immutable_budgets": true,
+            "reproducibility_reruns": 2,
+            "tracks": {
+                "low_primary": {
+                    "enabled": true,
+                    "complexity": "low",
+                    "stochasticity_levels": [
+                        "s0"
+                    ],
+                    "is_primary_ranking_track": true
+                },
+                "low_robustness": {
+                    "enabled": true,
+                    "complexity": "low",
+                    "stochasticity_levels": [
+                        "s1",
+                        "s2"
+                    ],
+                    "is_primary_ranking_track": false
+                }
+            },
+            "ranking": {
+                "primary_metric": "win_rate_vs_baseline",
+                "ci_gated": true,
+                "tie_breakers": [
+                    "avg_position_delta_non_dqn_minus_dqn",
+                    "overtake_success_rate",
+                    "reward_component_diagnostics"
+                ]
+            },
+            "promotion_gate": {
+                "require_fairness_audit": true,
+                "require_track_a_ci_stability": true,
+                "require_reproducibility_consistency": true,
+                "require_track_b_robustness_evidence": true
+            }
         }
     },
     "stochasticity": {

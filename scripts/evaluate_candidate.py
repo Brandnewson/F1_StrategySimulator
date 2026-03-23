@@ -177,6 +177,7 @@ def _compute_eval_metrics(
     reward_component_decision_sums = {component: 0.0 for component in reward_components}
     reward_component_decision_sums_raw = {component: 0.0 for component in reward_components}
     reward_decision_count = 0
+    starting_position_counts: Dict[int, int] = defaultdict(int)
 
     for run_idx in sorted(run_data.keys()):
         per_driver = run_data[run_idx]
@@ -214,6 +215,12 @@ def _compute_eval_metrics(
 
             reward_total = float(data.get("reward_total", 0.0) or 0.0)
             reward_total_by_driver_run.append(reward_total)
+            try:
+                start_pos = int(data.get("starting_position", 0) or 0)
+                if start_pos > 0:
+                    starting_position_counts[start_pos] += 1
+            except Exception:
+                pass
 
             weighted_components = data.get("reward_component_totals", {})
             raw_components = data.get("reward_component_totals_raw", {})
@@ -321,6 +328,11 @@ def _compute_eval_metrics(
         component: float(reward_component_decision_sums_raw[component] / decision_count_denom)
         for component in reward_components
     }
+    sorted_start_positions = sorted(starting_position_counts.keys())
+    start_counts = [int(starting_position_counts[p]) for p in sorted_start_positions]
+    max_min_gap = int(max(start_counts) - min(start_counts)) if start_counts else 0
+    total_start_samples = int(sum(start_counts))
+    imbalance_ratio = float(max_min_gap / total_start_samples) if total_start_samples > 0 else 0.0
 
     return {
         "primary_objective": {
@@ -369,6 +381,16 @@ def _compute_eval_metrics(
         },
         "stochasticity_context": {
             "levels_seen": dict(sorted(stochasticity_counts.items(), key=lambda kv: kv[0])),
+        },
+        "fairness_diagnostics": {
+            "starting_position_exposure": {
+                "counts_by_position": {
+                    str(pos): int(starting_position_counts[pos]) for pos in sorted_start_positions
+                },
+                "num_unique_positions": int(len(sorted_start_positions)),
+                "max_min_gap": max_min_gap,
+                "imbalance_ratio": imbalance_ratio,
+            },
         },
         "stability": {
             "dnf_rate_dqn": {
