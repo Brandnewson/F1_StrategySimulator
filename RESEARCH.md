@@ -1,80 +1,149 @@
 # RESEARCH.md
 
-This guide documents the current experiment interface for the simulator.
+This document defines the current research workflow and experiment interface.
 
-## 1) Current Research Scope
+Last updated: 2026-03-23
 
-Current work targets low complexity experiments first.
+## 1) Research Scope
 
-Low complexity means one DQN agent against one Base agent.
+Current dissertation execution target is low-complexity experiments first, with future-ready config scaffolding for medium/high complexity and higher stochasticity.
 
-This setup is used to confirm that DQN variants learn in the simulator before adding more complexity.
+- Implemented now: `low`
+- Future-ready only: `medium`, `high` (runtime currently falls back to `low`)
 
-Medium and high complexity are placeholders.
+Low complexity setup:
 
-## 2) Top Level Config
+- one `dqn` competitor
+- one `base` competitor
+
+The objective is finish-first race performance. Tactical overtakes are helper behavior, not the terminal objective.
+
+## 2) Config Contracts (Single Source of Truth)
 
 ### `complexity`
 
-- `complexity.active_profile`: `low`, `medium`, or `high`
-- only `low` is implemented today
-- `medium` and `high` fall back to `low`
+- `complexity.active_profile`: `low | medium | high`
+- today only `low` executes
 
-### `competitors`
+### `feedback`
 
-Low complexity automatically selects:
+Config-driven state schema:
 
-- one competitor with `agent="dqn"`
-- one competitor with `agent="base"`
+- `feedback.schema_version`
+- `feedback.active_profile`
+- `feedback.features_by_complexity.{low,medium,high}`
 
-If either is missing the run fails with a clear error.
+Low default features:
 
-### `simulator`
+1. `zone_distance_norm`
+2. `gap_to_ahead_norm`
+3. `zone_difficulty`
+4. `has_car_ahead`
+5. `current_position_norm`
+6. `laps_remaining_norm`
 
-Important keys:
+### `reward`
 
-- `runs`
-- `method`
-- `agent_mode`
-- `tick_rate`
-- `tick_duration`
+Invariant reward schema across tiers:
 
-### `dqn_params`
+- `outcome`
+- `persistent_position`
+- `tactical`
+- `pace`
+- `tyre_pit`
+- `penalty`
 
-Supported algorithms:
+Config keys:
 
-- `vanilla`
-- `double`
-- `dueling`
-- `rainbow_lite`
+- `reward.schema_version`
+- `reward.weights`
+- `reward.normalization.{low,medium,high}`
+- `reward.component_activation_by_complexity.{low,medium,high}`
+- `reward.tactical`
 
-## 3) Evaluation Discipline
+Low complexity activation should keep:
 
-Use fixed seed sets.
+- active: `outcome`, `persistent_position`, `tactical`, `penalty`
+- inactive: `pace`, `tyre_pit`
 
-Use equal train and evaluation budgets across compared algorithms.
+### `stochasticity`
 
-Report confidence intervals. Do not rely on single runs.
+- `stochasticity.active_level`: `s0 | s1 | s2`
+- `stochasticity.levels.*` controls probability scales/noise and probability clipping bounds
 
-## 4) Useful Commands
+Stochasticity is designed as an axis independent of complexity.
 
-Single candidate evaluation:
+### `protocol`
+
+Experiment governance:
+
+- `protocol.stage_order`
+- `protocol.stochasticity_order`
+- `protocol.seed_sets` (`smoke`, `candidate`, `benchmark`)
+- `protocol.train_runs`
+- `protocol.eval_runs`
+- `protocol.comparison_matrix.algorithms`
+
+## 3) Algorithm-Neutral Comparison Rules
+
+To keep comparisons methodological:
+
+1. Reward code must not branch on DQN algorithm identity.
+2. Feedback contract must be identical across compared algorithms in the same run.
+3. Train/eval budgets and seeds must be shared across compared algorithms.
+4. Complexity and stochasticity settings must be shared within each comparison cell.
+
+Only learning internals differ between `vanilla`, `double`, `dueling`, and `rainbow_lite`.
+
+## 4) How To Run Research Pipelines
+
+### Single Candidate Evaluation
+
+Protocol-driven defaults from `config.json`:
 
 ```bash
-python scripts/evaluate_candidate.py --config config.json --train-runs 200 --eval-runs 200 --eval-seeds "101,202,303" --complexity-profile low
+python scripts/evaluate_candidate.py --config config.json
 ```
 
-Benchmark matrix:
+Typical override pattern:
 
 ```bash
-python scripts/run_benchmark_matrix.py --stage A --complexity-profile low
-python scripts/run_benchmark_matrix.py --stage B --complexity-profile low
+python scripts/evaluate_candidate.py --config config.json --complexity-profile low --stochasticity-level s0 --eval-seeds "101,202,303,404,505"
 ```
 
-## 5) Planned Incremental Roadmap
+### Fair Benchmark Matrix
 
-1. Confirm DQN learning at low complexity.
-2. Add medium complexity with more competitors.
-3. Add high complexity with tyre dynamics and pit stops.
-4. Add explicit stochasticity controls after complexity tiers are stable.
+```bash
+python scripts/run_benchmark_matrix.py --config config.json --stage smoke
+python scripts/run_benchmark_matrix.py --config config.json --stage candidate
+python scripts/run_benchmark_matrix.py --config config.json --stage benchmark
+```
 
+Notes:
+
+- Legacy `--stage A/B` aliases remain supported.
+- With protocol present, run budgets and seeds come from `config.json` unless explicitly overridden via CLI.
+
+## 5) Suggested Execution Ladder
+
+1. Low complexity at `s0` until stable finish-first learning.
+2. Low complexity at `s1`, then `s2` to quantify robustness drop.
+3. Enable medium complexity profile when implemented, repeat `s0 -> s1 -> s2`.
+4. Enable high complexity profile when implemented, repeat `s0 -> s1 -> s2`.
+
+Primary endpoint remains finish-first outcomes (win rate / finish-position delta). Tactical statistics and reward-component diagnostics are secondary.
+
+## 6) Output Artifacts To Track
+
+- `logs/<run>/metadata.json`: active complexity, reward contract, feedback config, protocol, stochasticity level
+- `logs/<run>/race_results.jsonl`: per-run/per-driver outcomes and decision summaries
+- `metrics/latest_candidate_metrics.json` (or chosen `--out`): evaluation summary including reward diagnostics
+- `metrics/benchmarks/.../summary.json` and `summary.md`: cross-algorithm comparison and fairness audit
+
+## 7) Newcomer Checklist
+
+1. Confirm dependencies installed (`pip install -r requirements.txt`).
+2. Confirm `config.json` has `complexity.active_profile = low`.
+3. Run one candidate evaluation.
+4. Inspect reward diagnostics and finish-first metrics.
+5. Run one benchmark stage and check fairness audit is true.

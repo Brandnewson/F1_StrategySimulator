@@ -28,7 +28,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.append(str(ROOT / "src"))
 
 
-from src.simulator import RaceSimulator, init_simulator
+from src.simulator import DEFAULT_PROTOCOL_CONTRACT, RaceSimulator, init_simulator
 from src.states import init_race_state
 from src.track import load_track
 from runtime_profiles import resolve_complexity_profile
@@ -54,6 +54,25 @@ def _set_deterministic_seed(seed: int) -> None:
 def _load_config(config_path: Path) -> Dict:
     with config_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _deep_merge(base: Dict, override: Dict) -> Dict:
+    merged = copy.deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _resolve_protocol_contract(config: Dict) -> Dict:
+    user_protocol = config.get("protocol", {})
+    merged = _deep_merge(
+        DEFAULT_PROTOCOL_CONTRACT,
+        user_protocol if isinstance(user_protocol, dict) else {},
+    )
+    return merged
 
 
 def _read_jsonl_records(path: Path) -> List[Dict]:
@@ -134,6 +153,7 @@ def _compute_eval_metrics(
     random_driver_names: List[str],
     total_laps: int,
 ) -> Dict:
+    reward_components = ["outcome", "persistent_position", "tactical", "pace", "tyre_pit", "penalty"]
     run_data = _group_by_run(records)
 
     dqn_avg_positions: List[float] = []
@@ -145,9 +165,18 @@ def _compute_eval_metrics(
     dqn_dnf_count = 0
     dqn_driver_run_count = 0
     complexity_counts: Dict[str, int] = defaultdict(int)
+    stochasticity_counts: Dict[str, int] = defaultdict(int)
 
     risk_attempt_counts = {"CONSERVATIVE": 0, "NORMAL": 0, "AGGRESSIVE": 0}
     zone_aggregate: Dict[str, Dict] = {}
+    reward_total_by_driver_run: List[float] = []
+    reward_component_totals = {component: 0.0 for component in reward_components}
+    reward_component_totals_raw = {component: 0.0 for component in reward_components}
+    reward_component_driver_run_values = {component: [] for component in reward_components}
+    reward_component_driver_run_values_raw = {component: [] for component in reward_components}
+    reward_component_decision_sums = {component: 0.0 for component in reward_components}
+    reward_component_decision_sums_raw = {component: 0.0 for component in reward_components}
+    reward_decision_count = 0
 
     for run_idx in sorted(run_data.keys()):
         per_driver = run_data[run_idx]
@@ -180,11 +209,37 @@ def _compute_eval_metrics(
 
             complexity_name = str(data.get("complexity_profile", "unknown") or "unknown")
             complexity_counts[complexity_name] += 1
+            stochasticity_name = str(data.get("stochasticity_level", "unknown") or "unknown")
+            stochasticity_counts[stochasticity_name] += 1
+
+            reward_total = float(data.get("reward_total", 0.0) or 0.0)
+            reward_total_by_driver_run.append(reward_total)
+
+            weighted_components = data.get("reward_component_totals", {})
+            raw_components = data.get("reward_component_totals_raw", {})
+            for component in reward_components:
+                weighted_value = float(weighted_components.get(component, 0.0) or 0.0)
+                raw_value = float(raw_components.get(component, 0.0) or 0.0)
+                reward_component_totals[component] += weighted_value
+                reward_component_totals_raw[component] += raw_value
+                reward_component_driver_run_values[component].append(weighted_value)
+                reward_component_driver_run_values_raw[component].append(raw_value)
 
             decision_summary = data.get("decision_summary", {})
             if isinstance(decision_summary, dict):
                 for risk_name, count in decision_summary.get("risk_attempt_counts", {}).items():
                     risk_attempt_counts[risk_name] = risk_attempt_counts.get(risk_name, 0) + int(count or 0)
+
+                reward_decision_count += int(decision_summary.get("total_decisions", 0) or 0)
+                decision_weighted = decision_summary.get("reward_component_sums", {})
+                decision_raw = decision_summary.get("reward_component_sums_raw", {})
+                for component in reward_components:
+                    reward_component_decision_sums[component] += float(
+                        decision_weighted.get(component, 0.0) or 0.0
+                    )
+                    reward_component_decision_sums_raw[component] += float(
+                        decision_raw.get(component, 0.0) or 0.0
+                    )
 
                 zone_stats = decision_summary.get("zone_stats", {})
                 if isinstance(zone_stats, dict):
@@ -249,6 +304,24 @@ def _compute_eval_metrics(
             "avg_success_probability": float(bucket["_success_prob_weighted_sum"] / decisions),
         }
 
+    reward_component_mean_per_driver_run = {
+        component: _ci95(reward_component_driver_run_values.get(component, []))
+        for component in reward_components
+    }
+    reward_component_mean_per_driver_run_raw = {
+        component: _ci95(reward_component_driver_run_values_raw.get(component, []))
+        for component in reward_components
+    }
+    decision_count_denom = max(1, int(reward_decision_count))
+    reward_component_mean_per_decision = {
+        component: float(reward_component_decision_sums[component] / decision_count_denom)
+        for component in reward_components
+    }
+    reward_component_mean_per_decision_raw = {
+        component: float(reward_component_decision_sums_raw[component] / decision_count_denom)
+        for component in reward_components
+    }
+
     return {
         "primary_objective": {
             "name": "win_rate_vs_baseline",
@@ -280,6 +353,23 @@ def _compute_eval_metrics(
         "complexity_context": {
             "profiles_seen": dict(sorted(complexity_counts.items(), key=lambda kv: kv[0])),
         },
+        "reward_diagnostics": {
+            "reward_total_per_driver_run": _ci95(reward_total_by_driver_run),
+            "reward_component_totals_weighted": {
+                component: float(reward_component_totals[component]) for component in reward_components
+            },
+            "reward_component_totals_raw": {
+                component: float(reward_component_totals_raw[component]) for component in reward_components
+            },
+            "reward_component_mean_per_driver_run_weighted": reward_component_mean_per_driver_run,
+            "reward_component_mean_per_driver_run_raw": reward_component_mean_per_driver_run_raw,
+            "reward_component_mean_per_decision_weighted": reward_component_mean_per_decision,
+            "reward_component_mean_per_decision_raw": reward_component_mean_per_decision_raw,
+            "decision_count": int(reward_decision_count),
+        },
+        "stochasticity_context": {
+            "levels_seen": dict(sorted(stochasticity_counts.items(), key=lambda kv: kv[0])),
+        },
         "stability": {
             "dnf_rate_dqn": {
                 "dnf_count": dqn_dnf_count,
@@ -298,6 +388,7 @@ def _prepare_phase_config(
     run_name: str,
     total_laps: int | None = None,
     checkpoint_tag: str | None = None,
+    stochasticity_level: str | None = None,
 ) -> Dict:
     cfg = copy.deepcopy(base_config)
     simulator_cfg = cfg.setdefault("simulator", {})
@@ -314,6 +405,9 @@ def _prepare_phase_config(
     if total_laps is not None:
         race_cfg = cfg.setdefault("race_settings", {})
         race_cfg["total_laps"] = int(total_laps)
+
+    if stochasticity_level:
+        cfg.setdefault("stochasticity", {})["active_level"] = str(stochasticity_level).strip()
 
     cfg["agent_review_mode"] = False
     cfg["debugMode"] = False
@@ -362,15 +456,20 @@ def _remap_run_numbers(records: List[Dict], run_offset: int) -> List[Dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train + evaluate candidate policy/model and emit autoresearch-friendly metrics.")
     parser.add_argument("--config", default="config.json", help="Path to base config JSON.")
-    parser.add_argument("--train-runs", type=int, default=200, help="Number of batch runs for training phase.")
-    parser.add_argument("--eval-runs", type=int, default=200, help="Number of batch runs per evaluation seed.")
-    parser.add_argument("--train-seed", type=int, default=1337, help="RNG seed for training phase.")
-    parser.add_argument("--eval-seed", type=int, default=7331, help="Fallback RNG seed for evaluation phase.")
+    parser.add_argument("--train-runs", type=int, default=None, help="Number of batch runs for training phase.")
+    parser.add_argument("--eval-runs", type=int, default=None, help="Number of batch runs per evaluation seed.")
+    parser.add_argument("--train-seed", type=int, default=None, help="RNG seed for training phase.")
+    parser.add_argument("--eval-seed", type=int, default=None, help="Fallback RNG seed for evaluation phase.")
     parser.add_argument("--eval-seeds", default="", help="Comma-separated list of eval seeds (e.g. '101,202,303').")
     parser.add_argument(
         "--complexity-profile",
         default="",
         help="Optional complexity profile override. Only 'low' is implemented.",
+    )
+    parser.add_argument(
+        "--stochasticity-level",
+        default="",
+        help="Optional stochasticity level override (e.g. s0, s1, s2).",
     )
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase and only run evaluation using existing model files.")
     parser.add_argument("--verbose", action="store_true", help="Print simulator output during train/eval phases.")
@@ -384,6 +483,7 @@ def main() -> None:
     _disable_visualisations()
 
     base_config = _load_config((ROOT / args.config).resolve())
+    protocol_contract = _resolve_protocol_contract(base_config)
     competitors = base_config.get("competitors", [])
     dqn_cfg = base_config.get("dqn_params", {}) if isinstance(base_config.get("dqn_params", {}), dict) else {}
     algo_name = str(dqn_cfg.get("algo", "vanilla")).strip().lower() or "vanilla"
@@ -437,6 +537,40 @@ def main() -> None:
         )
     base_config.setdefault("complexity", {})["active_profile"] = active_complexity
 
+    protocol_train_runs = int(
+        protocol_contract.get("train_runs", {}).get(active_complexity, DEFAULT_PROTOCOL_CONTRACT["train_runs"]["low"])
+    )
+    protocol_eval_runs = int(
+        protocol_contract.get("eval_runs", {}).get(active_complexity, DEFAULT_PROTOCOL_CONTRACT["eval_runs"]["low"])
+    )
+    candidate_seed_set = protocol_contract.get("seed_sets", {}).get(
+        "candidate",
+        DEFAULT_PROTOCOL_CONTRACT["seed_sets"]["candidate"],
+    )
+    if not isinstance(candidate_seed_set, list) or not candidate_seed_set:
+        candidate_seed_set = list(DEFAULT_PROTOCOL_CONTRACT["seed_sets"]["candidate"])
+    candidate_seed_set = [int(seed) for seed in candidate_seed_set]
+
+    train_runs = int(args.train_runs) if args.train_runs is not None else protocol_train_runs
+    eval_runs = int(args.eval_runs) if args.eval_runs is not None else protocol_eval_runs
+    train_seed = int(args.train_seed) if args.train_seed is not None else int(candidate_seed_set[0])
+    fallback_eval_seed = (
+        int(args.eval_seed)
+        if args.eval_seed is not None
+        else int(candidate_seed_set[1] if len(candidate_seed_set) > 1 else candidate_seed_set[0])
+    )
+
+    if args.eval_seeds.strip():
+        eval_seeds = _parse_seeds(args.eval_seeds, fallback_eval_seed)
+    else:
+        eval_seeds = [int(seed) for seed in candidate_seed_set]
+
+    if args.stochasticity_level.strip():
+        active_stochasticity_level = args.stochasticity_level.strip()
+    else:
+        active_stochasticity_level = str(base_config.get("stochasticity", {}).get("active_level", "s0")).strip() or "s0"
+    base_config.setdefault("stochasticity", {})["active_level"] = active_stochasticity_level
+
     total_laps = int(base_config.get("race_settings", {}).get("total_laps", 0) or 0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -448,33 +582,41 @@ def main() -> None:
         train_cfg = _prepare_phase_config(
             base_config,
             phase="training",
-            runs=args.train_runs,
+            runs=train_runs,
             run_name=train_run_name,
             total_laps=total_laps,
             checkpoint_tag=train_checkpoint_tag,
+            stochasticity_level=active_stochasticity_level,
         )
         train_cfg.setdefault("complexity", {})["active_profile"] = active_complexity
-        print(f"[evaluate_candidate] Training phase: runs={args.train_runs}, seed={args.train_seed}, run_name={train_run_name}")
-        train_log_path, train_records = _run_phase(train_cfg, seed=args.train_seed, verbose=args.verbose)
+        print(
+            "[evaluate_candidate] Training phase: "
+            f"runs={train_runs}, seed={train_seed}, complexity={active_complexity}, "
+            f"stochasticity={active_stochasticity_level}, run_name={train_run_name}"
+        )
+        train_log_path, train_records = _run_phase(train_cfg, seed=train_seed, verbose=args.verbose)
 
-    eval_seeds = _parse_seeds(args.eval_seeds, args.eval_seed)
     all_eval_records: List[Dict] = []
     eval_runs_meta: List[Dict] = []
     run_offset = 0
 
     for seed in eval_seeds:
-        eval_run_name = f"{args.run_prefix}_eval_{timestamp}_{active_complexity}_s{seed}"
+        eval_run_name = (
+            f"{args.run_prefix}_eval_{timestamp}_{active_complexity}_{active_stochasticity_level}_s{seed}"
+        )
         eval_cfg = _prepare_phase_config(
             base_config,
             phase="evaluation",
-            runs=args.eval_runs,
+            runs=eval_runs,
             run_name=eval_run_name,
             total_laps=total_laps,
+            stochasticity_level=active_stochasticity_level,
         )
         eval_cfg.setdefault("complexity", {})["active_profile"] = active_complexity
         print(
             "[evaluate_candidate] Evaluation phase: "
-            f"complexity={active_complexity}, runs={args.eval_runs}, seed={seed}, run_name={eval_run_name}"
+            f"complexity={active_complexity}, stochasticity={active_stochasticity_level}, "
+            f"runs={eval_runs}, seed={seed}, run_name={eval_run_name}"
         )
         eval_log_path, eval_records = _run_phase(eval_cfg, seed=seed, verbose=args.verbose)
 
@@ -484,11 +626,12 @@ def main() -> None:
             {
                 "complexity": active_complexity,
                 "seed": int(seed),
-                "runs": int(args.eval_runs),
+                "runs": int(eval_runs),
+                "stochasticity_level": active_stochasticity_level,
                 "eval_log_path": str(eval_log_path),
             }
         )
-        run_offset += int(args.eval_runs)
+        run_offset += int(eval_runs)
 
     eval_metrics = _compute_eval_metrics(
         all_eval_records,
@@ -514,6 +657,7 @@ def main() -> None:
         np.var(np.array(seed_level_win_rates, dtype=float), ddof=1)
     ) if len(seed_level_win_rates) > 1 else 0.0
     eval_metrics["complexity"] = {"active_profile": active_complexity}
+    eval_metrics["stochasticity"] = {"active_level": active_stochasticity_level}
 
     total_eval_runs = int(eval_metrics.get("num_eval_runs", 0))
     baseline_ci_low = float(eval_metrics["win_rate_vs_baseline"].get("ci95_low", 0.0))
@@ -546,6 +690,10 @@ def main() -> None:
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
+        "protocol": protocol_contract,
+        "reward_contract": base_config.get("reward", {}),
+        "feedback_contract": base_config.get("feedback", {}),
+        "stochasticity_contract": base_config.get("stochasticity", {}),
         "algorithm": {
             "family": "dqn",
             "name": algo_name,
@@ -559,14 +707,15 @@ def main() -> None:
         "phases": {
             "training": {
                 "skipped": bool(args.skip_training),
-                "runs": int(args.train_runs),
-                "seed": int(args.train_seed),
+                "runs": int(train_runs),
+                "seed": int(train_seed),
                 **train_summary,
             },
             "evaluation": {
-                "runs_per_seed": int(args.eval_runs),
+                "runs_per_seed": int(eval_runs),
                 "seeds": [int(s) for s in eval_seeds],
                 "complexity_profile": active_complexity,
+                "stochasticity_level": active_stochasticity_level,
                 "seed_runs": eval_runs_meta,
             },
         },

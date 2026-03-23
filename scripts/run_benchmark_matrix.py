@@ -30,6 +30,21 @@ STAGE_BUDGETS = {
 }
 
 DEFAULT_ALGOS = ["vanilla", "double", "dueling", "rainbow_lite"]
+DEFAULT_PROTOCOL_FALLBACK = {
+    "enable_curriculum": False,
+    "stage_order": ["low", "medium", "high"],
+    "stochasticity_order": ["s0", "s1", "s2"],
+    "seed_sets": {
+        "smoke": [101, 202, 303],
+        "candidate": [101, 202, 303, 404, 505],
+        "benchmark": [101, 202, 303, 404, 505],
+    },
+    "train_runs": {"low": 200, "medium": 200, "high": 200},
+    "eval_runs": {"low": 200, "medium": 200, "high": 200},
+    "comparison_matrix": {
+        "algorithms": DEFAULT_ALGOS,
+    },
+}
 
 
 def _ci95(values: List[float]) -> Dict[str, float]:
@@ -51,6 +66,24 @@ def _ci95(values: List[float]) -> Dict[str, float]:
 def _load_json(path: Path) -> Dict:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _deep_merge(base: Dict, override: Dict) -> Dict:
+    merged = copy.deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _resolve_protocol_contract(config: Dict) -> Dict:
+    user_protocol = config.get("protocol", {})
+    return _deep_merge(
+        DEFAULT_PROTOCOL_FALLBACK,
+        user_protocol if isinstance(user_protocol, dict) else {},
+    )
 
 
 def _write_json(path: Path, payload: Dict):
@@ -81,6 +114,8 @@ def _render_markdown(summary: Dict) -> str:
     lines.append(f"- Eval seeds: {summary['effective_budget']['eval_seeds']}")
     if summary["effective_budget"].get("complexity_profile"):
         lines.append(f"- Eval complexity profile: {summary['effective_budget']['complexity_profile']}")
+    if summary["effective_budget"].get("stochasticity_level"):
+        lines.append(f"- Eval stochasticity level: {summary['effective_budget']['stochasticity_level']}")
     lines.append("")
     lines.append("| Algo | Objective Mean | Objective CI95 | vs Vanilla | Avg Pos Delta | Overtake Success | DNF Rate |")
     lines.append("|---|---:|---:|---|---:|---:|---:|")
@@ -103,10 +138,15 @@ def _render_markdown(summary: Dict) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Run fair benchmark matrix for DQN variants.")
     parser.add_argument("--config", default="config.json", help="Base config path.")
-    parser.add_argument("--stage", choices=["A", "B"], default="A", help="Benchmark stage budget.")
+    parser.add_argument(
+        "--stage",
+        choices=["A", "B", "smoke", "candidate", "benchmark"],
+        default="A",
+        help="Benchmark stage budget preset. 'A/B' are legacy aliases.",
+    )
     parser.add_argument(
         "--algos",
-        default=",".join(DEFAULT_ALGOS),
+        default="",
         help="Comma-separated algo list (subset of vanilla,double,dueling,rainbow_lite).",
     )
     parser.add_argument(
@@ -133,35 +173,89 @@ def main():
         default="",
         help="Optional complexity profile override. Only 'low' is implemented.",
     )
+    parser.add_argument(
+        "--stochasticity-level",
+        default="",
+        help="Optional stochasticity level override (e.g. s0, s1, s2).",
+    )
     args = parser.parse_args()
 
-    stage_cfg = STAGE_BUDGETS[args.stage]
-    train_runs = int(args.train_runs if args.train_runs is not None else stage_cfg["train_runs"])
-    train_seeds = (
-        [int(s.strip()) for s in args.train_seeds.split(",") if s.strip()]
-        if args.train_seeds.strip()
-        else [int(s) for s in stage_cfg["train_seeds"]]
-    )
-    eval_runs = int(args.eval_runs if args.eval_runs is not None else stage_cfg["eval_runs"])
-    eval_seeds = (
-        [int(s.strip()) for s in args.eval_seeds.split(",") if s.strip()]
-        if args.eval_seeds.strip()
-        else [int(s) for s in stage_cfg["eval_seeds"]]
-    )
-    eval_seed_csv = ",".join(str(s) for s in eval_seeds)
-    complexity_profile = args.complexity_profile.strip().lower() if args.complexity_profile.strip() else ""
-
-    algos = [a.strip().lower() for a in args.algos.split(",") if a.strip()]
-    invalid = [a for a in algos if a not in DEFAULT_ALGOS]
-    if invalid:
-        raise ValueError(f"Unsupported algos: {invalid}. Allowed: {DEFAULT_ALGOS}")
-    if "vanilla" not in algos:
-        raise ValueError("Please include 'vanilla' to keep the control arm in the benchmark.")
+    stage_alias = {"A": "smoke", "B": "benchmark"}
+    stage_name = stage_alias.get(args.stage, args.stage)
+    fallback_stage_key = "B" if stage_name == "benchmark" else "A"
+    legacy_stage_cfg = STAGE_BUDGETS.get(args.stage, STAGE_BUDGETS.get(fallback_stage_key))
 
     base_config_path = (ROOT / args.config).resolve()
     base_config = _load_json(base_config_path)
     if "dqn_params" not in base_config or not isinstance(base_config["dqn_params"], dict):
         raise ValueError("Base config must include a valid 'dqn_params' object.")
+
+    protocol_contract = _resolve_protocol_contract(base_config)
+    default_algos = protocol_contract.get("comparison_matrix", {}).get("algorithms", DEFAULT_ALGOS)
+    if not isinstance(default_algos, list) or not default_algos:
+        default_algos = DEFAULT_ALGOS
+
+    complexity_profile = (
+        args.complexity_profile.strip().lower()
+        if args.complexity_profile.strip()
+        else str(base_config.get("complexity", {}).get("active_profile", "low")).strip().lower() or "low"
+    )
+    stochasticity_level = (
+        args.stochasticity_level.strip()
+        if args.stochasticity_level.strip()
+        else str(base_config.get("stochasticity", {}).get("active_level", "s0")).strip() or "s0"
+    )
+
+    protocol_train_runs = int(
+        protocol_contract.get("train_runs", {}).get(
+            complexity_profile,
+            DEFAULT_PROTOCOL_FALLBACK["train_runs"]["low"],
+        )
+    )
+    protocol_eval_runs = int(
+        protocol_contract.get("eval_runs", {}).get(
+            complexity_profile,
+            DEFAULT_PROTOCOL_FALLBACK["eval_runs"]["low"],
+        )
+    )
+    seed_sets = protocol_contract.get("seed_sets", {})
+    protocol_seed_set = seed_sets.get(stage_name, [])
+    if not isinstance(protocol_seed_set, list) or not protocol_seed_set:
+        protocol_seed_set = []
+
+    train_runs = int(
+        args.train_runs
+        if args.train_runs is not None
+        else (protocol_train_runs if protocol_train_runs > 0 else int(legacy_stage_cfg["train_runs"]))
+    )
+    eval_runs = int(
+        args.eval_runs
+        if args.eval_runs is not None
+        else (protocol_eval_runs if protocol_eval_runs > 0 else int(legacy_stage_cfg["eval_runs"]))
+    )
+
+    default_train_seeds = [int(s) for s in (protocol_seed_set or legacy_stage_cfg["train_seeds"])]
+    default_eval_seeds = [int(s) for s in (protocol_seed_set or legacy_stage_cfg["eval_seeds"])]
+    train_seeds = (
+        [int(s.strip()) for s in args.train_seeds.split(",") if s.strip()]
+        if args.train_seeds.strip()
+        else default_train_seeds
+    )
+    eval_seeds = (
+        [int(s.strip()) for s in args.eval_seeds.split(",") if s.strip()]
+        if args.eval_seeds.strip()
+        else default_eval_seeds
+    )
+    eval_seed_csv = ",".join(str(s) for s in eval_seeds)
+
+    algos = [a.strip().lower() for a in args.algos.split(",") if a.strip()]
+    if not algos:
+        algos = [str(a).strip().lower() for a in default_algos if str(a).strip()]
+    invalid = [a for a in algos if a not in DEFAULT_ALGOS]
+    if invalid:
+        raise ValueError(f"Unsupported algos: {invalid}. Allowed: {DEFAULT_ALGOS}")
+    if "vanilla" not in algos:
+        raise ValueError("Please include 'vanilla' to keep the control arm in the benchmark.")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = (ROOT / args.out_dir / f"stage_{args.stage}_{timestamp}").resolve()
@@ -179,6 +273,8 @@ def main():
             trial_cfg.setdefault("dqn_params", {})
             trial_cfg["dqn_params"]["algo"] = algo
             trial_cfg["dqn_params"]["algo_options"] = _default_algo_options(algo)
+            trial_cfg.setdefault("complexity", {})["active_profile"] = complexity_profile
+            trial_cfg.setdefault("stochasticity", {})["active_level"] = stochasticity_level
 
             cfg_path = config_dir / f"{trial_id}.json"
             out_path = raw_dir / f"{trial_id}.json"
@@ -207,6 +303,8 @@ def main():
                 ]
                 if complexity_profile:
                     cmd.extend(["--complexity-profile", complexity_profile])
+                if stochasticity_level:
+                    cmd.extend(["--stochasticity-level", stochasticity_level])
                 print(f"[benchmark] Running {trial_id}")
                 result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
                 if result.returncode != 0:
@@ -295,18 +393,27 @@ def main():
             observed_profile = str(evaluation.get("complexity_profile", ""))
             if observed_profile != complexity_profile:
                 fairness_violations.append(f"{rec['trial_id']}: eval complexity profile mismatch")
+        if stochasticity_level:
+            observed_stochasticity = str(evaluation.get("stochasticity_level", ""))
+            if observed_stochasticity != stochasticity_level:
+                fairness_violations.append(f"{rec['trial_id']}: eval stochasticity level mismatch")
 
     summary = {
         "created_at": datetime.now().isoformat(),
         "stage": args.stage,
+        "stage_name": stage_name,
         "base_config": str(base_config_path),
-        "budget": stage_cfg,
+        "budget": {
+            "legacy_stage_budget": legacy_stage_cfg,
+            "protocol": protocol_contract,
+        },
         "effective_budget": {
             "train_runs": train_runs,
             "train_seeds": train_seeds,
             "eval_runs": eval_runs,
             "eval_seeds": eval_seeds,
             "complexity_profile": complexity_profile,
+            "stochasticity_level": stochasticity_level,
         },
         "algorithms": algos,
         "aggregate": aggregate_rows,

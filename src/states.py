@@ -364,6 +364,7 @@ def init_race_state(config, track):
             f"Requested complexity '{requested_complexity}' is not implemented. "
             f"Falling back to '{active_complexity}'."
         )
+    config.setdefault("complexity", {})["active_profile"] = active_complexity
 
     if active_complexity == "low":
         competitors = select_low_complexity_competitors(competitors)
@@ -452,7 +453,7 @@ def init_race_state(config, track):
             driver.agent = BaseAgent(name=f"{driver.name}_base")
         elif agent_spec == "dqn":
             # Initialize DQN agent with correct state dimension
-            state_dim = DriverFeedback.get_state_dim()
+            state_dim = DriverFeedback.get_state_dim(config=config, complexity=active_complexity)
             agent_name = f"{driver.name}_DQN"
             model_path = models_dir / f"{agent_name}_trained.pth"
             simulator_cfg = config.get("simulator", {})

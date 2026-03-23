@@ -43,6 +43,202 @@
             }
         }
     },
+    "reward": {
+        "schema_version": "v1_finish_first",
+        "weights": {
+            "outcome": 2.0,
+            "persistent_position": 0.1,
+            "tactical": 0.05,
+            "pace": 0.05,
+            "tyre_pit": 0.05,
+            "penalty": 2.0
+        },
+        "normalization": {
+            "low": {
+                "outcome": 1.0,
+                "persistent_position": 1.0,
+                "tactical": 1.0,
+                "pace": 1.0,
+                "tyre_pit": 1.0,
+                "penalty": 1.0
+            },
+            "medium": {
+                "outcome": 1.0,
+                "persistent_position": 1.0,
+                "tactical": 1.0,
+                "pace": 1.0,
+                "tyre_pit": 1.0,
+                "penalty": 1.0
+            },
+            "high": {
+                "outcome": 1.0,
+                "persistent_position": 1.0,
+                "tactical": 1.0,
+                "pace": 1.0,
+                "tyre_pit": 1.0,
+                "penalty": 1.0
+            }
+        },
+        "component_activation_by_complexity": {
+            "low": {
+                "outcome": true,
+                "persistent_position": true,
+                "tactical": true,
+                "pace": false,
+                "tyre_pit": false,
+                "penalty": true
+            },
+            "medium": {
+                "outcome": true,
+                "persistent_position": true,
+                "tactical": true,
+                "pace": true,
+                "tyre_pit": false,
+                "penalty": true
+            },
+            "high": {
+                "outcome": true,
+                "persistent_position": true,
+                "tactical": true,
+                "pace": true,
+                "tyre_pit": true,
+                "penalty": true
+            }
+        },
+        "tactical": {
+            "success": 1.0,
+            "failure_by_risk": {
+                "CONSERVATIVE": -0.5,
+                "NORMAL": -1.0,
+                "AGGRESSIVE": -1.5
+            }
+        }
+    },
+    "feedback": {
+        "schema_version": "v2_config_driven",
+        "active_profile": "default",
+        "features_by_complexity": {
+            "low": [
+                "zone_distance_norm",
+                "gap_to_ahead_norm",
+                "zone_difficulty",
+                "has_car_ahead",
+                "current_position_norm",
+                "laps_remaining_norm"
+            ],
+            "medium": [
+                "zone_distance_norm",
+                "gap_to_ahead_norm",
+                "zone_difficulty",
+                "has_car_ahead",
+                "current_position_norm",
+                "laps_remaining_norm",
+                "gap_to_behind_norm",
+                "nearest_rival_gap_norm",
+                "traffic_density_norm"
+            ],
+            "high": [
+                "zone_distance_norm",
+                "gap_to_ahead_norm",
+                "zone_difficulty",
+                "has_car_ahead",
+                "current_position_norm",
+                "laps_remaining_norm",
+                "gap_to_behind_norm",
+                "nearest_rival_gap_norm",
+                "traffic_density_norm",
+                "tyre_age_norm",
+                "tyre_compound_code",
+                "degradation_estimate_norm",
+                "pit_loss_estimate_norm",
+                "laps_since_last_stop_norm",
+                "weather_code",
+                "safety_flag",
+                "rivals_pit_summary_norm"
+            ]
+        }
+    },
+    "protocol": {
+        "enable_curriculum": false,
+        "stage_order": [
+            "low",
+            "medium",
+            "high"
+        ],
+        "stochasticity_order": [
+            "s0",
+            "s1",
+            "s2"
+        ],
+        "seed_sets": {
+            "smoke": [
+                101,
+                202,
+                303
+            ],
+            "candidate": [
+                101,
+                202,
+                303,
+                404,
+                505
+            ],
+            "benchmark": [
+                101,
+                202,
+                303,
+                404,
+                505
+            ]
+        },
+        "train_runs": {
+            "low": 200,
+            "medium": 200,
+            "high": 200
+        },
+        "eval_runs": {
+            "low": 200,
+            "medium": 200,
+            "high": 200
+        },
+        "comparison_matrix": {
+            "algorithms": [
+                "vanilla",
+                "double",
+                "dueling",
+                "rainbow_lite"
+            ]
+        }
+    },
+    "stochasticity": {
+        "active_level": "s0",
+        "levels": {
+            "s0": {
+                "base_probability_scale": 1.0,
+                "risk_modifier_scale": 1.0,
+                "gap_modifier_scale": 1.0,
+                "probability_noise_std": 0.0,
+                "min_success_probability": 0.02,
+                "max_success_probability": 0.95
+            },
+            "s1": {
+                "base_probability_scale": 1.0,
+                "risk_modifier_scale": 1.0,
+                "gap_modifier_scale": 1.0,
+                "probability_noise_std": 0.02,
+                "min_success_probability": 0.02,
+                "max_success_probability": 0.95
+            },
+            "s2": {
+                "base_probability_scale": 1.0,
+                "risk_modifier_scale": 1.0,
+                "gap_modifier_scale": 1.0,
+                "probability_noise_std": 0.05,
+                "min_success_probability": 0.02,
+                "max_success_probability": 0.95
+            }
+        }
+    },
     "maddpg": {
         "enabled": false
     },

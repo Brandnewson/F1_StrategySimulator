@@ -2,11 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
+from copy import deepcopy
 
 from helpers.simulatorHelpers import (
     build_mini_loops,
@@ -19,6 +20,143 @@ from helpers.simulatorVisualisers import run_visualisation
 from agents.DQN import DQNAgent
 from base_agents import RiskLevel
 from runtime_profiles import resolve_complexity_profile
+
+REWARD_COMPONENTS = [
+    "outcome",
+    "persistent_position",
+    "tactical",
+    "pace",
+    "tyre_pit",
+    "penalty",
+]
+
+DEFAULT_REWARD_CONTRACT: Dict[str, Any] = {
+    "schema_version": "v1_finish_first",
+    "weights": {
+        "outcome": 2.0,
+        "persistent_position": 0.1,
+        "tactical": 0.05,
+        "pace": 0.05,
+        "tyre_pit": 0.05,
+        "penalty": 2.0,
+    },
+    "normalization": {
+        "low": {
+            "outcome": 1.0,
+            "persistent_position": 1.0,
+            "tactical": 2.0,
+            "pace": 1.0,
+            "tyre_pit": 1.0,
+            "penalty": 1.0,
+        },
+        "medium": {
+            "outcome": 1.0,
+            "persistent_position": 1.0,
+            "tactical": 2.0,
+            "pace": 1.0,
+            "tyre_pit": 1.0,
+            "penalty": 1.0,
+        },
+        "high": {
+            "outcome": 1.0,
+            "persistent_position": 1.0,
+            "tactical": 2.0,
+            "pace": 1.0,
+            "tyre_pit": 1.0,
+            "penalty": 1.0,
+        },
+    },
+    "component_activation_by_complexity": {
+        "low": {
+            "outcome": True,
+            "persistent_position": True,
+            "tactical": True,
+            "pace": False,
+            "tyre_pit": False,
+            "penalty": True,
+        },
+        "medium": {
+            "outcome": True,
+            "persistent_position": True,
+            "tactical": True,
+            "pace": True,
+            "tyre_pit": False,
+            "penalty": True,
+        },
+        "high": {
+            "outcome": True,
+            "persistent_position": True,
+            "tactical": True,
+            "pace": True,
+            "tyre_pit": True,
+            "penalty": True,
+        },
+    },
+    "tactical": {
+        "success": 1.0,
+        "failure_by_risk": {
+            "CONSERVATIVE": -0.5,
+            "NORMAL": -1.0,
+            "AGGRESSIVE": -1.5,
+        },
+    },
+}
+
+DEFAULT_STOCHASTICITY_CONTRACT: Dict[str, Any] = {
+    "active_level": "s0",
+    "levels": {
+        "s0": {
+            "base_probability_scale": 1.0,
+            "risk_modifier_scale": 1.0,
+            "gap_modifier_scale": 1.0,
+            "probability_noise_std": 0.0,
+            "min_success_probability": 0.02,
+            "max_success_probability": 0.95,
+        },
+        "s1": {
+            "base_probability_scale": 1.0,
+            "risk_modifier_scale": 1.0,
+            "gap_modifier_scale": 1.0,
+            "probability_noise_std": 0.02,
+            "min_success_probability": 0.02,
+            "max_success_probability": 0.95,
+        },
+        "s2": {
+            "base_probability_scale": 1.0,
+            "risk_modifier_scale": 1.0,
+            "gap_modifier_scale": 1.0,
+            "probability_noise_std": 0.05,
+            "min_success_probability": 0.02,
+            "max_success_probability": 0.95,
+        },
+    },
+}
+
+DEFAULT_PROTOCOL_CONTRACT: Dict[str, Any] = {
+    "enable_curriculum": False,
+    "stage_order": ["low", "medium", "high"],
+    "stochasticity_order": ["s0", "s1", "s2"],
+    "seed_sets": {
+        "smoke": [101, 202, 303],
+        "candidate": [101, 202, 303, 404, 505],
+        "benchmark": [101, 202, 303, 404, 505],
+    },
+    "train_runs": {"low": 200, "medium": 200, "high": 200},
+    "eval_runs": {"low": 200, "medium": 200, "high": 200},
+    "comparison_matrix": {
+        "algorithms": ["vanilla", "double", "dueling", "rainbow_lite"],
+    },
+}
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
 
 @dataclass
 class LapRecord:
@@ -69,6 +207,7 @@ class RaceSimulator:
             driver.decision_events = []
             driver.terminal_bonus_awarded = False
             self._reset_position_change_counters(driver)
+            self._reset_reward_tracking(driver)
             # Re-apply career stats that were accumulated before this reset
             stats = career_stats[driver.name]
             driver.cumulative_positions_gained = stats["cumulative_positions_gained"]
@@ -135,6 +274,14 @@ class RaceSimulator:
         self.active_complexity, self.active_complexity_profile, self.available_complexity_profiles = (
             resolve_complexity_profile(config)
         )
+        self.reward_contract = self._resolve_reward_contract(config)
+        self.active_reward_activation = self._resolve_reward_activation(self.active_complexity)
+        self.active_reward_normalization = self._resolve_reward_normalization(self.active_complexity)
+        self.stochasticity_contract = self._resolve_stochasticity_contract(config)
+        self.active_stochasticity_level, self.active_stochasticity_profile = self._resolve_stochasticity_level(
+            self.stochasticity_contract
+        )
+        self.protocol_contract = self._resolve_protocol_contract(config)
         
         # Build mini-loop lookup for speed calculation
         self.mini_loops = build_mini_loops(track_config)
@@ -197,6 +344,7 @@ class RaceSimulator:
         # set agents to training mode if config is set so
         for driver in self.race_state.drivers:
             self._reset_position_change_counters(driver)
+            self._reset_reward_tracking(driver)
             if isinstance(driver.agent, DQNAgent) and self.config.get('simulator').get('agent_mode') == "training":
                 driver.agent.set_training_mode(True)
             if isinstance(driver.agent, DQNAgent) and self.config.get('simulator').get('agent_mode') == "evaluation":
@@ -206,6 +354,162 @@ class RaceSimulator:
         self.agent_learning_visualisations = defaultdict(dict)
         self.race_results = defaultdict(dict)
         self._initialise_run_logging()
+
+    @staticmethod
+    def _resolve_complexity_bucket_name(raw_name: str) -> str:
+        name = str(raw_name or "low").strip().lower()
+        if name not in {"low", "medium", "high"}:
+            return "low"
+        return name
+
+    def _resolve_reward_contract(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        reward_cfg = config.get("reward", {})
+        if reward_cfg is not None and not isinstance(reward_cfg, dict):
+            raise TypeError("config.reward must be an object")
+        contract = _deep_merge(DEFAULT_REWARD_CONTRACT, reward_cfg if isinstance(reward_cfg, dict) else {})
+
+        weights = contract.get("weights", {})
+        normalization = contract.get("normalization", {})
+        activation = contract.get("component_activation_by_complexity", {})
+        if not isinstance(weights, dict):
+            raise TypeError("config.reward.weights must be an object")
+        if not isinstance(normalization, dict):
+            raise TypeError("config.reward.normalization must be an object")
+        if not isinstance(activation, dict):
+            raise TypeError("config.reward.component_activation_by_complexity must be an object")
+
+        for component in REWARD_COMPONENTS:
+            if component not in weights:
+                raise ValueError(f"Missing config.reward.weights.{component}")
+            weights[component] = float(weights.get(component, 0.0))
+
+        for complexity_name in ("low", "medium", "high"):
+            norms = normalization.get(complexity_name)
+            if not isinstance(norms, dict):
+                raise ValueError(f"Missing config.reward.normalization.{complexity_name}")
+            actives = activation.get(complexity_name)
+            if not isinstance(actives, dict):
+                raise ValueError(f"Missing config.reward.component_activation_by_complexity.{complexity_name}")
+            for component in REWARD_COMPONENTS:
+                if component not in norms:
+                    raise ValueError(
+                        f"Missing config.reward.normalization.{complexity_name}.{component}"
+                    )
+                norm_scale = float(norms.get(component, 1.0))
+                if norm_scale <= 0.0:
+                    raise ValueError(
+                        f"Normalization scale must be > 0 for "
+                        f"config.reward.normalization.{complexity_name}.{component}"
+                    )
+                norms[component] = norm_scale
+                actives[component] = bool(actives.get(component, False))
+
+        tactical_cfg = contract.get("tactical", {})
+        if not isinstance(tactical_cfg, dict):
+            raise TypeError("config.reward.tactical must be an object")
+        failure_map = tactical_cfg.get("failure_by_risk", {})
+        if not isinstance(failure_map, dict):
+            raise TypeError("config.reward.tactical.failure_by_risk must be an object")
+        tactical_cfg["success"] = float(tactical_cfg.get("success", 1.0))
+        for key in ("CONSERVATIVE", "NORMAL", "AGGRESSIVE"):
+            failure_map[key] = float(failure_map.get(key, -1.0))
+
+        return contract
+
+    def _resolve_reward_activation(self, complexity_name: str) -> Dict[str, bool]:
+        bucket = self._resolve_complexity_bucket_name(complexity_name)
+        by_complexity = self.reward_contract.get("component_activation_by_complexity", {})
+        active = dict(by_complexity.get(bucket, by_complexity.get("low", {})))
+        return {component: bool(active.get(component, False)) for component in REWARD_COMPONENTS}
+
+    def _resolve_reward_normalization(self, complexity_name: str) -> Dict[str, float]:
+        bucket = self._resolve_complexity_bucket_name(complexity_name)
+        normalization = self.reward_contract.get("normalization", {})
+        scales = dict(normalization.get(bucket, normalization.get("low", {})))
+        return {component: float(scales.get(component, 1.0)) for component in REWARD_COMPONENTS}
+
+    def _resolve_stochasticity_contract(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        stochastic_cfg = config.get("stochasticity", {})
+        if stochastic_cfg is not None and not isinstance(stochastic_cfg, dict):
+            raise TypeError("config.stochasticity must be an object")
+        contract = _deep_merge(
+            DEFAULT_STOCHASTICITY_CONTRACT,
+            stochastic_cfg if isinstance(stochastic_cfg, dict) else {},
+        )
+        levels = contract.get("levels", {})
+        if not isinstance(levels, dict) or not levels:
+            raise ValueError("config.stochasticity.levels must define at least one level")
+        for level_name, level_data in levels.items():
+            if not isinstance(level_data, dict):
+                raise TypeError(f"config.stochasticity.levels.{level_name} must be an object")
+            for key in (
+                "base_probability_scale",
+                "risk_modifier_scale",
+                "gap_modifier_scale",
+                "probability_noise_std",
+                "min_success_probability",
+                "max_success_probability",
+            ):
+                if key not in level_data:
+                    raise ValueError(f"Missing config.stochasticity.levels.{level_name}.{key}")
+                level_data[key] = float(level_data.get(key, 0.0))
+            min_p = float(level_data["min_success_probability"])
+            max_p = float(level_data["max_success_probability"])
+            if min_p < 0.0 or max_p > 1.0 or min_p >= max_p:
+                raise ValueError(
+                    f"Invalid probability bounds for config.stochasticity.levels.{level_name}: "
+                    f"min={min_p}, max={max_p}"
+                )
+        return contract
+
+    def _resolve_stochasticity_level(self, stochasticity_contract: Dict[str, Any]) -> Tuple[str, Dict[str, float]]:
+        levels = stochasticity_contract.get("levels", {})
+        active = str(stochasticity_contract.get("active_level", "s0")).strip()
+        if active not in levels:
+            active = "s0" if "s0" in levels else next(iter(levels.keys()))
+        profile = levels.get(active, {})
+        return active, {k: float(v) for k, v in profile.items()}
+
+    def _resolve_protocol_contract(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        protocol_cfg = config.get("protocol", {})
+        if protocol_cfg is not None and not isinstance(protocol_cfg, dict):
+            raise TypeError("config.protocol must be an object")
+        contract = _deep_merge(
+            DEFAULT_PROTOCOL_CONTRACT,
+            protocol_cfg if isinstance(protocol_cfg, dict) else {},
+        )
+        for key in ("stage_order", "stochasticity_order"):
+            values = contract.get(key, [])
+            if not isinstance(values, list) or not values:
+                raise ValueError(f"config.protocol.{key} must be a non-empty array")
+
+        seed_sets = contract.get("seed_sets", {})
+        if not isinstance(seed_sets, dict):
+            raise TypeError("config.protocol.seed_sets must be an object")
+        for seed_set_name, seeds in seed_sets.items():
+            if not isinstance(seeds, list) or not seeds:
+                raise ValueError(f"config.protocol.seed_sets.{seed_set_name} must be a non-empty array")
+            seed_sets[seed_set_name] = [int(s) for s in seeds]
+
+        for key in ("train_runs", "eval_runs"):
+            runs_cfg = contract.get(key, {})
+            if not isinstance(runs_cfg, dict):
+                raise TypeError(f"config.protocol.{key} must be an object")
+            for complexity_name in ("low", "medium", "high"):
+                runs_cfg[complexity_name] = int(runs_cfg.get(complexity_name, 0))
+                if runs_cfg[complexity_name] <= 0:
+                    raise ValueError(
+                        f"config.protocol.{key}.{complexity_name} must be a positive integer"
+                    )
+
+        matrix_cfg = contract.get("comparison_matrix", {})
+        if not isinstance(matrix_cfg, dict):
+            raise TypeError("config.protocol.comparison_matrix must be an object")
+        algos = matrix_cfg.get("algorithms", [])
+        if not isinstance(algos, list) or not algos:
+            raise ValueError("config.protocol.comparison_matrix.algorithms must be a non-empty array")
+
+        return contract
 
     def _initialise_run_logging(self):
         """Set up disk-backed logging for race results and visualisation replay."""
@@ -282,6 +586,18 @@ class RaceSimulator:
                 "active_profile": self.active_complexity,
                 "resolved_profile": self.active_complexity_profile,
             },
+            "reward": {
+                "schema_version": self.reward_contract.get("schema_version"),
+                "active_components": self.active_reward_activation,
+                "normalization": self.active_reward_normalization,
+                "weights": self.reward_contract.get("weights", {}),
+            },
+            "feedback": self.config.get("feedback", {}),
+            "stochasticity": {
+                "active_level": self.active_stochasticity_level,
+                "profile": self.active_stochasticity_profile,
+            },
+            "protocol": self.protocol_contract,
             "race_settings": self.config.get("race_settings", {}),
             "track": {
                 "name": self.config.get("track", {}).get("name"),
@@ -384,6 +700,109 @@ class RaceSimulator:
         driver.total_in_race_position_gains = 0
         driver.total_in_race_position_losses = 0
         driver._last_recorded_position = int(getattr(driver, "position", 0))
+
+    def _reset_reward_tracking(self, driver) -> None:
+        """Reset per-race reward accounting for one driver."""
+        driver.reward_total = 0.0
+        driver.reward_component_totals = {component: 0.0 for component in REWARD_COMPONENTS}
+        driver.reward_component_totals_raw = {component: 0.0 for component in REWARD_COMPONENTS}
+
+    def _blank_reward_components(self) -> Dict[str, float]:
+        return {component: 0.0 for component in REWARD_COMPONENTS}
+
+    def _compose_reward_from_raw_components(self, raw_components: Dict[str, float]) -> Dict[str, Any]:
+        """Normalize + weight reward components and return a full reward breakdown."""
+        raw = self._blank_reward_components()
+        normalized = self._blank_reward_components()
+        weighted = self._blank_reward_components()
+
+        total = 0.0
+        for component in REWARD_COMPONENTS:
+            active = bool(self.active_reward_activation.get(component, False))
+            raw_value = float(raw_components.get(component, 0.0)) if active else 0.0
+            norm_scale = float(self.active_reward_normalization.get(component, 1.0))
+            norm_scale = norm_scale if norm_scale > 0.0 else 1.0
+            normalized_value = raw_value / norm_scale
+            weight = float(self.reward_contract.get("weights", {}).get(component, 0.0))
+            weighted_value = normalized_value * weight
+
+            raw[component] = raw_value
+            normalized[component] = normalized_value
+            weighted[component] = weighted_value
+            total += weighted_value
+
+        component_sum = float(sum(weighted.values()))
+        return {
+            "total": float(total),
+            "raw": raw,
+            "normalized": normalized,
+            "weighted": weighted,
+            "active_components": [
+                component for component in REWARD_COMPONENTS
+                if bool(self.active_reward_activation.get(component, False))
+            ],
+            "inactive_components": [
+                component for component in REWARD_COMPONENTS
+                if not bool(self.active_reward_activation.get(component, False))
+            ],
+            "component_sum_error": float(total - component_sum),
+        }
+
+    @staticmethod
+    def _merge_reward_breakdowns(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge two reward breakdown objects into one additive breakdown."""
+        merged_raw = {
+            component: float(first.get("raw", {}).get(component, 0.0))
+            + float(second.get("raw", {}).get(component, 0.0))
+            for component in REWARD_COMPONENTS
+        }
+        merged_normalized = {
+            component: float(first.get("normalized", {}).get(component, 0.0))
+            + float(second.get("normalized", {}).get(component, 0.0))
+            for component in REWARD_COMPONENTS
+        }
+        merged_weighted = {
+            component: float(first.get("weighted", {}).get(component, 0.0))
+            + float(second.get("weighted", {}).get(component, 0.0))
+            for component in REWARD_COMPONENTS
+        }
+        total = float(first.get("total", 0.0)) + float(second.get("total", 0.0))
+        component_sum = float(sum(merged_weighted.values()))
+        active_components = list(dict.fromkeys(
+            list(first.get("active_components", [])) + list(second.get("active_components", []))
+        ))
+        inactive_components = list(dict.fromkeys(
+            list(first.get("inactive_components", [])) + list(second.get("inactive_components", []))
+        ))
+        return {
+            "total": total,
+            "raw": merged_raw,
+            "normalized": merged_normalized,
+            "weighted": merged_weighted,
+            "active_components": active_components,
+            "inactive_components": inactive_components,
+            "component_sum_error": float(total - component_sum),
+        }
+
+    def _accumulate_driver_reward_breakdown(self, driver, breakdown: Dict[str, Any]) -> None:
+        """Accumulate one reward breakdown into per-race driver reward totals."""
+        driver.reward_total = float(getattr(driver, "reward_total", 0.0)) + float(breakdown.get("total", 0.0))
+        totals = getattr(driver, "reward_component_totals", None)
+        raw_totals = getattr(driver, "reward_component_totals_raw", None)
+        if not isinstance(totals, dict):
+            totals = {component: 0.0 for component in REWARD_COMPONENTS}
+            driver.reward_component_totals = totals
+        if not isinstance(raw_totals, dict):
+            raw_totals = {component: 0.0 for component in REWARD_COMPONENTS}
+            driver.reward_component_totals_raw = raw_totals
+
+        for component in REWARD_COMPONENTS:
+            totals[component] = float(totals.get(component, 0.0)) + float(
+                breakdown.get("weighted", {}).get(component, 0.0)
+            )
+            raw_totals[component] = float(raw_totals.get(component, 0.0)) + float(
+                breakdown.get("raw", {}).get(component, 0.0)
+            )
 
     def _record_position_change_metrics(self) -> None:
         """Track every in-race position movement without requiring full tick histories."""
@@ -488,10 +907,23 @@ class RaceSimulator:
                         )
 
                     done = driver.completed_laps >= self.total_laps
-                    reward = self._calculate_decision_reward(action, success)
+                    reward_breakdown = self._calculate_decision_reward(
+                        action=action,
+                        overtake_success=success,
+                        pos_before=pos_before,
+                        pos_after=driver.position,
+                    )
+                    reward = float(reward_breakdown.get("total", 0.0))
                     if done and not getattr(driver, "terminal_bonus_awarded", False):
-                        reward += self._calculate_terminal_bonus(driver)
+                        terminal_breakdown = self._calculate_terminal_bonus(driver, finished=True)
+                        reward_breakdown = self._merge_reward_breakdowns(
+                            reward_breakdown,
+                            terminal_breakdown,
+                        )
+                        reward = float(reward_breakdown.get("total", 0.0))
                         driver.terminal_bonus_awarded = True
+
+                    self._accumulate_driver_reward_breakdown(driver, reward_breakdown)
 
                     next_zone = self._find_next_zone_for_driver(driver)
                     if isinstance(driver.agent, DQNAgent):
@@ -513,6 +945,7 @@ class RaceSimulator:
                         gap_to_ahead_km=float(decision["gap_to_ahead_km"]),
                         success=success,
                         reward=float(reward),
+                        reward_breakdown=reward_breakdown,
                         pos_before=pos_before,
                         pos_after=driver.position,
                         success_probability=float(success_probability),
@@ -619,32 +1052,52 @@ class RaceSimulator:
             return "HOLD"
         return f"ATTEMPT_{action.risk_level.name}"
 
-    def _calculate_decision_reward(self, action, overtake_success: bool) -> float:
-        """Event-only reward for one zone decision."""
-        if not action.attempt_overtake:
-            return 0.0
-        if overtake_success:
-            return 2.0
-        failure_penalties = {
-            RiskLevel.CONSERVATIVE: -0.5,
-            RiskLevel.NORMAL: -1.0,
-            RiskLevel.AGGRESSIVE: -1.5,
-        }
-        return float(failure_penalties.get(action.risk_level, -1.0))
+    def _calculate_decision_reward(
+        self,
+        action,
+        overtake_success: bool,
+        pos_before: int,
+        pos_after: int,
+    ) -> Dict[str, Any]:
+        """Compute config-driven reward breakdown for one zone decision."""
+        raw_components = self._blank_reward_components()
 
-    def _calculate_terminal_bonus(self, driver) -> float:
-        """Small end-of-race position bonus."""
-        return float((driver.starting_position - driver.position) * 0.25)
+        if action.attempt_overtake:
+            if overtake_success:
+                raw_components["tactical"] = float(
+                    self.reward_contract.get("tactical", {}).get("success", 1.0)
+                )
+            else:
+                risk_name = str(getattr(action.risk_level, "name", "NORMAL")).upper()
+                failure_map = self.reward_contract.get("tactical", {}).get("failure_by_risk", {})
+                raw_components["tactical"] = float(failure_map.get(risk_name, -1.0))
+
+        raw_components["persistent_position"] = float(int(pos_before) - int(pos_after))
+        return self._compose_reward_from_raw_components(raw_components)
+
+    def _calculate_terminal_bonus(self, driver, finished: bool = True) -> Dict[str, Any]:
+        """Compute config-driven terminal reward breakdown."""
+        raw_components = self._blank_reward_components()
+        if finished:
+            raw_components["outcome"] = float(int(driver.starting_position) - int(driver.position))
+        else:
+            raw_components["penalty"] = -1.0
+        return self._compose_reward_from_raw_components(raw_components)
 
     def _award_terminal_bonus_transition(self, driver) -> None:
-        if not isinstance(driver.agent, DQNAgent):
-            return
         if getattr(driver, "terminal_bonus_awarded", False):
             return
-        bonus = self._calculate_terminal_bonus(driver)
+
+        terminal_breakdown = self._calculate_terminal_bonus(driver, finished=True)
+        self._accumulate_driver_reward_breakdown(driver, terminal_breakdown)
+
+        if not isinstance(driver.agent, DQNAgent):
+            driver.terminal_bonus_awarded = True
+            return
+
         next_zone = self._find_next_zone_for_driver(driver)
         driver.agent.store_transition(
-            reward=bonus,
+            reward=float(terminal_breakdown.get("total", 0.0)),
             next_driver=driver,
             next_race_state=self.race_state,
             done=True,
@@ -662,6 +1115,7 @@ class RaceSimulator:
         gap_to_ahead_km: float,
         success: bool,
         reward: float,
+        reward_breakdown: Dict[str, Any],
         pos_before: int,
         pos_after: int,
         success_probability: float,
@@ -678,6 +1132,19 @@ class RaceSimulator:
             "attempt": bool(decision["attempt"]),
             "success": bool(success),
             "reward": float(reward),
+            "reward_components": {
+                component: float(reward_breakdown.get("weighted", {}).get(component, 0.0))
+                for component in REWARD_COMPONENTS
+            },
+            "reward_components_raw": {
+                component: float(reward_breakdown.get("raw", {}).get(component, 0.0))
+                for component in REWARD_COMPONENTS
+            },
+            "reward_components_normalized": {
+                component: float(reward_breakdown.get("normalized", {}).get(component, 0.0))
+                for component in REWARD_COMPONENTS
+            },
+            "reward_component_sum_error": float(reward_breakdown.get("component_sum_error", 0.0)),
             "position_before": int(pos_before),
             "position_after": int(pos_after),
             "success_probability": float(success_probability),
@@ -689,10 +1156,19 @@ class RaceSimulator:
     def _build_decision_summary(self, events: List[Dict]) -> Dict:
         action_keys = ["HOLD", "ATTEMPT_CONSERVATIVE", "ATTEMPT_NORMAL", "ATTEMPT_AGGRESSIVE"]
         risk_keys = ["CONSERVATIVE", "NORMAL", "AGGRESSIVE"]
+        reward_component_samples = {component: [] for component in REWARD_COMPONENTS}
         summary = {
             "total_decisions": len(events),
             "action_counts": {k: 0 for k in action_keys},
             "risk_attempt_counts": {k: 0 for k in risk_keys},
+            "reward_component_sums": {component: 0.0 for component in REWARD_COMPONENTS},
+            "reward_component_means": {component: 0.0 for component in REWARD_COMPONENTS},
+            "reward_component_variance": {component: 0.0 for component in REWARD_COMPONENTS},
+            "reward_component_sums_raw": {component: 0.0 for component in REWARD_COMPONENTS},
+            "reward_component_means_raw": {component: 0.0 for component in REWARD_COMPONENTS},
+            "reward_total_sum": 0.0,
+            "reward_total_mean": 0.0,
+            "reward_component_sum_error_max_abs": 0.0,
             "zone_stats": {},
         }
         for event in events:
@@ -706,12 +1182,26 @@ class RaceSimulator:
             reward = float(event.get("reward", 0.0))
             gap = float(event.get("gap_to_ahead_km", 0.0))
             success_probability = float(event.get("success_probability", 0.0))
+            reward_components = event.get("reward_components", {})
+            reward_components_raw = event.get("reward_components_raw", {})
+            component_sum_error = float(event.get("reward_component_sum_error", 0.0))
 
             summary["action_counts"].setdefault(action_label, 0)
             summary["action_counts"][action_label] += 1
             if attempt:
                 summary["risk_attempt_counts"].setdefault(risk_level, 0)
                 summary["risk_attempt_counts"][risk_level] += 1
+            summary["reward_total_sum"] += reward
+            summary["reward_component_sum_error_max_abs"] = max(
+                float(summary["reward_component_sum_error_max_abs"]),
+                abs(component_sum_error),
+            )
+            for component in REWARD_COMPONENTS:
+                weighted_val = float(reward_components.get(component, 0.0))
+                raw_val = float(reward_components_raw.get(component, 0.0))
+                summary["reward_component_sums"][component] += weighted_val
+                summary["reward_component_sums_raw"][component] += raw_val
+                reward_component_samples[component].append(weighted_val)
 
             zone_bucket = summary["zone_stats"].setdefault(
                 zone_id,
@@ -727,6 +1217,8 @@ class RaceSimulator:
                     "_reward_sum": 0.0,
                     "_gap_sum": 0.0,
                     "_success_prob_sum": 0.0,
+                    "_reward_component_sums": {component: 0.0 for component in REWARD_COMPONENTS},
+                    "_reward_component_sums_raw": {component: 0.0 for component in REWARD_COMPONENTS},
                 },
             )
             zone_bucket["decisions"] += 1
@@ -735,6 +1227,13 @@ class RaceSimulator:
             zone_bucket["_reward_sum"] += reward
             zone_bucket["_gap_sum"] += gap
             zone_bucket["_success_prob_sum"] += success_probability
+            for component in REWARD_COMPONENTS:
+                zone_bucket["_reward_component_sums"][component] += float(
+                    reward_components.get(component, 0.0)
+                )
+                zone_bucket["_reward_component_sums_raw"][component] += float(
+                    reward_components_raw.get(component, 0.0)
+                )
 
             if attempt:
                 zone_bucket["attempts"] += 1
@@ -753,9 +1252,31 @@ class RaceSimulator:
             zone_stats["avg_reward"] = float(zone_stats["_reward_sum"] / decisions)
             zone_stats["avg_gap_to_ahead_km"] = float(zone_stats["_gap_sum"] / decisions)
             zone_stats["avg_success_probability"] = float(zone_stats["_success_prob_sum"] / decisions)
+            zone_stats["avg_reward_components"] = {
+                component: float(zone_stats["_reward_component_sums"][component] / decisions)
+                for component in REWARD_COMPONENTS
+            }
+            zone_stats["avg_reward_components_raw"] = {
+                component: float(zone_stats["_reward_component_sums_raw"][component] / decisions)
+                for component in REWARD_COMPONENTS
+            }
             zone_stats.pop("_reward_sum", None)
             zone_stats.pop("_gap_sum", None)
             zone_stats.pop("_success_prob_sum", None)
+            zone_stats.pop("_reward_component_sums", None)
+            zone_stats.pop("_reward_component_sums_raw", None)
+
+        num_events = max(1, len(events))
+        summary["reward_total_mean"] = float(summary["reward_total_sum"] / num_events)
+        for component in REWARD_COMPONENTS:
+            summary["reward_component_means"][component] = float(
+                summary["reward_component_sums"][component] / num_events
+            )
+            summary["reward_component_means_raw"][component] = float(
+                summary["reward_component_sums_raw"][component] / num_events
+            )
+            samples = reward_component_samples.get(component, [])
+            summary["reward_component_variance"][component] = float(np.var(samples)) if samples else 0.0
 
         return summary
 
@@ -771,19 +1292,29 @@ class RaceSimulator:
         difficulty = float(zone.get("difficulty", 0.5))
         gap = float(gap_km if gap_km is not None else self._calculate_track_gap(overtaking_driver, target_driver))
 
-        base_probability = 1.0 - difficulty
+        profile = self.active_stochasticity_profile
+        base_probability = (1.0 - difficulty) * float(profile.get("base_probability_scale", 1.0))
         risk_prob_modifiers = {
             RiskLevel.CONSERVATIVE: -0.08,
             RiskLevel.NORMAL: 0.0,
             RiskLevel.AGGRESSIVE: 0.12,
         }
+        risk_modifier_scale = float(profile.get("risk_modifier_scale", 1.0))
+        risk_adjustment = float(risk_prob_modifiers.get(risk_level, 0.0)) * risk_modifier_scale
+
         gap_norm = float(np.clip(gap / 0.1, 0.0, 1.0))
-        gap_modifier = (1.0 - gap_norm - 0.5) * 0.3
+        gap_modifier_scale = float(profile.get("gap_modifier_scale", 1.0))
+        gap_modifier = (1.0 - gap_norm - 0.5) * 0.3 * gap_modifier_scale
+        probability_noise_std = float(profile.get("probability_noise_std", 0.0))
+        probability_noise = float(np.random.normal(0.0, probability_noise_std)) if probability_noise_std > 0.0 else 0.0
+
+        min_success_probability = float(profile.get("min_success_probability", 0.02))
+        max_success_probability = float(profile.get("max_success_probability", 0.95))
         success_probability = float(
             np.clip(
-                base_probability + risk_prob_modifiers.get(risk_level, 0.0) + gap_modifier,
-                0.02,
-                0.95,
+                base_probability + risk_adjustment + gap_modifier + probability_noise,
+                min_success_probability,
+                max_success_probability,
             )
         )
 
@@ -863,6 +1394,7 @@ class RaceSimulator:
         print(f"\n{'='*60}")
         print(f"Starting Race (Batch Mode): {self.total_laps} laps")
         print(f"Active complexity profile: {self.active_complexity}")
+        print(f"Active stochasticity level: {self.active_stochasticity_level}")
         if self.run_dir:
             print(f"Logging run data to: {self.run_dir}")
         elif self.is_replay_only:
@@ -966,6 +1498,14 @@ class RaceSimulator:
 
                 decision_events = list(getattr(driver, "decision_events", []))
                 decision_summary = self._build_decision_summary(decision_events)
+                reward_component_totals = {
+                    component: float(getattr(driver, "reward_component_totals", {}).get(component, 0.0))
+                    for component in REWARD_COMPONENTS
+                }
+                reward_component_totals_raw = {
+                    component: float(getattr(driver, "reward_component_totals_raw", {}).get(component, 0.0))
+                    for component in REWARD_COMPONENTS
+                }
                 per_driver_result = {
                     "laps": driver.completed_laps,
                     "finish_time": finish_time,
@@ -984,6 +1524,16 @@ class RaceSimulator:
                     "total_in_race_position_losses": int(
                         getattr(driver, "total_in_race_position_losses", 0)
                     ),
+                    "reward_total": float(getattr(driver, "reward_total", 0.0)),
+                    "reward_component_totals": reward_component_totals,
+                    "reward_component_totals_raw": reward_component_totals_raw,
+                    "reward_active_components": [
+                        component
+                        for component in REWARD_COMPONENTS
+                        if bool(self.active_reward_activation.get(component, False))
+                    ],
+                    "reward_schema_version": str(self.reward_contract.get("schema_version", "unknown")),
+                    "stochasticity_level": self.active_stochasticity_level,
                     "decision_summary": decision_summary,
                 }
                 if self.telemetry_log_decision_events:
