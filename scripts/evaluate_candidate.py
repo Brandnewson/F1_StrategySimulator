@@ -31,6 +31,7 @@ if str(ROOT / "src") not in sys.path:
 from src.simulator import RaceSimulator, init_simulator
 from src.states import init_race_state
 from src.track import load_track
+from runtime_profiles import resolve_complexity_profile
 
 
 def _disable_visualisations() -> None:
@@ -143,6 +144,10 @@ def _compute_eval_metrics(
     dqn_overtakes_succeeded = 0
     dqn_dnf_count = 0
     dqn_driver_run_count = 0
+    complexity_counts: Dict[str, int] = defaultdict(int)
+
+    risk_attempt_counts = {"CONSERVATIVE": 0, "NORMAL": 0, "AGGRESSIVE": 0}
+    zone_aggregate: Dict[str, Dict] = {}
 
     for run_idx in sorted(run_data.keys()):
         per_driver = run_data[run_idx]
@@ -173,6 +178,46 @@ def _compute_eval_metrics(
             if laps < total_laps:
                 dqn_dnf_count += 1
 
+            complexity_name = str(data.get("complexity_profile", "unknown") or "unknown")
+            complexity_counts[complexity_name] += 1
+
+            decision_summary = data.get("decision_summary", {})
+            if isinstance(decision_summary, dict):
+                for risk_name, count in decision_summary.get("risk_attempt_counts", {}).items():
+                    risk_attempt_counts[risk_name] = risk_attempt_counts.get(risk_name, 0) + int(count or 0)
+
+                zone_stats = decision_summary.get("zone_stats", {})
+                if isinstance(zone_stats, dict):
+                    for zone_id, zdata in zone_stats.items():
+                        if not isinstance(zdata, dict):
+                            continue
+                        bucket = zone_aggregate.setdefault(
+                            str(zone_id),
+                            {
+                                "zone_name": str(zdata.get("zone_name", zone_id)),
+                                "zone_difficulty": float(zdata.get("zone_difficulty", 0.5)),
+                                "decisions": 0,
+                                "attempts": 0,
+                                "successes": 0,
+                                "_reward_weighted_sum": 0.0,
+                                "_gap_weighted_sum": 0.0,
+                                "_success_prob_weighted_sum": 0.0,
+                            },
+                        )
+                        decisions = int(zdata.get("decisions", 0) or 0)
+                        attempts = int(zdata.get("attempts", 0) or 0)
+                        successes = int(zdata.get("successes", 0) or 0)
+                        avg_reward = float(zdata.get("avg_reward", 0.0) or 0.0)
+                        avg_gap = float(zdata.get("avg_gap_to_ahead_km", 0.0) or 0.0)
+                        avg_success_prob = float(zdata.get("avg_success_probability", 0.0) or 0.0)
+
+                        bucket["decisions"] += decisions
+                        bucket["attempts"] += attempts
+                        bucket["successes"] += successes
+                        bucket["_reward_weighted_sum"] += avg_reward * max(1, decisions)
+                        bucket["_gap_weighted_sum"] += avg_gap * max(1, decisions)
+                        bucket["_success_prob_weighted_sum"] += avg_success_prob * max(1, decisions)
+
     win_flags_vs_baseline = _compute_win_flags_vs_group(run_data, dqn_driver_names, baseline_driver_names)
     win_flags_vs_random = _compute_win_flags_vs_group(run_data, dqn_driver_names, random_driver_names)
 
@@ -186,6 +231,23 @@ def _compute_eval_metrics(
         float(dqn_overtakes_succeeded / dqn_overtakes_attempted) if dqn_overtakes_attempted > 0 else 0.0
     )
     dnf_rate = float(dqn_dnf_count / dqn_driver_run_count) if dqn_driver_run_count > 0 else 0.0
+
+    zone_behavior = {}
+    for zone_id, bucket in zone_aggregate.items():
+        decisions = max(1, int(bucket["decisions"]))
+        attempts = int(bucket["attempts"])
+        zone_behavior[zone_id] = {
+            "zone_name": bucket["zone_name"],
+            "zone_difficulty": float(bucket["zone_difficulty"]),
+            "decisions": int(bucket["decisions"]),
+            "attempts": attempts,
+            "successes": int(bucket["successes"]),
+            "attempt_rate": float(attempts / decisions),
+            "success_rate": float(bucket["successes"] / attempts) if attempts > 0 else 0.0,
+            "avg_reward": float(bucket["_reward_weighted_sum"] / decisions),
+            "avg_gap_to_ahead_km": float(bucket["_gap_weighted_sum"] / decisions),
+            "avg_success_probability": float(bucket["_success_prob_weighted_sum"] / decisions),
+        }
 
     return {
         "primary_objective": {
@@ -210,6 +272,13 @@ def _compute_eval_metrics(
                 "succeeded": dqn_overtakes_succeeded,
                 "rate": overtake_success_rate,
             },
+        },
+        "behavioral_diagnostics": {
+            "risk_attempt_counts": risk_attempt_counts,
+            "zone_behavior": zone_behavior,
+        },
+        "complexity_context": {
+            "profiles_seen": dict(sorted(complexity_counts.items(), key=lambda kv: kv[0])),
         },
         "stability": {
             "dnf_rate_dqn": {
@@ -298,6 +367,11 @@ def main() -> None:
     parser.add_argument("--train-seed", type=int, default=1337, help="RNG seed for training phase.")
     parser.add_argument("--eval-seed", type=int, default=7331, help="Fallback RNG seed for evaluation phase.")
     parser.add_argument("--eval-seeds", default="", help="Comma-separated list of eval seeds (e.g. '101,202,303').")
+    parser.add_argument(
+        "--complexity-profile",
+        default="",
+        help="Optional complexity profile override. Only 'low' is implemented.",
+    )
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase and only run evaluation using existing model files.")
     parser.add_argument("--verbose", action="store_true", help="Print simulator output during train/eval phases.")
     parser.add_argument("--guardrail-runs", type=int, default=500, help="Minimum eval runs before no-benefit guardrail is activated.")
@@ -352,6 +426,17 @@ def main() -> None:
     if args.total_laps is not None:
         base_config.setdefault("race_settings", {})["total_laps"] = int(args.total_laps)
 
+    if args.complexity_profile.strip():
+        base_config.setdefault("complexity", {})["active_profile"] = args.complexity_profile.strip().lower()
+
+    active_complexity, _, _ = resolve_complexity_profile(base_config)
+    if active_complexity != str(base_config.get("complexity", {}).get("active_profile", "low")).strip().lower():
+        print(
+            f"[evaluate_candidate] Requested complexity is not implemented. "
+            f"Using '{active_complexity}'."
+        )
+    base_config.setdefault("complexity", {})["active_profile"] = active_complexity
+
     total_laps = int(base_config.get("race_settings", {}).get("total_laps", 0) or 0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -368,6 +453,7 @@ def main() -> None:
             total_laps=total_laps,
             checkpoint_tag=train_checkpoint_tag,
         )
+        train_cfg.setdefault("complexity", {})["active_profile"] = active_complexity
         print(f"[evaluate_candidate] Training phase: runs={args.train_runs}, seed={args.train_seed}, run_name={train_run_name}")
         train_log_path, train_records = _run_phase(train_cfg, seed=args.train_seed, verbose=args.verbose)
 
@@ -377,7 +463,7 @@ def main() -> None:
     run_offset = 0
 
     for seed in eval_seeds:
-        eval_run_name = f"{args.run_prefix}_eval_{timestamp}_s{seed}"
+        eval_run_name = f"{args.run_prefix}_eval_{timestamp}_{active_complexity}_s{seed}"
         eval_cfg = _prepare_phase_config(
             base_config,
             phase="evaluation",
@@ -385,13 +471,18 @@ def main() -> None:
             run_name=eval_run_name,
             total_laps=total_laps,
         )
-        print(f"[evaluate_candidate] Evaluation phase: runs={args.eval_runs}, seed={seed}, run_name={eval_run_name}")
+        eval_cfg.setdefault("complexity", {})["active_profile"] = active_complexity
+        print(
+            "[evaluate_candidate] Evaluation phase: "
+            f"complexity={active_complexity}, runs={args.eval_runs}, seed={seed}, run_name={eval_run_name}"
+        )
         eval_log_path, eval_records = _run_phase(eval_cfg, seed=seed, verbose=args.verbose)
 
         remapped_records = _remap_run_numbers(eval_records, run_offset=run_offset)
         all_eval_records.extend(remapped_records)
         eval_runs_meta.append(
             {
+                "complexity": active_complexity,
                 "seed": int(seed),
                 "runs": int(args.eval_runs),
                 "eval_log_path": str(eval_log_path),
@@ -406,7 +497,6 @@ def main() -> None:
         random_driver_names=random_driver_names,
         total_laps=total_laps,
     )
-
     seed_level_win_rates: List[float] = []
     for run_info in eval_runs_meta:
         seed_records = _read_jsonl_records(Path(run_info["eval_log_path"]))
@@ -417,11 +507,13 @@ def main() -> None:
             random_driver_names=random_driver_names,
             total_laps=total_laps,
         )
-        seed_level_win_rates.append(float(seed_metrics["win_rate_vs_baseline"]["mean"]))
+        win_mean = float(seed_metrics["win_rate_vs_baseline"]["mean"])
+        seed_level_win_rates.append(win_mean)
 
     eval_metrics["stability"]["win_rate_vs_baseline_variance_across_seeds"] = float(
         np.var(np.array(seed_level_win_rates, dtype=float), ddof=1)
     ) if len(seed_level_win_rates) > 1 else 0.0
+    eval_metrics["complexity"] = {"active_profile": active_complexity}
 
     total_eval_runs = int(eval_metrics.get("num_eval_runs", 0))
     baseline_ci_low = float(eval_metrics["win_rate_vs_baseline"].get("ci95_low", 0.0))
@@ -449,6 +541,8 @@ def main() -> None:
         "train_log_path": str(train_log_path) if train_log_path is not None else None,
     }
 
+    objective_score = float(eval_metrics.get("primary_objective", {}).get("score", 0.0))
+
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
@@ -457,8 +551,8 @@ def main() -> None:
             "name": algo_name,
             "options": algo_options,
         },
-        "objective_name": "win_rate_vs_baseline",
-        "objective_score": float(eval_metrics["primary_objective"]["score"]),
+        "objective_name": f"win_rate_vs_baseline[{active_complexity}]",
+        "objective_score": objective_score,
         "dqn_driver_names": dqn_driver_names,
         "baseline_driver_names": baseline_driver_names,
         "random_driver_names": random_driver_names,
@@ -472,6 +566,7 @@ def main() -> None:
             "evaluation": {
                 "runs_per_seed": int(args.eval_runs),
                 "seeds": [int(s) for s in eval_seeds],
+                "complexity_profile": active_complexity,
                 "seed_runs": eval_runs_meta,
             },
         },
@@ -482,8 +577,11 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out_payload, indent=2), encoding="utf-8")
 
-    primary_score = float(eval_metrics["primary_objective"]["score"])
-    print(f"[evaluate_candidate] Primary objective (win_rate_vs_baseline): {primary_score:.6f}")
+    primary_score = objective_score
+    print(
+        "[evaluate_candidate] Primary objective "
+        f"(win_rate_vs_baseline[{active_complexity}]): {primary_score:.6f}"
+    )
     print(f"[evaluate_candidate] Metrics written to: {out_path}")
 
 

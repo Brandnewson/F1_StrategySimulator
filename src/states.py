@@ -6,6 +6,8 @@ from matplotlib.lines import Line2D
 from pathlib import Path
 import torch
 
+from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors
+
 # Agents
 from base_agents import BaseAgent, RandomAgent
 from agents.DQN import DQNAgent
@@ -16,7 +18,7 @@ class DriverState:
     
     def __init__(self, name: str, starting_position: int, track_distance: float):
         self.name = name
-        # default start at 0.0 â€” actual grid offsets are assigned in init_race_state
+        # default start at 0.0 - actual grid offsets are assigned in init_race_state
         self.current_distance = 0.0
         self.current_lap = 0
         self.current_lap_time = 0.0  # Time spent on current lap in seconds
@@ -25,8 +27,8 @@ class DriverState:
         self.completed_laps = 0
         
         # Car state
-        self.tyre_compound = "medium"  # Can be soft, medium, hard
-        self.tyre_age = 0  # Laps on current tyres
+        self.tyre_compound = "medium"  # Reserved for future high complexity mode
+        self.tyre_age = 0  # Reserved for future high complexity mode
         self.fuel_load = 100.0  # Fuel percentage
         
         # Track position
@@ -323,12 +325,12 @@ def attempt_overtake(overtaking_driver: DriverState, target_driver: DriverState,
     success = np.random.random() < base_success_rate
     
     if success:
-        print(f"  ðŸ {overtaking_driver.name} successfully overtook {target_driver.name} at {overtaking_zone.get('name')}!")
+        print(f"  SUCCESS {overtaking_driver.name} successfully overtook {target_driver.name} at {overtaking_zone.get('name')}!")
         # Swap positions slightly
         overtaking_driver.current_distance = target_driver.current_distance + 0.01
         return True
     else:
-        print(f"  âŒ {overtaking_driver.name} failed to overtake {target_driver.name} at {overtaking_zone.get('name')}")
+        print(f"  FAIL {overtaking_driver.name} failed to overtake {target_driver.name} at {overtaking_zone.get('name')}")
         return False
 
 
@@ -351,10 +353,22 @@ def init_race_state(config, track):
     Initialise the simulator with the given configuration and track data.
     This gives us our race state, and driver state.
     """
-    import random 
-    
-    competitors = config.get("competitors", [])
-    random.shuffle(competitors)  # Randomise grid order
+    competitors = list(config.get("competitors", []))
+    active_complexity, _, _ = resolve_complexity_profile(config)
+
+    requested_complexity = str(
+        config.get("complexity", {}).get("active_profile", "low")
+    ).strip().lower()
+    if requested_complexity != active_complexity:
+        print(
+            f"Requested complexity '{requested_complexity}' is not implemented. "
+            f"Falling back to '{active_complexity}'."
+        )
+
+    if active_complexity == "low":
+        competitors = select_low_complexity_competitors(competitors)
+    else:
+        raise ValueError(f"Complexity '{active_complexity}' is currently not supported.")
 
     # Initialize driver states
     drivers = []
@@ -373,7 +387,7 @@ def init_race_state(config, track):
             comp_colour = competitor.get("colour") or competitor.get("color")
         if isinstance(comp_colour, str):
             cc = comp_colour.strip()
-            # preserve hex codes and tuples â€” only collapse simple names with spaces
+            # preserve hex codes and tuples - only collapse simple names with spaces
             if cc.startswith("#"):
                 driver.colour = cc
                 driver.color = cc
@@ -386,6 +400,9 @@ def init_race_state(config, track):
         else:
             driver.colour = None
             driver.color = None
+
+        driver.tyre_compound = "medium"
+        driver.tyre_age = 0
         drivers.append(driver)
     
     # Assign realistic starting grid offsets:
@@ -418,6 +435,20 @@ def init_race_state(config, track):
         elif agent_spec == "ppo":
             # Placeholder for PPO agent (to be implemented)
             print(f"Warning: PPO agent not yet implemented, using BaseAgent for {driver.name}")
+            driver.agent = BaseAgent(name=f"{driver.name}_base")
+        elif agent_spec == "maddpg":
+            maddpg_cfg = config.get("maddpg", {}) if isinstance(config, dict) else {}
+            maddpg_enabled = bool(maddpg_cfg.get("enabled", False))
+            if maddpg_enabled:
+                print(
+                    f"Warning: MADDPG mode was requested for {driver.name}, "
+                    "but the implementation is not available yet. Falling back to BaseAgent."
+                )
+            else:
+                print(
+                    f"Note: MADDPG is configured as optional stretch work and is currently disabled. "
+                    f"Using BaseAgent for {driver.name}."
+                )
             driver.agent = BaseAgent(name=f"{driver.name}_base")
         elif agent_spec == "dqn":
             # Initialize DQN agent with correct state dimension

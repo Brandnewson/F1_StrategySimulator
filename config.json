@@ -3,19 +3,19 @@
     "agent_review_mode": true,
     "competitors": [
         {
-            "name": "Cruz Ramirez  Dueling-DQN-vs-Base simplicity experiment",
+            "name": "Vanilla DQN Driver",
             "agent": "dqn",
             "colour": "#022050"
         },
         {
-            "name": "Oscar Pastry",
+            "name": "Base Agent",
             "agent": "base",
             "colour": "#FFA500"
         }
     ],
     "simulator": {
         "runs": 20,
-        "run_name": "dueling dqn vs base agent",
+        "run_name": "vanilla agent vs base agent",
         "visualise_from_run_name": "",
         "method": "batch",
         "tick_rate": 100,
@@ -25,6 +25,26 @@
             "include_legacy_tick_histories": false,
             "log_decision_events": true
         }
+    },
+    "complexity": {
+        "active_profile": "low",
+        "profiles": {
+            "low": {
+                "implemented": true,
+                "description": "Single DQN driver against one Base driver."
+            },
+            "medium": {
+                "implemented": false,
+                "description": "Multiple competitors in one race."
+            },
+            "high": {
+                "implemented": false,
+                "description": "Tyre dynamics and pit stops."
+            }
+        }
+    },
+    "maddpg": {
+        "enabled": false
     },
     "race_settings": {
         "total_laps": 5,
@@ -147,7 +167,7 @@
         }
     },
     "dqn_params": {
-        "algo": "dueling",
+        "algo": "vanilla",
         "algo_options": {
             "n_step": 3,
             "per_alpha": 0.6,

@@ -1,21 +1,98 @@
 \chapter{Introduction and Background Research}
-
-% You can cite chapters by using '\ref{chapter1}', where the label must
-% match that given in the 'label' command, as on the next line.
 \label{chapter1}
 
-% Sections and sub-sections can be declared using \section and \subsection.
-% There is also a \subsubsection, but consider carefully if you really need
-% so many layers of section structure.
 \section{Introduction}
+Formula 1 strategy is a decision problem under pressure. Teams choose when to defend, when to attack, and when to protect tyres while conditions keep changing. A single tactical choice can improve race position or cause time loss that cannot be recovered. This makes the domain suitable for reinforcement learning, where an agent learns from repeated interaction with an environment rather than from a fixed answer key \citep{ribeiro2002rlagents}.
 
-<A brief introduction suitable for a non-specialist, {\em i.e.} without using technical terms or jargon, as far as possible. This may be similar/the same as that in the 'Outline and Plan' document. The remainder of this chapter will normally cover everything to be assessed under the `Background Research` criterion in the mark scheme.>
+This dissertation studies reinforcement learning methods for competitive race strategy in an F1-inspired simulator. The project does not claim to model real Formula 1 operations in full detail. Instead, it builds a controlled experimental setting where methods can be compared fairly and interpreted clearly. The central ambition is methodological reliability. The core contribution is not a claim that one algorithm is universally best for all racing contexts.
 
-Here is an example of how to cite a reference using the numeric system \cite{parikh1980adaptive}.
+\subsection{Project context and key definitions}
+The field is sequential decision making under uncertainty. The niche is competitive tactical decision making among learning agents in a simplified motorsport simulator.
 
+The phrase \textit{competitive race among AI agents} has a precise meaning in this project. Each agent selects tactical actions independently. Agents do not share policy parameters or communicate at runtime. They still interact through shared race dynamics such as overtaking attempts, position changes, and time gaps.
 
-% Must provide evidence of a literature review. Use sections
-% and subsections as they make sense for your project.
-\section{Literature review}
-<This section heading is purely a suggestion -- you should subdivide this chapter in whatever manner you think makes most sense for your project. It may also make sense to spread the `Background Research' over more than one chapter, in which case they should be named sensibly.>
+The phrase \textit{stochastic environment} also has a precise meaning. The same state and action pair can lead to different outcomes due to probabilistic overtake success, randomised starting conditions, and uncertainty factors that can be introduced in staged experiments. Tyre degradation effects are treated as an important part of this uncertainty model once high complexity experiments begin \citep{heilmeier2018racesim,cappello2025tires}.
 
+This dissertation uses a staged complexity pathway to protect validity. Low complexity is used first to verify that DQN-family agents can learn against a hard-coded baseline. Medium complexity then introduces additional competitors. High complexity then introduces tyre dynamics with pit-stop trade-offs. This order constrains the risk of confounding factors during early method comparison.
+
+\subsection{Aim}
+This project investigates how reliably different reinforcement learning methods learn race-strategy decisions in a competitive, uncertain F1-inspired simulator. It compares robustness, learning speed, and race outcomes under controlled stochastic conditions.
+
+\subsection{Objectives}
+The objectives are designed to be specific, measurable, and aligned to staged implementation.
+
+\begin{enumerate}
+    \item Build and validate an F1-inspired simulator for competitive strategy experiments. Validation includes deterministic sanity checks and documented modelling assumptions.
+    \item Implement a tyre degradation extension and verify that degradation behaviour is consistent under controlled tests \citep{heilmeier2018racesim,cappello2025tires}.
+    \item Benchmark vanilla DQN, double DQN, dueling DQN, and rainbow-lite DQN under matched compute budgets with fixed random seeds \citep{mnih2015human,vanhasselt2016double,wang2016dueling,hessel2018rainbow}.
+    \item Report statistically grounded outcomes using confidence intervals, variance across seeds, and behavioural diagnostics such as risk level, attempt rate, and zone-wise success \citep{henderson2018deep,agarwal2021statistical}.
+    \item Attempt MADDPG integration as a stretch objective if time allows. If integration is incomplete, provide transparent design notes and limitations rather than unsupported performance claims \citep{lowe2017maddpg}.
+\end{enumerate}
+
+\subsection{Research questions and hypotheses}
+\textbf{RQ1.} Which DQN variant performs best under equal compute budget and seed-controlled evaluation.
+
+\textbf{H1.} Double DQN and dueling DQN are expected to outperform vanilla DQN in average win rate because they reduce value estimation bias and improve value decomposition \citep{vanhasselt2016double,wang2016dueling}.
+
+\textbf{RQ2.} How sensitive is each method to increasing stochasticity and tyre-related uncertainty.
+
+\textbf{H2.} Methods with replay and value stabilisation are expected to degrade more gradually as uncertainty rises, while simpler baselines are expected to show larger variance across seeds \citep{schaul2016prioritized,henderson2018deep}.
+
+\textbf{RQ3.} Which learned behaviours explain performance differences across methods.
+
+\textbf{H3.} Algorithms that achieve stronger race outcomes will show more selective overtaking behaviour, with lower low-probability attempt rates and higher zone-specific success consistency.
+
+\section{Literature Review}
+\subsection{Review strategy and evidence quality}
+This chapter uses a thematic review strategy rather than a chronological catalogue. The search emphasis is on primary technical literature in motorsport strategy modelling, reinforcement learning algorithm design, and reproducible evaluation practice.
+
+The evidence base is separated into three quality tiers. Core evidence includes peer-reviewed motorsport strategy papers and canonical reinforcement learning method papers. Supporting evidence includes recent domain-specific preprints that clarify emerging directions. Background-only evidence includes broad surveys and non-peer-reviewed forecasting work that provide context but are not used as sole support for central claims.
+
+This structure is used to keep novelty claims conservative and well-supported. A compact comparison map of key studies is provided in Appendix Table~\ref{tab:related-work-comparison}.
+
+\subsection{Motorsport strategy simulation and planning}
+Early motorsport strategy research established the value of fast simulation for decision support. \citet{heilmeier2018racesim} presented a lap-wise race simulation approach with tyre degradation, fuel effects, pit stops, and overtaking processes. A major strength of that work is pragmatic model design based on publicly accessible race data. A limitation is that the simulator primarily supports strategy evaluation rather than direct learning algorithm comparison across controlled seeds.
+
+\citet{heilmeier2020virtual} extended strategy decision support through neural approximations and optimisation procedures. The study showed that data-driven surrogates can accelerate scenario exploration during race strategy planning. The work is strong on engineering relevance and practical deployment framing. It is less focused on reproducibility protocols for comparing learning agents under identical compute and stochastic settings.
+
+\citet{piccinotti2021online} investigated online planning for F1 race strategy identification. This line of work demonstrates that planning methods can produce competitive decisions in dynamic race contexts. The limitation for this dissertation is methodological scope. Planning-focused studies typically do not provide DQN-family benchmarking with explicit seed variance reporting, which is central to the current aim.
+
+Formula E strategy research adds another useful perspective. \citet{liu2020formulae} combined neural modelling with Monte Carlo tree search for energy strategy decisions. The work highlights how time-critical race strategy can be framed as multi-stage decision making with large state spaces. More recent multi-car Formula E work further supports the value of reinforcement learning in competitive settings \citep{liu2024formulae}. However, these studies usually target domain performance and decision quality in specific settings rather than a reproducibility-first benchmark protocol across multiple DQN variants.
+
+Taken together, motorsport strategy papers show that simulation abstractions can produce meaningful tactical insight. They also show that tyre and energy dynamics matter for strategic realism. The remaining gap is an explicit evaluation framework where algorithm comparisons are controlled, statistically grounded, and interpretable for non-specialist readers.
+
+\subsection{Reinforcement learning in competitive uncertain systems}
+Reinforcement learning has long been framed as learning through interaction with uncertain environments \citep{ribeiro2002rlagents}. This framing is directly relevant to race strategy, where policies must handle uncertainty and opponent interaction rather than one fixed deterministic path.
+
+\citet{groeneveld2023recommerce} provides a useful cross-domain example from recommerce markets. The paper shows that self-learning agents can adapt in competitive environments where uncertainty and strategic interaction both matter. The relevance is conceptual rather than domain-specific. It supports the case that benchmark design must expose methods to controlled uncertainty and competition to avoid overfitting to narrow deterministic conditions.
+
+Recent motorsport-focused multi-agent work is emerging. \citet{fieni2026learning} reports learning-based multi-agent race strategies in Formula 1 contexts and signals growing interest in this research direction. This is valuable as frontier context. It does not remove the need for transparent, reproducible benchmark design in smaller controlled simulators, especially for undergraduate project scope and timescale.
+
+A non-peer-reviewed preprint on championship point forecasting illustrates wider machine learning interest in Formula 1 analytics \citep{bansal2025advanced}. The study offers descriptive context on data scale and forecasting ambition. It is not used as primary evidence for strategic control claims due to publication status and task mismatch.
+
+\subsection{DQN-family foundations and method choice}
+The DQN line is a suitable core for this dissertation because the simulator action space is tactical and discrete. The original deep Q-network established that deep value learning can achieve strong control performance when combined with replay and target networks \citep{mnih2015human}. This provides the baseline reference for method comparison.
+
+Double DQN addresses overestimation bias in Q-value targets, which can materially affect policy stability \citep{vanhasselt2016double}. Dueling network architectures separate state value from action advantage and can improve learning efficiency when many actions have similar effects \citep{wang2016dueling}. Prioritised replay improves sample efficiency by focusing learning on transitions with high temporal-difference error \citep{schaul2016prioritized}. Rainbow combines several DQN improvements into a single framework and demonstrates strong aggregate performance across benchmark tasks \citep{hessel2018rainbow}.
+
+Action-space design literature further supports this methodological choice. \citet{zhu2021actionspaces} argues that algorithm suitability depends strongly on how action spaces are represented and constrained. Since this project uses a compact tactical decision space around overtaking opportunities, DQN-family methods form a coherent primary comparison set.
+
+Policy-gradient and multi-agent actor-critic methods remain relevant context. PPO is widely used and robust in many settings, yet it is not the primary focus of this dissertation because the immediate goal is a controlled DQN-family benchmark \citep{schulman2017ppo}. MADDPG is treated as stretch work for breadth rather than as a core requirement \citep{lowe2017maddpg}. This protects delivery quality while retaining technical ambition.
+
+\subsection{Reproducible evaluation under uncertainty}
+Methodological reliability is a central concern in modern reinforcement learning evaluation. \citet{henderson2018deep} showed that random seeds, implementation details, and reporting choices can materially change apparent conclusions. \citet{agarwal2021statistical} reinforced this point by showing how fragile rankings can be without statistically principled analysis.
+
+These findings directly shape this dissertation design. Equal compute budgets and matched seeds are treated as mandatory controls rather than optional extras. Confidence intervals and across-seed variance are reported to avoid single-run claims. Behavioural diagnostics are included because outcome-only metrics can hide policy failure modes in competitive environments.
+
+Work beyond reinforcement learning also supports robust scenario evaluation principles. \citet{sankary2018stochastic} studied stochastic scenario selection in evolutionary optimisation and demonstrated that uncertainty-aware evaluation procedures can improve robustness and reduce overfitting to narrow scenario sets. Although the optimisation paradigm differs, the methodological lesson transfers well to competitive race simulation.
+
+\subsection{Synthesis of limitations and research gap}
+The reviewed literature establishes three strong foundations. Motorsport studies provide practical simulation abstractions with strategic relevance. Reinforcement learning literature provides algorithmic mechanisms for learning under uncertainty. Reproducibility literature provides statistical discipline for trustworthy comparison.
+
+A clear gap remains at their intersection. Few studies provide a reproducible DQN-family benchmark in a competitive motorsport-inspired simulator where stochastic factors can be introduced in controlled stages and where behavioural diagnostics are analysed alongside headline performance.
+
+This dissertation addresses that gap through three linked contributions. First, it defines a fairness-centred evaluation protocol with matched budgets, fixed seed sets, and interval-based reporting. Second, it reports interpretable tactical diagnostics to explain \textit{why} performance differs across methods. Third, it adopts a staged complexity pathway from low-complexity baseline comparison to tyre and uncertainty extensions so that new complexity is introduced only after baseline validity is established.
+
+The chapter also resolves a common ambiguity in student projects that combine domain simulation with machine learning. It separates algorithm performance claims from simulator realism claims. This means a method can be judged successful at low complexity without implying immediate transfer to full race engineering practice. The same separation supports clear progression logic for later chapters. RQ1 is addressed by controlled method comparison at fixed budgets. RQ2 is addressed by staged uncertainty expansion once baseline behaviour is stable. RQ3 is addressed by tactical diagnostics that connect outcomes to decision patterns rather than only to aggregate win rates.
+
+The novelty claim is therefore methodological and evidential. The contribution is a reliable comparison framework and interpretable findings for an F1-inspired strategy setting, not a claim of solving multi-agent reinforcement learning for real Formula 1 operations.

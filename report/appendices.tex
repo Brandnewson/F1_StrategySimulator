@@ -1,42 +1,74 @@
 \begin{appendices}
 
-%
-% The first appendix must be "Self-appraisal".
-%
-\chapter{Self-appraisal}
+\chapter{Self Appraisal}
 
-<This appendix should contain everything covered by the 'self-appraisal' criterion in the mark scheme. Although there is no length limit for this section, 2---4 pages will normally be sufficient. The format of this section is not prescribed, but you may like to organise your discussion into the following sections and subsections.>
+The project plan followed incremental delivery. Low complexity experiments were stabilised before new simulator systems were added.
 
-\section{Critical self-evaluation}
+Research discipline improved through controlled benchmarking. Experiments now use fixed seeds with matched budgets from the start.
+
+\section{Critical self evaluation}
+Scope remained tight when implementation risk increased. This decision improved result reliability.
+
+Early writing pace can improve in future projects. Too much time was spent in exploration before full chapter drafting.
 
 \section{Personal reflection and lessons learned}
+Reproducibility emerged as a core engineering skill. Simple baselines also exposed design issues quickly.
 
-\section{Legal, social, ethical and professional issues}
+\section{Legal social ethical and professional issues}
+Public research sources were used with citation. No personal data was collected from participants.
 
-<Refer to each of these issues in turn. If one or more is not relevant to your project, you should still explain {\em why} you think it was not relevant.>
+Energy use was considered during long training runs. Waste was reduced by using short smoke checks before long runs.
 
 \subsection{Legal issues}
+Open publication sources were followed and cited clearly.
 
 \subsection{Social issues}
+This project did not interact with human participants.
 
 \subsection{Ethical issues}
+Conclusions were not overstated in limited scope experiments.
 
 \subsection{Professional issues}
+Version control was used with traceable experiment settings.
 
-
-%
-% Any other appendices you wish to use should come after "Self-appraisal". You can have as many appendices as you like.
-%
 \chapter{External Material}
-<This appendix should provide a brief record of materials used in the solution that are not the student's own work. Such materials might be pieces of codes made available from a research group/company or from the internet, datasets prepared by external users or any preliminary materials/drafts/notes provided by a supervisor. It should be clear what was used as ready-made components and what was developed as part of the project. This appendix should be included even if no external materials were used, in which case a statement to that effect is all that is required.>
+Publicly available papers were used as academic background material.
 
+FastF1 based track data from public tooling was used in the workflow.
 
+\section{Related Work Comparison}
+Table~\ref{tab:related-work-comparison} summarises key studies reviewed in Chapter 1 and highlights how this dissertation positions its contribution.
 
-
-%
-% Other appendices can be added here following the same pattern as above.
-%
-
-
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Comparison of related work and relevance to this dissertation}
+\label{tab:related-work-comparison}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|p{2.7cm}|p{2.8cm}|p{2.7cm}|p{2.5cm}|p{2.5cm}|p{2.7cm}|p{2.8cm}|}
+\hline
+\textbf{Study} & \textbf{Domain and simulator fidelity} & \textbf{Decision method} & \textbf{Uncertainty treatment} & \textbf{Evaluation rigour} & \textbf{Limitations} & \textbf{Direct relevance to thesis} \\
+\hline
+Heilmeier et al. (2018) & Circuit motorsport with lap-wise race simulation and tyre and fuel effects & Strategy simulation and what-if analysis & Includes overtaking and degradation effects in model dynamics & Practical validation on historical race setting & Not focused on RL benchmark fairness across seeds & Motivates staged simulator design with tyre extension \\
+\hline
+Heilmeier et al. (2020) & Circuit motorsport strategy support with ANN components & Surrogate modelling and optimisation support & Captures race variability through modelled scenarios & Strong engineering framing and deployability discussion & Limited focus on RL reproducibility protocol & Supports need for interpretable strategy tools \\
+\hline
+Piccinotti et al. (2021) & Formula 1 strategy identification in planning setting & Online planning methods & Dynamic race context in planning loop & Demonstrates value of planning for strategy choice & Limited DQN-family comparative analysis & Clarifies boundary between planning and RL benchmarking goals \\
+\hline
+Liu and Fotouhi (2020) & Formula E race strategy with energy constraints & ANN plus MCTS & Multi-stage uncertainty in energy and race conditions & Demonstrates decision quality in time-critical domain & Not designed as controlled RL reproducibility benchmark & Supports tactical decision framing under uncertainty \\
+\hline
+Liu et al. (2024) & Formula E multi-car strategy learning context & Reinforcement learning based strategy development & Competitive race uncertainty in multi-car setting & Strong domain result emphasis & Less emphasis on seed-controlled statistical protocol & Provides adjacent motorsport RL evidence base \\
+\hline
+Mnih et al. (2015), van Hasselt et al. (2016), Wang et al. (2016), Hessel et al. (2018) & General RL benchmarks & DQN, Double DQN, Dueling DQN, Rainbow & Algorithmic robustness mechanisms in value learning & Benchmark-oriented algorithm studies & Not motorsport-specific and limited tactical interpretability & Defines core algorithm comparison set for this dissertation \\
+\hline
+Henderson et al. (2018), Agarwal et al. (2021) & Cross-domain deep RL evaluation & Reproducibility and statistical evaluation methodology & Focus on stochastic outcome variation and seed effects & Strong critique of weak reporting practice & Do not provide motorsport-specific protocol & Directly motivates fixed-seed and interval-based evaluation design \\
+\hline
+Sankary and Ostfeld (2018) & Robust optimisation in water systems & Evolutionary optimisation with stochastic scenario selection & Explicit stochastic scenario resampling & Robustness-focused evaluation method & Different optimisation paradigm from RL & Supports uncertainty-aware evaluation discipline \\
+\hline
+This dissertation & F1-inspired competitive simulator with staged complexity & Reproducible DQN-family benchmark with behavioural diagnostics & Controlled stochasticity pathway with tyre-related uncertainty stage & Matched budget and seed-controlled reporting with confidence intervals & Simplified simulator abstraction and staged feature scope & Targets interpretable and statistically grounded method comparison \\
+\hline
+\end{tabular}
+}
+\end{table}
 
 \end{appendices}

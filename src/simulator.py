@@ -18,6 +18,7 @@ from helpers.simulatorHelpers import (
 from helpers.simulatorVisualisers import run_visualisation
 from agents.DQN import DQNAgent
 from base_agents import RiskLevel
+from runtime_profiles import resolve_complexity_profile
 
 @dataclass
 class LapRecord:
@@ -99,7 +100,8 @@ class RaceSimulator:
 
         # Randomize remaining positions for non-DQN drivers
         remaining_positions = [p for p in all_positions if p not in used_positions]
-        random.shuffle(remaining_positions)
+        if self.active_complexity == "medium":
+            random.shuffle(remaining_positions)
         for driver in self.race_state.drivers:
             if driver in dqn_drivers:
                 continue
@@ -128,6 +130,11 @@ class RaceSimulator:
         # Track settings
         track_config = config.get("track", {})
         self.track_distance = track_config.get("distance")  # km
+
+        # Runtime complexity profile
+        self.active_complexity, self.active_complexity_profile, self.available_complexity_profiles = (
+            resolve_complexity_profile(config)
+        )
         
         # Build mini-loop lookup for speed calculation
         self.mini_loops = build_mini_loops(track_config)
@@ -270,6 +277,10 @@ class RaceSimulator:
                 "tick_rate": sim_config.get("tick_rate"),
                 "tick_duration": sim_config.get("tick_duration"),
                 "telemetry": sim_config.get("telemetry", {}),
+            },
+            "complexity": {
+                "active_profile": self.active_complexity,
+                "resolved_profile": self.active_complexity_profile,
             },
             "race_settings": self.config.get("race_settings", {}),
             "track": {
@@ -769,7 +780,11 @@ class RaceSimulator:
         gap_norm = float(np.clip(gap / 0.1, 0.0, 1.0))
         gap_modifier = (1.0 - gap_norm - 0.5) * 0.3
         success_probability = float(
-            np.clip(base_probability + risk_prob_modifiers.get(risk_level, 0.0) + gap_modifier, 0.02, 0.95)
+            np.clip(
+                base_probability + risk_prob_modifiers.get(risk_level, 0.0) + gap_modifier,
+                0.02,
+                0.95,
+            )
         )
 
         overtaking_driver.overtakes_attempted += 1
@@ -847,6 +862,7 @@ class RaceSimulator:
         """Run the simulation without visualization (fast mode)."""
         print(f"\n{'='*60}")
         print(f"Starting Race (Batch Mode): {self.total_laps} laps")
+        print(f"Active complexity profile: {self.active_complexity}")
         if self.run_dir:
             print(f"Logging run data to: {self.run_dir}")
         elif self.is_replay_only:
@@ -956,6 +972,7 @@ class RaceSimulator:
                     "gap": gap,
                     "position": i,
                     "starting_position": driver.starting_position,
+                    "complexity_profile": self.active_complexity,
                     "overtakes_attempted": getattr(driver, "overtakes_attempted", 0),
                     "overtakes_succeeded": getattr(driver, "overtakes_succeeded", 0),
                     "total_absolute_position_changes": int(
@@ -1371,6 +1388,22 @@ class RaceSimulator:
         fig3, axes3 = plt.subplots(3, 1, figsize=(14, 16))
         fig3.suptitle(f"In-Race Telemetry \u2014 Run {last_run}", fontsize=14, y=1.0)
 
+        def _legend_or_no_data_note(ax, note: str) -> None:
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                ax.legend()
+                return
+            ax.text(
+                0.5,
+                0.5,
+                note,
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="#666666",
+            )
+
         # 7. Position throughout the race (every tick)
         for driver in driver_names:
             d_data = race_results[last_run].get(driver, {})
@@ -1383,7 +1416,11 @@ class RaceSimulator:
         axes3[0].set_xlabel("Race Progress (laps)")
         axes3[0].set_ylabel("Race Position")
         axes3[0].invert_yaxis()
-        axes3[0].legend()
+        _legend_or_no_data_note(
+            axes3[0],
+            "No per-tick position history in this run. "
+            "Enable simulator.telemetry.include_legacy_tick_histories=true to plot this.",
+        )
         axes3[0].grid(True)
 
         # 8. Gap to car ahead (every tick)
@@ -1397,7 +1434,11 @@ class RaceSimulator:
         axes3[1].set_title("Gap to Car Ahead (every tick)")
         axes3[1].set_xlabel("Race Progress (laps)")
         axes3[1].set_ylabel("Gap (seconds)")
-        axes3[1].legend()
+        _legend_or_no_data_note(
+            axes3[1],
+            "No per-tick gap-to-ahead history in this run. "
+            "Enable simulator.telemetry.include_legacy_tick_histories=true to plot this.",
+        )
         axes3[1].grid(True)
 
         # 9. Gap to car behind (every tick)
@@ -1411,7 +1452,11 @@ class RaceSimulator:
         axes3[2].set_title("Gap to Car Behind (every tick)")
         axes3[2].set_xlabel("Race Progress (laps)")
         axes3[2].set_ylabel("Gap (seconds)")
-        axes3[2].legend()
+        _legend_or_no_data_note(
+            axes3[2],
+            "No per-tick gap-to-behind history in this run. "
+            "Enable simulator.telemetry.include_legacy_tick_histories=true to plot this.",
+        )
         axes3[2].grid(True)
 
         fig3.tight_layout()

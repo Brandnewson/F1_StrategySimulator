@@ -79,6 +79,8 @@ def _render_markdown(summary: Dict) -> str:
     lines.append(f"- Train seeds: {summary['effective_budget']['train_seeds']}")
     lines.append(f"- Eval runs per seed: {summary['effective_budget']['eval_runs']}")
     lines.append(f"- Eval seeds: {summary['effective_budget']['eval_seeds']}")
+    if summary["effective_budget"].get("complexity_profile"):
+        lines.append(f"- Eval complexity profile: {summary['effective_budget']['complexity_profile']}")
     lines.append("")
     lines.append("| Algo | Objective Mean | Objective CI95 | vs Vanilla | Avg Pos Delta | Overtake Success | DNF Rate |")
     lines.append("|---|---:|---:|---|---:|---:|---:|")
@@ -126,6 +128,11 @@ def main():
         default="",
         help="Optional comma-separated eval seeds override.",
     )
+    parser.add_argument(
+        "--complexity-profile",
+        default="",
+        help="Optional complexity profile override. Only 'low' is implemented.",
+    )
     args = parser.parse_args()
 
     stage_cfg = STAGE_BUDGETS[args.stage]
@@ -142,6 +149,7 @@ def main():
         else [int(s) for s in stage_cfg["eval_seeds"]]
     )
     eval_seed_csv = ",".join(str(s) for s in eval_seeds)
+    complexity_profile = args.complexity_profile.strip().lower() if args.complexity_profile.strip() else ""
 
     algos = [a.strip().lower() for a in args.algos.split(",") if a.strip()]
     invalid = [a for a in algos if a not in DEFAULT_ALGOS]
@@ -197,6 +205,8 @@ def main():
                     "--out",
                     str(out_path),
                 ]
+                if complexity_profile:
+                    cmd.extend(["--complexity-profile", complexity_profile])
                 print(f"[benchmark] Running {trial_id}")
                 result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
                 if result.returncode != 0:
@@ -281,6 +291,10 @@ def main():
         observed_eval_seeds = [int(s) for s in evaluation.get("seeds", [])]
         if observed_eval_seeds != eval_seeds:
             fairness_violations.append(f"{rec['trial_id']}: eval seeds mismatch")
+        if complexity_profile:
+            observed_profile = str(evaluation.get("complexity_profile", ""))
+            if observed_profile != complexity_profile:
+                fairness_violations.append(f"{rec['trial_id']}: eval complexity profile mismatch")
 
     summary = {
         "created_at": datetime.now().isoformat(),
@@ -292,6 +306,7 @@ def main():
             "train_seeds": train_seeds,
             "eval_runs": eval_runs,
             "eval_seeds": eval_seeds,
+            "complexity_profile": complexity_profile,
         },
         "algorithms": algos,
         "aggregate": aggregate_rows,

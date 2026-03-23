@@ -6,14 +6,8 @@ def load_config(file_path: str) -> Dict:
     with open(file_path, 'r') as file:
         config_data = json.load(file)
 
-    parsed_config = {
-        "debugMode": config_data.get("debugMode"),
-        "agent_review_mode": config_data.get("agent_review_mode"),
-        "track": config_data.get("track"),
-        "simulator": config_data.get("simulator"),
-        "competitors": config_data.get("competitors"),
-        "race_settings": config_data.get("race_settings"),
-        "dqn_params": config_data.get("dqn_params"),
-    }
+    # Preserve all config keys so new experiment interfaces can be added
+    # without having to change this loader each time.
+    parsed_config = dict(config_data)
 
     return parsed_config
