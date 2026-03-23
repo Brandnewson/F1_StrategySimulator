@@ -1,0 +1,48 @@
+\chapter{Methodology}
+\label{chapter2}
+
+<Everything that comes under the `Methodology' criterion in the mark scheme should be described in one, or possibly more than one, chapter(s).>
+
+\section{Designing the simulator}
+It should be noted that majority of the simulators in F1 are discretised lap-by-lap where a base lap time is provided, and a faster car is represented by having a time less than that of the base lap time. Alternatively, a quasi-static approach which involves points in the coordinate space, and a vehicle model can be used. This is commonly known as a lap-time simulator, and can come in many forms of differing fidelity levels. For our purposes, discretising the simulator lap-by-lap, while computationally cheap, does not allow us to model the stochastic and chaotic nature of F1 races we are trying to model. Additionally, our goal is not to model the physical properties of the car like in lap-time simulators. Therefore, we will be pursuing a more novel approach of a combination of discretising a race lap-by-lap, but where overtaking will be a function of an overtaking zone difficulty. This will then be iterated upon as the project moves forward to introduce more stochastic elements, and discrete actions for the agents to use.
+
+\subsection{Modelling overtaking likelihood}
+The track will have various overtaking points in which agents can decide on whether to overtake or not. This will be the fundamental way that overtakes are decided in the simulator. We use the FastF1 library to give us access to historical race telemetry and data for us to gauge the difficulty of each overtaking zone. By plotting the number of position changes (i.e. overtakes) in the 2023 Belgian Grand Prix, against the distance, we can observe where the common overtaking zones are and how difficult an overtake is at the given overtaking zone. Bear in mind, the position of timing loops on track are where the position of the cars are updated, instead of their true position on track, hence we can only get a rough area of high overtaking probability. This will be sufficient for our purposes of describing the difficulty of overtaking zones. 
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{NumberOfOvertakesSpa.png}
+    \caption{Absolute overtakes based on distance on track}
+    \label{fig:placeholder}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{overtakingMapping.png}
+    \caption{Overtake density plotted over the circuit}
+    \label{fig:placeholder}
+\end{figure}
+
+\section{Designing the action space}
+There are 3 basic action spaces in Reinforcement learning, discrete action space, continuous action space and discrete-continuous hybrid action space. While it is tempting to design an action space that is binary where the agent is able to just "overtake" or "not overtake". We choose to instead 
+
+\section{Project management}
+In order to maintain structure, and uphold good coding practices, the following standards were upheld.
+
+\subsection{Software Development Lifecycle}
+By adhering to the SDLC, we will do the necessary planning and research, then create an actionable plan for the scope and requirements of the project.
+
+We also use sprints to keep track of objectives, and use working code as a measure of progress. 
+
+
+
+\section{Software Architecture}
+\subsection{Schematic diagram of project}
+TBC
+
+\subsection{Version control}
+We use Git as a version control software.
+
+\subsection{Good coding practice}
+We assert that docstrings are used in any function, and when writing in Python, which is the primary language used in this project, we use snake case.
+

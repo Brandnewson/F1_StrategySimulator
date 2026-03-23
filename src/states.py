@@ -58,6 +58,10 @@ class DriverState:
         # Per-race overtake tracking (reset each run via race_reset)
         self.overtakes_attempted: int = 0
         self.overtakes_succeeded: int = 0
+        self.total_absolute_position_changes: int = 0
+        self.total_in_race_position_gains: int = 0
+        self.total_in_race_position_losses: int = 0
+        self._last_recorded_position: int = starting_position
 
 class RaceState:
     """Represents the overall state of the race.

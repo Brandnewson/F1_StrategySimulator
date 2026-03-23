@@ -3,7 +3,7 @@
     "agent_review_mode": true,
     "competitors": [
         {
-            "name": "Cruz Ramirez - AutoResearcher Dueling-DQN-vs-Base",
+            "name": "Cruz Ramirez  Dueling-DQN-vs-Base simplicity experiment",
             "agent": "dqn",
             "colour": "#022050"
         },
@@ -14,10 +14,10 @@
         }
     ],
     "simulator": {
-        "runs": 1,
+        "runs": 20,
         "run_name": "dueling dqn vs base agent",
         "visualise_from_run_name": "",
-        "method": "real-time",
+        "method": "batch",
         "tick_rate": 100,
         "tick_duration": 0.01,
         "agent_mode": "training",
@@ -159,7 +159,7 @@
         "gamma": 0.99,
         "epsilon_start": 1.0,
         "epsilon_min": 0.02,
-        "epsilon_decay": 0.999,
+        "epsilon_decay": 0.9995,
         "buffer_capacity": 150000,
         "target_update_freq": 1000
     }

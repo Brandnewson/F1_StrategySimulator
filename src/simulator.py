@@ -67,6 +67,7 @@ class RaceSimulator:
             driver.resolved_overtake_decision_keys = set()
             driver.decision_events = []
             driver.terminal_bonus_awarded = False
+            self._reset_position_change_counters(driver)
             # Re-apply career stats that were accumulated before this reset
             stats = career_stats[driver.name]
             driver.cumulative_positions_gained = stats["cumulative_positions_gained"]
@@ -106,6 +107,8 @@ class RaceSimulator:
             driver.starting_position = pos
             driver.position = pos
             driver.current_distance = ((num_drivers - pos) * grid_gap_meters) / 1000.0
+        for driver in self.race_state.drivers:
+            driver._last_recorded_position = int(driver.position)
         # Optionally reset other race_state fields if needed
         if hasattr(self.race_state, 'overtaking_zones') and isinstance(self.race_state.overtaking_zones, list):
             for zone in self.race_state.overtaking_zones:
@@ -186,6 +189,7 @@ class RaceSimulator:
 
         # set agents to training mode if config is set so
         for driver in self.race_state.drivers:
+            self._reset_position_change_counters(driver)
             if isinstance(driver.agent, DQNAgent) and self.config.get('simulator').get('agent_mode') == "training":
                 driver.agent.set_training_mode(True)
             if isinstance(driver.agent, DQNAgent) and self.config.get('simulator').get('agent_mode') == "evaluation":
@@ -362,6 +366,32 @@ class RaceSimulator:
         if driver == leader:
             return 0.0
         return driver.total_race_time - leader.total_race_time
+
+    def _reset_position_change_counters(self, driver) -> None:
+        """Reset lightweight per-race position change counters for a driver."""
+        driver.total_absolute_position_changes = 0
+        driver.total_in_race_position_gains = 0
+        driver.total_in_race_position_losses = 0
+        driver._last_recorded_position = int(getattr(driver, "position", 0))
+
+    def _record_position_change_metrics(self) -> None:
+        """Track every in-race position movement without requiring full tick histories."""
+        for driver in self.race_state.drivers:
+            current_position = int(driver.position)
+            previous_position = getattr(driver, "_last_recorded_position", None)
+            if previous_position is None:
+                driver._last_recorded_position = current_position
+                continue
+
+            delta = int(previous_position) - current_position
+            if delta != 0:
+                driver.total_absolute_position_changes += abs(delta)
+                if delta > 0:
+                    driver.total_in_race_position_gains += delta
+                else:
+                    driver.total_in_race_position_losses += -delta
+
+            driver._last_recorded_position = current_position
     
     def _check_overtakes(self):
         """Resolve one explicit decision per driver per zone-pass."""
@@ -759,6 +789,7 @@ class RaceSimulator:
             overtaking_driver.current_distance = target_driver.current_distance + 0.01
             target_driver.current_distance = old_distance
             self.race_state.update_driver_positions()
+            self._record_position_change_metrics()
             return True, success_probability
 
         risk_penalty_km = {
@@ -773,6 +804,7 @@ class RaceSimulator:
         overtaking_driver.current_distance = new_dist
 
         self.race_state.update_driver_positions()
+        self._record_position_change_metrics()
         print(
             f"  FAILED: {overtaking_driver.name} ({risk_level.name}) failed to overtake "
             f"{target_driver.name} at {zone.get('name')}"
@@ -794,6 +826,7 @@ class RaceSimulator:
             
             # Update positions
             self.race_state.update_driver_positions()
+            self._record_position_change_metrics()
 
             # Check overtakes
             self._check_overtakes()
@@ -827,6 +860,7 @@ class RaceSimulator:
                 for driver in self.race_state.drivers:
                     self._update_driver(driver, self.tick_duration)
                 self.race_state.update_driver_positions()
+                self._record_position_change_metrics()
                 self._check_overtakes()
                 self._record_tick_metrics()
                 self.race_state.current_tick += 1
@@ -924,6 +958,15 @@ class RaceSimulator:
                     "starting_position": driver.starting_position,
                     "overtakes_attempted": getattr(driver, "overtakes_attempted", 0),
                     "overtakes_succeeded": getattr(driver, "overtakes_succeeded", 0),
+                    "total_absolute_position_changes": int(
+                        getattr(driver, "total_absolute_position_changes", 0)
+                    ),
+                    "total_in_race_position_gains": int(
+                        getattr(driver, "total_in_race_position_gains", 0)
+                    ),
+                    "total_in_race_position_losses": int(
+                        getattr(driver, "total_in_race_position_losses", 0)
+                    ),
                     "decision_summary": decision_summary,
                 }
                 if self.telemetry_log_decision_events:
@@ -1022,6 +1065,23 @@ class RaceSimulator:
             driver_names.update(race_results[run].keys())
         driver_names = sorted(driver_names)
         run_ticks = list(runs)
+        has_position_change_counters = all(
+            isinstance(
+                race_results[run].get(driver, {}).get("total_absolute_position_changes", None),
+                (int, float),
+            )
+            and isinstance(
+                race_results[run].get(driver, {}).get("total_in_race_position_gains", None),
+                (int, float),
+            )
+            for run in runs
+            for driver in driver_names
+        )
+        if not has_position_change_counters:
+            print(
+                "Position-change charts are using fallback reconstruction from legacy fields. "
+                "Run a new simulation to get exact per-tick position change totals."
+            )
 
         # Per-driver color and label lookups
         # Colors come from config (already resolved in __init__ as self.driver_colors)
@@ -1052,6 +1112,69 @@ class RaceSimulator:
         def driver_label(name: str) -> str:
             agent = agent_type_map.get(name, "?")
             return f"{name} ({agent})"
+
+        def _extract_position_deltas(d_data: Dict) -> List[int]:
+            """Return per-change position deltas (positive means position gained)."""
+            pos_hist = d_data.get("position_history", [])
+            if isinstance(pos_hist, list) and len(pos_hist) > 1:
+                deltas = []
+                for t in range(1, len(pos_hist)):
+                    try:
+                        deltas.append(int(pos_hist[t - 1]) - int(pos_hist[t]))
+                    except Exception:
+                        continue
+                if deltas:
+                    return deltas
+
+            # Fallback for lightweight telemetry mode where per-tick history is absent.
+            events = d_data.get("decision_events", [])
+            if isinstance(events, list) and events:
+                deltas = []
+                for event in events:
+                    before = event.get("position_before", None)
+                    after = event.get("position_after", None)
+                    if before is None or after is None:
+                        continue
+                    try:
+                        deltas.append(int(before) - int(after))
+                    except Exception:
+                        continue
+                return deltas
+
+            # Last fallback for older logs: use net start->finish change as one delta.
+            start_pos = d_data.get("starting_position", None)
+            finish_pos = d_data.get("position", None)
+            if start_pos is not None and finish_pos is not None:
+                try:
+                    return [int(start_pos) - int(finish_pos)]
+                except Exception:
+                    pass
+
+            return []
+
+        def _extract_position_totals(d_data: Dict) -> Tuple[int, int, int]:
+            """Return (absolute_changes, gains, losses) for one driver in one run."""
+            abs_changes = d_data.get("total_absolute_position_changes", None)
+            gains = d_data.get("total_in_race_position_gains", None)
+            losses = d_data.get("total_in_race_position_losses", None)
+
+            if abs_changes is not None and gains is not None:
+                try:
+                    abs_changes_i = int(abs_changes)
+                    gains_i = int(gains)
+                    if losses is None:
+                        losses_i = max(0, abs_changes_i - gains_i)
+                    else:
+                        losses_i = int(losses)
+                    return abs_changes_i, gains_i, losses_i
+                except Exception:
+                    pass
+
+            deltas = _extract_position_deltas(d_data)
+            gains_i = int(sum(delta for delta in deltas if delta > 0))
+            losses_i = int(sum(-delta for delta in deltas if delta < 0))
+            abs_changes_i = int(sum(abs(delta) for delta in deltas))
+            return abs_changes_i, gains_i, losses_i
 
         bar_labels = [driver_label(d) for d in driver_names]
         bar_colors = [driver_color_map[d] for d in driver_names]
@@ -1108,14 +1231,14 @@ class RaceSimulator:
         fig2.suptitle("Position Change Analysis - All Runs", fontsize=14, y=1.0)
 
         # 3. Total absolute position change across all runs per driver (bar chart)
-        # Walks per-tick position_history: counts every position change (gain or loss)
+        # Uses persisted per-run counters when present; falls back to reconstructed deltas.
         abs_changes = []
         for driver in driver_names:
             total = 0
             for run in runs:
-                pos_hist = race_results[run].get(driver, {}).get("position_history", [])
-                for t in range(1, len(pos_hist)):
-                    total += abs(pos_hist[t] - pos_hist[t - 1])
+                d_data = race_results[run].get(driver, {})
+                abs_total, _, _ = _extract_position_totals(d_data)
+                total += abs_total
             abs_changes.append(total)
         
         # Keep full bar visibility (including low/zero values) by anchoring at 0.
@@ -1123,7 +1246,7 @@ class RaceSimulator:
         y_pad_abs = max(1.0, y_max_abs * 0.05)
         
         bars_abs = axes2[0].bar(bar_labels, abs_changes, color=bar_colors)
-        axes2[0].set_title("Total Absolute Position Changes Across All Runs (per tick)")
+        axes2[0].set_title("Total Absolute Position Changes Across All Runs")
         axes2[0].set_ylabel("Total |dPosition| across all ticks and runs")
         axes2[0].set_ylim(0, y_max_abs + y_pad_abs)
         axes2[0].grid(axis='y')
@@ -1139,15 +1262,14 @@ class RaceSimulator:
             )
 
         # 4. Total in-race position gains across all runs per driver (bar chart)
+        # Uses persisted per-run counters when present; falls back to reconstructed deltas.
         total_increments = []
         for driver in driver_names:
             increments = 0
             for run in runs:
-                pos_hist = race_results[run].get(driver, {}).get("position_history", [])
-                for t in range(1, len(pos_hist)):
-                    delta = pos_hist[t - 1] - pos_hist[t]
-                    if delta > 0:
-                        increments += delta
+                d_data = race_results[run].get(driver, {})
+                _, gains_total, _ = _extract_position_totals(d_data)
+                increments += gains_total
             total_increments.append(increments)
         
         # Keep full bar visibility (including low/zero values) by anchoring at 0.
