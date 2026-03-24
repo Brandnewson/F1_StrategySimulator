@@ -1,14 +1,116 @@
 \chapter{Results, Evaluation and Discussion}
 \label{chapter4}
 
-<Everything that comes under the `Evaluation and Discussion' criterion in the mark scheme that has not been addressed in an earlier chapter should be included in this final chapter or in several appropriate chapters. The following section headings are suggestions only.>
+\section{Phase 1: Smoke validation results}
 
-\section{Evaluation}
-\lipsum[13]
+Phase 1 uses a minimal budget to confirm that a learning signal exists before committing to the full Phase 2 comparison. The results presented here use vanilla DQN with 25 training episodes and 20 evaluation races. Three seeds are run at s0; one seed (101) is run at s1 and s2 to obtain an early stochasticity degradation signal. These results are intentionally preliminary. Statistical claims are limited to directional evidence; Phase 2 uses a 150-race evaluation budget to produce confidence interval estimates with meaningful precision.
 
-\section{Conclusions}
-\lipsum[13]
+\subsection{Learning signal confirmation}
 
-\section{Ideas for future work}
-\lipsum[14]
+All three s0 seeds produce win rates above 0.75 against the fixed Base Agent (Table~\ref{tab:ch3-s0-results}). The across-seed range is 1.7 percentage points, indicating low sensitivity to initialisation at this budget level. Zero DNF events and zero fairness violations confirm that the experimental contract is operating correctly: both drivers face the same conditions across all evaluation races.
 
+The win rates above 0.75 with only 25 training episodes at $\varepsilon \approx 0.88$ suggest that the agent is not learning a nuanced policy at this point. Rather, it has found a simple strategy — consistently attempt at La Source, the easiest zone — which is sufficient to win the majority of two-car races over 5 laps. This interpretation is supported by the zone behaviour data in Table~\ref{tab:phase1-zones-s0}: La Source sees 100\% attempt rate with 87--90\% success across all three seeds, while harder zones show inconsistent or unprofitable behaviour. The Phase 1 win rate is therefore a lower bound on what a more thoroughly trained policy would achieve rather than an estimate of converged performance.
+
+\subsection{Stochasticity sensitivity analysis}
+
+Table~\ref{tab:ch3-stoch-results} shows the win rate and risk distribution across stochasticity levels for seed 101. The s1 win rate (0.783) is identical to s0 (0.783). This flat result is explained by La Source structural dominance: at $\sigma = 0.02$ the Gaussian noise term is too small to erode La Source's base success probability of 0.8, so the zone continues to produce near-certain success on every lap and the overall win rate does not change.
+
+At s2 ($\sigma = 0.05$) the win rate falls by 3.3 percentage points to 0.750. This modest drop must be interpreted alongside the zone behaviour. At s2, zone coverage narrows to three zones (La Source, Raidillon, Les Combes), while the s0 agent engages four zones plus occasional Campus attempts. The agent under s2 noise has learned to concentrate at zones where the noisy reward signal has been most consistently positive, which in a 25-episode run is dominated by La Source. This is structural conservatism from a short training run rather than an evidence of deliberate zone selection.
+
+\subsection{Behavioural diagnostics: the AGGRESSIVE flip}
+
+The most diagnostically important Phase 1 finding is the risk distribution reversal from s0 to s1/s2 shown in Table~\ref{tab:ch3-stoch-results}. At s0, vanilla DQN selects CONSERVATIVE on 54\% of risk decisions and AGGRESSIVE on only 9\%. At s1, this inverts: AGGRESSIVE accounts for 52\% of decisions and CONSERVATIVE for 20\%. The distribution is nearly identical at s2 (AGGRESSIVE 51\%, CONSERVATIVE 19\%).
+
+This pattern is consistent with systematic Q-value overestimation in vanilla DQN under noisy rewards \citep{vanhasselt2016double}. At s0 the reward signal is deterministic given state and action, so the Q-values for aggressive actions at difficult zones stabilise near their true (low) values. At s1, the $\sigma = 0.02$ noise occasionally produces a higher reward from an aggressive attempt through a lucky draw; in a 25-episode training run this windfall is sufficient to inflate the Q-value for AGGRESSIVE beyond its true expectation. The agent then exploits this overestimate in evaluation, selecting AGGRESSIVE even at zones where it is unprofitable. The expected consequence is higher tactical reward variance and increased penalty accumulation, which is observed: average tactical reward per zone worsens from $-0.021$ (Raidillon, s0) to more negative values under s1/s2 noise.
+
+Double DQN's decoupled target computation directly addresses this overestimation mechanism by separating action selection from value evaluation \citep{vanhasselt2016double}. A key diagnostic question for Phase 2 is therefore: does the double DQN risk distribution remain closer to the s0 baseline under s1 and s2 noise? If it does, the AGGRESSIVE flip is confirmed as an overestimation artefact, which constitutes direct evidence for H3. If double and rainbow do not show a more stable risk distribution than vanilla under noise, that null result is itself an important finding for RQ3.
+
+\subsection{Statistical reliability}
+
+With $n = 20$ evaluation races per seed, the Wilson 95\% confidence interval on a win rate of 0.783 spans approximately $\pm 0.18$. These intervals are too wide for ranking decisions. Phase 1 is not designed to produce statistically reliable rankings; it is designed to confirm the sign of the learning signal and identify qualitative behavioural anomalies before committing to the larger budget. Both objectives are met. Phase 2 uses 150 evaluation races per seed, reducing the CI95 margin to approximately $\pm 0.08$, which is sufficient for ranking decisions under the CI-gated protocol described in Section~\ref{sec:stochasticity}.
+
+\subsection{Phase 1 conclusions in relation to research questions}
+
+Phase 1 provides partial evidence for RQ3 (DQN-family appropriateness) and early directional signal for RQ1 (robustness). The consistent win rates above 0.75 across three seeds confirm that vanilla DQN can learn a viable overtaking strategy in the low-complexity environment, supporting the choice of DQN-family as the value-based comparator group \citep{mnih2015human,zhu2021actionspaces}. The AGGRESSIVE flip under s1/s2 noise provides the first empirical symptom of Q-value overestimation and generates a specific testable prediction: double DQN's stabilised targets should produce a more conservative risk distribution under noise. This prediction will be evaluated in Phase 2.
+
+Phase 1 does not address RQ1 in its MARL framing (non-stationarity from concurrent opponents) or RQ2 (emergent strategic behaviours), since both of these require Phase 3. The Phase 1 stochasticity results describe single-agent robustness against a fixed opponent, not MARL robustness.
+
+\section{Phase 2: DQN-family comparison results}
+
+Phase 2 runs the full four-algorithm comparison under the controlled single-agent contract: 500 training episodes, 150 evaluation races, 5 seeds, stochasticity tracks s0 (primary ranking) and s1/s2 (robustness evidence).
+
+\textit{[Phase 2 benchmark runs are pending. Results, tables, and analysis will be completed here following benchmark completion. The expected content is: (1) a per-algorithm win rate table with CI95 intervals and seed variance; (2) a stochasticity robustness table showing objective drop from s0 to s1 and s2 per algorithm; (3) a risk distribution comparison across algorithms at s1 and s2 to test the AGGRESSIVE flip hypothesis; and (4) Phase 2 conclusions relative to RQ3 and H3.]}
+
+\subsection{Expected findings and hypotheses under test}
+
+Phase 2 will test the following hypotheses derived from Phase 1 and the MARL literature:
+
+\textbf{H3a (double DQN stabilisation).} Double DQN selects AGGRESSIVE less frequently than vanilla at s1 and s2, consistent with corrected Q-value overestimation reducing the inflated returns from lucky aggressive attempts under noise \citep{vanhasselt2016double}.
+
+\textbf{H3b (dueling DQN zone discrimination).} Dueling DQN's value/advantage decomposition improves zone-level discrimination, increasing the HOLD rate at Raidillon (difficulty 0.9) relative to vanilla because the state-value head can learn that the state at a hard zone is generally poor regardless of action.
+
+\textbf{H3c (rainbow-lite variance reduction).} Rainbow-lite, combining double targets, dueling architecture, prioritised replay, and n-step returns, shows the lowest across-seed variance in win rate at s2, because PER focuses learning on the high-TD-error transitions that drive policy instability and n-step returns reduce the horizon lag that makes rewards from noisy zones slow to correct.
+
+If CI95 intervals for the top-performing variant overlap with vanilla, the result will be reported as no statistically distinguishable difference within this budget. This is itself a valid finding: it would imply that the additional complexity of double, dueling, and rainbow-lite provides no reliable benefit over vanilla in this particular low-complexity environment, and the investigation should shift focus to the Phase 3 non-stationarity signal as the more demanding evaluation context.
+
+\section{Phase 3: Independent learner MARL results}
+
+\textit{[Phase 3 is pending Phase 2 completion and promotion-gate passage. This section will report: (1) whether non-stationarity (concurrent opponent adaptation) erodes win-rate stability relative to the Phase 2 single-agent baseline; (2) whether the two concurrent DQN learners develop differentiated risk strategies (zone specialisation, risk level divergence); (3) whether the stochasticity robustness ordering from Phase 2 holds under MARL non-stationarity; and (4) conclusions relative to RQ1 and RQ2.]}
+
+\section{Discussion}
+
+\subsection{RQ3: DQN-family appropriateness and variant reliability}
+
+Phase 1 confirms that the DQN family is viable for the low-complexity discrete tactical setting. The action space (four discrete actions at sparse decision points) is a natural fit for Q-learning, consistent with the action-space suitability argument in \citet{zhu2021actionspaces}. Replay-based off-policy learning improves reuse of the limited overtaking decision experience available in a five-lap race, as motivated by \citet{mnih2015human,schaul2016prioritized}.
+
+The AGGRESSIVE flip observed under s1/s2 noise is a direct empirical symptom of the overestimation mechanism that double DQN was designed to address \citep{vanhasselt2016double}. This makes Phase 1 a mechanistically informative result: it does not merely show that performance degrades under noise, but identifies the specific failure mode (overestimation of noisy Q-values) and links it to a known algorithm-level remedy. Phase 2 will determine whether that remedy is effective in this domain.
+
+\textit{[Full RQ3 conclusions pending Phase 2 benchmark results.]}
+
+\subsection{RQ1: Robustness under stochasticity}
+
+Phase 1 provides a single-agent baseline for stochasticity robustness: vanilla DQN's win rate drops 3.3 percentage points from s0 to s2, but the more diagnostic signal is the risk distribution inversion and narrowing zone coverage, both of which indicate policy instability rather than graceful degradation. A robust policy would maintain its risk distribution and zone coverage under noise; vanilla at Phase 1 budget does not.
+
+RQ1 in its MARL framing requires Phase 3, which introduces the additional non-stationarity source of a concurrently adapting opponent. It is possible that MARL non-stationarity compounds the single-agent instability observed here, or that the competitive pressure of a second learner produces a stabilising effect (as the two agents converge toward each other). Both directions are interpretable given current MARL literature \citep{foerster2017stabilising,hernandezleal2019survey}.
+
+\textit{[Full RQ1 conclusions pending Phase 2 and Phase 3 results.]}
+
+\subsection{RQ2: Emergent strategic behaviours}
+
+Phase 1 does not address RQ2, as all Phase 1 runs use a fixed heuristic opponent. Phase 3 is the first setting where emergent behaviour from interaction between two learning agents can be observed.
+
+The Phase 1 AGGRESSIVE flip finding does offer one interpretive prediction for Phase 3: when both agents face noisy outcomes simultaneously, it is plausible that both adopt the same overestimation-driven aggressive strategy, creating a scenario where two agents compete aggressively at hard zones despite poor expected return. Whether this produces a stable equilibrium or cycling behaviour is an open empirical question. Detecting it requires the Phase 3 per-agent risk distribution diagnostics described in Section~\ref{sec:phase3-methodology}.
+
+\textit{[Phase 3 emergent behaviour analysis TBC.]}
+
+\subsection{Validity threats and limitations}
+
+Several validity threats apply to results from Phase 1 and will apply to Phase 2 unless mitigated.
+
+\textbf{La Source structural dominance.} La Source's difficulty of 0.2 gives a base success probability of 0.8, which is high enough that consistent La Source attempts produce a reliable win margin over a 5-lap race regardless of other zone decisions. This means the win rate metric conflates genuine strategy learning with the exploitation of a single near-certain zone. The honest diagnostic is zone discrimination: does the agent learn which other zones are worth attempting and which are not? Phase 1 evidence suggests not at 25 training episodes, but Phase 2's 500-episode runs may reveal more selective behaviour.
+
+\textbf{Short race and sparse decisions.} Five laps over Spa-Francorchamps produce at most 45 zone-passing events per race (9 zones × 5 laps), of which only a subset result in actual decisions (both drivers must be within 0.1\,km). This produces a sparse training signal relative to the number of episodes required for reliable Q-value estimation. The training budget justification in Chapter~\ref{chapter3} addresses this, but the sparsity is an inherent limitation of the current simulator scope.
+
+\textbf{Single opponent type.} Phase 2 uses only the gap-aware heuristic Base Agent as the opponent. Conclusions about DQN-family robustness generalise only to this opponent type. Phase 3 removes this limitation for the MARL comparison by making both agents DQN learners.
+
+\textbf{Evaluation budget.} Phase 1's 20-race evaluation budget produces CI95 margins of $\pm 0.18$, which are too wide for ranking. Phase 2's 150-race budget is calibrated to $\pm 0.08$, which is sufficient for CI-gated decisions at the primary ranking track. Narrower margins would require larger budgets beyond the scope of this project.
+
+\subsection{Comparison with related work}
+
+This investigation occupies a distinct position relative to prior motorsport RL work. \citet{heilmeier2018racesim} and \citet{heilmeier2020virtual} address strategy decision support and neural approximation but do not provide DQN-family benchmarking with explicit seed variance reporting. \citet{liu2024formulae} demonstrates multi-car RL strategy in Formula E but does not conduct a controlled comparison across value-based algorithm variants under matched statistical budgets. \citet{fieni2026learning} is the closest in framing, but reports Formula 1 multi-agent strategies without the fairness-audit and CI-gated ranking structure used here.
+
+The evaluation protocol in this project is explicitly designed to meet the standards identified in \citet{henderson2018deep} and \citet{agarwal2021statistical}: matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics. The La Source confound and the AGGRESSIVE flip are findings that would not be visible from win rates alone, which justifies the investment in detailed telemetry and behavioural reporting.
+
+\section{Future work}
+
+Several natural extensions follow from the current findings and limitations.
+
+\textbf{Medium complexity tier.} The simulator is designed for staged complexity. Medium complexity would introduce multiple concurrent competitors, creating a richer multi-agent setting where position dynamics depend on a field of opponents rather than a single rival. The observation contract for medium complexity is already defined in \texttt{config.json} and \texttt{feedback.py}; implementation requires the competitor selection profile and state dispatch updates described in Chapter~\ref{chapter3}.
+
+\textbf{High complexity tier and tyre dynamics.} High complexity introduces tyre degradation, pit stop decisions, and weather context. This tier is where the strategic richness of Formula 1 is most concentrated and would test whether the value-based MARL framework remains tractable when the state space grows to 17 features and decisions carry a much longer time horizon.
+
+\textbf{CTDE value factorisation.} Independent learner MARL (Phase 3) is the minimal valid MARL baseline. The natural next step is centralised-training/decentralised-execution methods such as VDN \citep{sunehag2018vdn} and QMIX \citep{rashid2018qmix}, which exploit global state information during training while maintaining decentralised execution. In the racing context, a centralised value function could learn to weight combined race outcomes rather than local position changes, which may produce more stable policies under non-stationarity.
+
+\textbf{Richer training diagnostics.} The current telemetry captures per-decision rewards and risk distributions but does not record Q-value trajectories, loss curves, or per-episode epsilon values. Adding these diagnostics would make the AGGRESSIVE flip interpretable in real time during training rather than only in post-hoc analysis, and would allow early stopping criteria based on Q-value stability rather than episode count alone.
+
+\textbf{Real-world telemetry integration.} The overtaking zone difficulty values are derived from 2023 Belgian Grand Prix positional data via FastF1. A natural extension is to use lap-time data and sector-by-sector position changes to calibrate more fine-grained probability models, or to use a different Grand Prix entirely to test whether learned policies are specific to Spa or transfer to other circuits.

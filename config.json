@@ -210,7 +210,7 @@
             ]
         },
         "benchmark_contract": {
-            "lock_enabled": true,
+            "lock_enabled": false,
             "immutable_comparison_matrix": true,
             "immutable_seed_sets": true,
             "immutable_budgets": true,

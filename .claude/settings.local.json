@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find /c/Code/F1_StrategySimulator/metrics -type f -name *.json)"
+      "Bash(find /c/Code/F1_StrategySimulator/metrics -type f -name *.json)",
+      "Bash(find C:CodeF1_StrategySimulatorreport -type f -name *mark* -o -name *rubric* -o -name *guidance* -o -name *criteria*)"
     ]
   }
 }

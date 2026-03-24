@@ -187,20 +187,54 @@ Recommended run cadence is:
 \end{itemize}
 Stage 3 (medium complexity implementation) proceeds only if promotion-gate requirements are met: fairness pass, CI-stable Track A ranking, reproducibility consistency, and available robustness evidence from Track B.
 
+\section{MARL experimental methodology}
+\label{sec:marl-methodology}
+
+The investigation proceeds in two sequential experimental phases, each gated by the previous phase's outcomes. This phased structure separates the single-agent reliability baseline from the genuinely multi-agent analysis, which prevents premature attribution of multi-agent effects to algorithm-level differences that a single-agent comparison would already reveal \citep{hernandezleal2019survey}.
+
+\subsection{Phase 2: single-agent DQN-family baseline}
+
+Phase 2 establishes the DQN-family reliability baseline under a controlled single-agent contract. Each variant (vanilla, double, dueling, rainbow-lite) is trained and evaluated independently against the fixed Base Agent opponent using identical environment contracts: same reward schema, same observation contract, same stochasticity level, same episode budgets, same seeds. This is not a MARL experiment. It is the prerequisite step that measures each variant's raw strategy quality and stochasticity robustness before multi-agent interaction is introduced.
+
+This framing follows the recommendation in \citet{henderson2018deep} to isolate algorithm-level effects under matched evaluation before attributing differences to interaction dynamics. Phase 2 directly answers RQ3 and produces per-algorithm stochasticity profiles that inform the robustness dimension of RQ1.
+
+\subsection{Phase 3: independent learner MARL}
+\label{sec:phase3-methodology}
+
+Phase 3 introduces genuine MARL by replacing the fixed Base Agent with a second concurrent DQN-family learner. Both agents train simultaneously, each maintaining its own independent replay buffer and updating its own network parameters each episode. This is the independent learner (IL) formulation, which is the standard baseline in the MARL literature for operationalising non-stationarity in value-based multi-agent settings \citep{foerster2017stabilising,hernandezleal2019survey}.
+
+The IL formulation is the appropriate first MARL baseline for three reasons. First, it preserves genuine non-stationarity: each agent's effective environment is non-stationary because the opponent is also adapting its policy, creating the feedback loops central to RQ1 and RQ2. Second, the existing simulator training loop already iterates over all drivers and calls \texttt{train\_step} for each DQN-type driver independently; enabling two DQN agents requires only a profile change, not a redesign of the engine. Third, it provides a clean anchor from which future centralised-training/decentralised-execution methods such as VDN and QMIX can be measured \citep{sunehag2018vdn,rashid2018qmix}.
+
+The primary evaluation metric in Phase 3 shifts from \texttt{win\_rate\_vs\_baseline} (which assumes a fixed opponent) to relative positional advantage between the two concurrent learners as stochasticity increases. This measures whether non-stationarity erodes the positional stability of the stronger learner, which is the specific signal required for RQ1's MARL component. Emergent differences in risk distribution between the two agents constitute the primary evidence for RQ2.
+
+Phase 3 is gated on Phase 2 passing all promotion-gate criteria. \textit{[Phase 3 implementation and results are pending Phase 2 completion.]}
+
 \section{Project management}
-In order to maintain structure, and uphold good coding practices, the following standards were upheld.
+
+The project applies a structured SDLC with sprint-based progress tracking and Git version control. All code and report artefacts are maintained under Git, with feature-level branches merged into the \texttt{main} branch following review. The active branch \texttt{refinement-thesis} isolates dissertation refinement from the stable experimental baseline on \texttt{main}.
 
 \subsection{Software Development Lifecycle}
-By adhering to the SDLC, we will do the necessary planning and research, then create an actionable plan for the scope and requirements of the project.
 
-We also use sprints to keep track of objectives, and use working code as a measure of progress.
+Development proceeds in research sprints aligned to the experimental phases described in Sections~\ref{sec:complexity} to~\ref{sec:marl-methodology}. Each sprint has a defined deliverable: working code and passing gate tests as evidence of progress rather than documentation alone. Sprint goals are explicitly tied to the experimental gate criteria (G0, G1, G2) so that each phase's outputs meet the quality bar required before the next phase begins.
+
+The SDLC integrates directly with the config-driven design described below. Because all protocol parameters are externalised to \texttt{config.json}, sprint boundaries correspond to meaningful changes in experimental scope such as increasing the training budget or enabling a new stochasticity level rather than requiring changes to agent or simulator internals. This separation protects the learning code from accidental modification during protocol adjustments.
+
+\subsection{Config-driven design as a fairness control}
+
+All hyperparameters, reward semantics, stochasticity presets, observation contracts, and evaluation budgets are defined in \texttt{config.json} and loaded at runtime. No algorithm implementation touches these controls directly. This design choice is an active fairness control, not a convenience preference.
+
+Under this contract, an evaluator can verify that two algorithms were compared under identical conditions by inspecting a single JSON file. The algorithm code in \texttt{src/agents/DQN.py} contains only the learning logic; the environment, reward schema, feature set, and protocol budgets are external to it. This directly satisfies the reproducibility requirement identified in \citet{henderson2018deep}: that comparisons must be provably identical in all conditions other than the learning internals being compared.
 
 \section{Software Architecture}
-\subsection{Schematic diagram of project}
-TBC
+
+\subsection{Module overview}
+
+The project is organised as a layered pipeline from configuration through execution to artefacts. Configuration flows from \texttt{config.json} into \texttt{src/runtime\_profiles.py}, which resolves the active complexity profile and selects the competitor set for the run. Driver state is managed by \texttt{src/states.py}, which initialises each agent's network parameters and assigns the observation contract derived from \texttt{src/feedback.py}. The race engine in \texttt{src/simulator.py} owns the tick-by-tick race loop, overtake resolution, and reward calculation, calling into agent implementations via the \texttt{BaseAgent} interface in \texttt{src/base\_agents.py}. Training orchestration sits above the simulator: \texttt{scripts/evaluate\_candidate.py} runs a single train-then-eval trial and writes a structured metrics JSON, while \texttt{scripts/run\_benchmark\_matrix.py} sequences multiple trials across algorithms, seeds, and stochasticity levels to produce the comparison tables used in Chapter~\ref{chapter4}. A schematic of this pipeline is provided as Appendix Figure~TBC.
 
 \subsection{Version control}
-We use Git as a version control software.
+
+Git is used as the version control system throughout the project. Commits follow a descriptive message convention. The \texttt{main} branch contains stable, tested code. Feature work proceeds on named branches and is merged to \texttt{main} only after passing the relevant phase integrity gate.
 
 \subsection{Good coding practice}
-We assert that docstrings are used in any function, and when writing in Python, which is the primary language used in this project, we use snake case.
+
+Python is the primary language throughout. Code follows snake\_case naming conventions. Docstrings are required on all functions. The test suite in \texttt{tests/test\_phase0\_integrity.py} is executed as part of any change that touches the simulator engine, reward contract, or telemetry schema, ensuring that the validated properties described in Section~\ref{chapter3} remain intact across development iterations.

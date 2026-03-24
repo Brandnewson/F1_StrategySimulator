@@ -1,7 +1,195 @@
 \chapter{Implementation and Validation}
 \label{chapter3}
 
-<Implementation, validation should be described in one or more chapters. See the `Implementation and Validation' criterion in the mark scheme for the sorts of material that may be included here.>
+\section{System architecture}
 
+\subsection{Module overview}
 
+The simulator is implemented as a set of well-separated Python modules, each with a single responsibility. The entry point for an experiment is either \texttt{scripts/evaluate\_candidate.py} for a single train-then-eval trial or \texttt{scripts/run\_benchmark\_matrix.py} for a full multi-algorithm comparison. Both scripts read \texttt{config.json}, resolve the active complexity profile through \texttt{src/runtime\_profiles.py}, and pass the resolved configuration to the simulator engine in \texttt{src/simulator.py}.
 
+The simulator engine owns the tick-by-tick race loop. It maintains a \texttt{RaceState} object that tracks all driver positions, lap counts, and time gaps at each simulation step. At each overtaking zone decision point, the engine calls \texttt{src/feedback.py} to construct the observation vector for the approaching driver and then queries the driver's agent for an action. The overtake resolution outcome is sampled from the probability function described in Section~\ref{sec:overtake-prob} and logged to telemetry. At the end of each episode the engine computes terminal reward components and calls \texttt{on\_episode\_end} on each DQN-type driver to trigger epsilon decay.
+
+Agent implementations are defined under \texttt{src/agents/DQN.py} and \texttt{src/base\_agents.py}. All agents inherit from \texttt{BaseAgent}, which provides the \texttt{get\_action(driver, race\_state)} interface that the simulator calls uniformly. This abstraction means the simulator does not need to distinguish between algorithm variants at the engine level; it simply calls \texttt{get\_action} and receives a \texttt{DriverAction} containing a risk level and an overtake attempt flag.
+
+Driver initialisation and complexity dispatch are handled by \texttt{src/states.py}. When the simulator starts an episode it calls \texttt{states.py} to create \texttt{DriverState} objects, which include the correctly instantiated agent, the starting position assignment for this episode, and the active feedback contract. The complexity profile determines which competitor types are selected via \texttt{src/runtime\_profiles.py}.
+
+\subsection{Config-driven design as a fairness control}
+
+All parameters that affect the experimental outcome are externalised to \texttt{config.json}. This includes hyperparameters (\texttt{dqn\_params}), the reward component schema and weights (\texttt{reward}), the observation feature list (\texttt{feedback.features\_by\_complexity}), stochasticity presets (\texttt{stochasticity.levels}), the evaluation protocol budgets (\texttt{protocol.train\_runs}, \texttt{protocol.eval\_runs}), and the seed sets (\texttt{protocol.seed\_sets}). No algorithm file reads or modifies these values; they are injected at construction time.
+
+This design ensures that the only difference between a vanilla and a double DQN run is the learning algorithm itself. An external reviewer can fully reconstruct any comparison from the config snapshot embedded in the output metrics JSON.
+
+\section{Agent implementations}
+
+\subsection{DQN-family agents}
+
+All four DQN variants are implemented in \texttt{src/agents/DQN.py} as parameterisations of a single \texttt{DQNAgent} class, selected via the \texttt{dqn\_params.algo} config field. This approach guarantees that all shared infrastructure — the training loop, the action space, the epsilon schedule, the feedback interface — is identical across variants. Only the elements specific to each variant differ.
+
+\textbf{Vanilla DQN.} The vanilla variant uses a \texttt{SimpleDQN} network: a two-hidden-layer MLP with ReLU activations and a linear Q-value output head. The hidden layer width is configured via \texttt{dqn\_params.hidden\_size} (512 in the Phase 2 runs). Experience is stored in a uniform circular replay buffer of capacity 150{,}000. The target network is updated every 1{,}000 gradient steps by hard copy. The Bellman target is computed as:
+\[
+y = r + \gamma \max_{a'} Q_{\text{target}}(s', a')
+\]
+This is the baseline against which all other variants are compared \citep{mnih2015human}.
+
+\textbf{Double DQN.} The double variant uses the same \texttt{SimpleDQN} architecture and uniform replay as vanilla. The only change is in target computation: the online network selects the greedy action in the next state, but the target network evaluates it. This decouples action selection from evaluation and reduces the systematic overestimation of Q-values that vanilla DQN exhibits when rewards are noisy \citep{vanhasselt2016double}:
+\[
+y = r + \gamma Q_{\text{target}}\!\left(s',\, \mathop{\arg\max}_{a'} Q_{\text{online}}(s', a')\right)
+\]
+
+\textbf{Dueling DQN.} The dueling variant replaces \texttt{SimpleDQN} with \texttt{DuelingDQN}, which uses a shared feature trunk but splits into two output heads: a scalar state-value head $V(s)$ and an action-advantage head $A(s,a)$. The Q-value is reconstructed as:
+\[
+Q(s,a) = V(s) + \left(A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')\right)
+\]
+Subtracting the mean advantage ensures identifiability of $V$ and $A$. This architecture improves learning efficiency in states where the choice of action has little effect on the outcome, which is common at overtaking zones where the car ahead is far away and \textsc{HOLD} is clearly dominant \citep{wang2016dueling}.
+
+\textbf{Rainbow-lite.} The rainbow-lite variant combines double DQN target computation, the dueling architecture, prioritised experience replay (PER), and multi-step returns. PER samples transitions with probability proportional to $|TD_{\text{error}}|^\alpha$ where $\alpha=0.6$, using importance-sampling weights with $\beta$ annealed from $0.4$ to $1.0$ over 100{,}000 steps to correct the introduced bias \citep{schaul2016prioritized}. Multi-step returns with $n=3$ are used to propagate reward signals faster through the replay buffer, reducing the effective horizon lag in sparse-reward races \citep{hessel2018rainbow}. Rainbow-lite is the strongest single comparator in the family and is expected to show the lowest seed variance under stochasticity if the stabilisation mechanisms work as designed.
+
+Table~\ref{tab:dqn-variants} summarises the distinguishing properties of each variant.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{DQN-family variant properties}
+\label{tab:dqn-variants}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Variant} & \textbf{Network} & \textbf{Double target} & \textbf{PER} & \textbf{n-step} \\
+\hline
+Vanilla       & SimpleDQN   & No  & No  & 1 \\
+Double        & SimpleDQN   & Yes & No  & 1 \\
+Dueling       & DuelingDQN  & No  & No  & 1 \\
+Rainbow-lite  & DuelingDQN  & Yes & Yes & 3 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Base agent}
+
+The Base Agent is implemented in \texttt{src/base\_agents.py} as a gap-aware heuristic policy. At each decision point it identifies the upcoming overtaking zone, reads the zone difficulty and the gap to the car ahead, and builds a soft preference distribution over the three risk levels. Easier zones and closer gaps increase the weight on \textsc{AGGRESSIVE}; harder zones and larger gaps increase the weight on \textsc{CONSERVATIVE}. An overtake attempt is then made with a probability that depends on the sampled risk level and the gap.
+
+The Base Agent serves as a stable, reproducible fixed opponent for Phase 2. It does not learn and its policy does not change between episodes. This is a deliberate experimental control: if both competitors were learning simultaneously in Phase 2, improvements in the DQN agent's win rate could partly reflect opponent degradation rather than genuine policy improvement. A fixed opponent eliminates this confound and provides the clean single-agent baseline required before Phase 3 introduces concurrent learning.
+
+\subsection{Shared training infrastructure}
+
+The epsilon-greedy exploration schedule is shared across all variants. Epsilon starts at 1.0 and decays multiplicatively each episode by a factor of 0.995. With 500 training episodes (the Phase 2 budget), epsilon reaches approximately 0.08, meaning the agent selects a random action roughly 8\% of the time at the end of training. This represents a near-converged policy; 25-episode smoke runs (Phase 1 budget) reach only $\epsilon \approx 0.88$, confirming that Phase 1 was an early-training signal check rather than a convergence measurement.
+
+The \textsc{Adam} optimiser is used with a learning rate of $7 \times 10^{-4}$ across all variants. Target network synchronisation occurs every 1{,}000 gradient steps for vanilla, double, and dueling; rainbow-lite uses the same frequency for the hard target copy. Batch size is 64 throughout.
+
+\section{Benchmark infrastructure}
+
+\subsection{\texttt{evaluate\_candidate.py}}
+
+\texttt{scripts/evaluate\_candidate.py} runs a single train-then-eval trial for one algorithm variant. It accepts command-line arguments for the training budget, evaluation budget, training seed, evaluation seeds, complexity profile, stochasticity level, and output path. The script first runs training episodes with the agent in exploration mode (epsilon-greedy active), then freezes the policy and runs evaluation episodes with exploration disabled. At the end of the run it writes a structured JSON metrics file containing the win rate, objective score, fairness diagnostics, and full behavioural diagnostics including the per-zone attempt/success breakdown and risk distribution.
+
+This script is the unit of experiment: each call produces one data point in the comparison matrix. It deliberately has no knowledge of the broader matrix; that orchestration is handled by \texttt{run\_benchmark\_matrix.py}.
+
+\subsection{\texttt{run\_benchmark\_matrix.py}}
+
+\texttt{scripts/run\_benchmark\_matrix.py} sequences calls to \texttt{evaluate\_candidate.py} across the full comparison matrix. The matrix is defined by the Cartesian product of the algorithm list (\texttt{protocol.comparison\_matrix.algorithms}), the seed set (\texttt{protocol.seed\_sets}), and the benchmark tracks (\texttt{protocol.benchmark\_contract.tracks}). Each cell in the matrix is an independent trial run with the appropriate combination of algorithm, seed, and stochasticity level.
+
+The script enforces the fairness contract before execution: it verifies that all algorithms receive identical non-learning conditions (same state vector dimension, same reward schema, same stochasticity level, same starting position cycle) and aborts if any violation is detected. On completion it writes a \texttt{summary.json} containing per-algorithm statistics with 95\% confidence intervals and a \texttt{summary.md} human-readable table for rapid inspection.
+
+\subsection{Telemetry and logging}
+
+Every race produces a JSONL entry containing the full per-driver result. Each entry includes the driver name, final race position, total reward, per-component reward totals, stochasticity level, complexity profile, and a \texttt{decision\_events} array. Each decision event records the zone identifier, lap number, action label, attempt flag, success flag, success probability, reward received, individual reward component values, and a \texttt{reward\_component\_sum\_error} field that verifies the arithmetic consistency of the reward decomposition. The telemetry schema is validated in Phase 0 Group~C tests and is described in detail in Appendix~\ref{appendix:phase01}.
+
+\section{Phase 0: System integrity validation}
+
+Phase 0 establishes that the simulator, reward accounting, stochasticity implementation, and telemetry contract are all correct before any learning claims are made. All Phase 0 assertions are formalised as automated tests in \texttt{tests/test\_phase0\_integrity.py}. The full test inventory and outcomes are documented in Appendix~\ref{appendix:phase01}; a summary is provided here.
+
+Twelve tests are organised into three groups. Group A (simulator correctness) verifies that: each (driver, zone, lap) combination produces at most one decision event; the post-attempt cooldown is enforced; the terminal outcome reward equals the start-to-finish position change; the per-event reward sum matches the logged total to within $10^{-4}$; and the pace and tyre components are exactly zero in low complexity. Group B (stochastic calibration) verifies the monotone ordering of the probability function across risk levels, gap distances, and zone difficulties using 1{,}000 repeated samples per condition. Group C (telemetry contract) verifies that all required schema keys are present in the JSONL output and that per-driver component totals match the sum of event-level components.
+
+All 12 tests pass. During development, three defects were found and corrected through this suite: a missing \texttt{gap\_to\_ahead} attribute on \texttt{DriverState} caused the Base Agent to collapse to near-zero attempt probability; a reward sum accounting error surfaced in the \texttt{reward\_component\_sum\_error} field; and a cooldown-enforcement boundary condition was incorrect by one tick. These defects would not have been detectable from win rates alone, which confirms the value of white-box integrity testing before making learning claims.
+
+\textbf{Gate G0 outcome: passed.}
+
+\section{Phase 1: Single-agent smoke validation}
+
+Phase 1 uses a minimal budget (25 training episodes, 20 evaluation races, 3 seeds at s0; 1 seed at s1 and s2) to confirm that a learning signal exists and that fairness and reproducibility checks pass before committing to the full Phase 2 budget. The Phase 1 configuration uses vanilla DQN only.
+
+\subsection{s0 learning signal}
+
+Table~\ref{tab:phase1-s0} reports win rate results across the three s0 seeds. All three seeds produce win rates above 0.75 against the Base Agent, and all show zero DNF races and zero fairness violations. The across-seed range is 1.7 percentage points (0.767 to 0.783), indicating low seed sensitivity at s0.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 s0 smoke results --- vanilla DQN, 20 eval races per seed}
+\label{tab:ch3-s0-results}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Seed} & \textbf{Win rate} & \textbf{DNF rate} & \textbf{Fairness violations} \\
+\hline
+101 & 0.783 & 0.0 & 0 \\
+202 & 0.767 & 0.0 & 0 \\
+303 & 0.783 & 0.0 & 0 \\
+\hline
+\textbf{Mean} & \textbf{0.778} & \textbf{0.0} & \textbf{0} \\
+\hline
+\end{tabular}
+\end{table}
+
+It must be noted that with only 20 evaluation races per seed, the 95\% confidence interval on a win rate of 0.783 spans approximately $\pm 0.18$, computed as a Wilson score interval at $n=20$. These results confirm a positive learning signal and the absence of systematic failure, but they are not narrow enough to make strong statistical claims. Phase 2 uses 150 evaluation races per seed to reduce this margin to approximately $\pm 0.08$.
+
+\subsection{Zone behaviour at s0}
+
+Table~\ref{tab:phase1-zones-s0} shows the per-zone behaviour for seed 101 at s0. La Source (difficulty 0.2) sees 100\% attempt rate across all 30 decisions with an 87\% success rate and a positive average reward of $+0.127$. Raidillon and Eau Rouge (difficulty 0.9) also sees 100\% attempt rate but only 14\% success, producing an average reward of $-0.021$. This is an important observation: the agent attempts Raidillon at full rate despite its near-zero expected return. At s0 with only 25 training episodes the policy has not yet learned to hold at hard zones. However, La Source's near-certain success is sufficient to win the majority of races regardless of Raidillon behaviour, because the agent reliably overtakes at the first and easiest zone on every lap.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 zone behaviour --- vanilla DQN, s0, seed 101, eval phase}
+\label{tab:phase1-zones-s0}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Zone} & \textbf{Difficulty} & \textbf{Attempts/Dec.} & \textbf{Success rate} & \textbf{Avg.\ reward} \\
+\hline
+La Source      & 0.2 & 30/30 & 0.87 & $+0.127$ \\
+Raidillon      & 0.9 & 28/28 & 0.14 & $-0.021$ \\
+Les Combes     & 0.7 & 40/46 & 0.30 & $+0.013$ \\
+Bruxelles      & 0.7 & 13/13 & 0.23 & $+0.015$ \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Stochasticity degradation (s1 and s2)}
+
+Table~\ref{tab:phase1-stoch} shows win rate and risk distribution across s0, s1, and s2, all using seed 101. The s1 win rate is identical to s0 (0.783), while the s2 win rate drops by 3.3 percentage points to 0.750. The flat s0-to-s1 result is explained by La Source structural dominance: at $\sigma = 0.02$ the noise is too small to erode a zone with base probability 0.8, so La Source continues to produce near-certain overtake success and the win rate does not change.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 stochasticity comparison --- vanilla DQN, seed 101, eval phase}
+\label{tab:ch3-stoch-results}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Level} & \textbf{Win rate} & \textbf{CONS.} & \textbf{NORM.} & \textbf{AGGR.} \\
+\hline
+s0 & 0.783 & 60 & 42 & 10 \\
+s1 & 0.783 & 19 & 26 & 48 \\
+s2 & 0.750 & 18 & 30 & 49 \\
+\hline
+\end{tabular}
+\end{table}
+
+The risk distribution shows a dramatic reversal from s0 to s1. At s0, the agent selects CONSERVATIVE on 60 out of 112 risk decisions (54\%) and AGGRESSIVE on only 10 (9\%). At s1, the distribution inverts: AGGRESSIVE accounts for 48 out of 93 decisions (52\%) and CONSERVATIVE for only 19 (20\%). This reversal is not explained by an improvement in strategy; it is consistent with Q-value overestimation under noisy reward signals, where additive noise inflates the apparent Q-values of aggressive actions that occasionally succeed and receive a windfall reward in a small training sample \citep{vanhasselt2016double}. This finding directly motivates the double DQN comparison in Phase 2.
+
+\subsection{Gate G1 outcome}
+
+Gate G1 criteria are met: all three s0 seeds show win rate above 0.5; fairness violations are zero across all runs; and the s0--to--s2 degradation direction is interpretable, with the risk distribution inversion providing a specific behavioural hypothesis for Phase 2 to test.
+
+\textbf{Gate G1 outcome: passed.}
+
+\section{Phase 2: DQN-family benchmark infrastructure}
+
+Phase 2 runs the full four-algorithm comparison (vanilla, double, dueling, rainbow-lite) against the fixed Base Agent under the controlled single-agent contract. The evaluation uses 500 training episodes per trial (giving $\varepsilon \approx 0.08$ at convergence), 150 evaluation races per seed, and 5 seeds per algorithm per stochasticity track. Track A uses s0 as the primary ranking track; Track B uses s1 and s2 for robustness evidence. Two reproducibility reruns are included per algorithm cell.
+
+The benchmark is orchestrated by \texttt{run\_benchmark\_matrix.py} with \texttt{--stage benchmark --track all --algos vanilla,double,dueling,rainbow\_lite}. The script enforces the fairness contract before execution and produces \texttt{summary.json} and \texttt{summary.md} on completion.
+
+\textit{[Phase 2 results are pending benchmark completion and will be reported in Chapter~\ref{chapter4}.]}
+
+\section{Phase 3: Independent learner MARL infrastructure}
+
+Phase 3 replaces the fixed Base Agent with a second concurrent DQN-family learner, as described in Section~\ref{sec:phase3-methodology}. Implementation requires three targeted changes to the codebase: (1) \texttt{src/runtime\_profiles.py} requires a new \texttt{select\_low\_marl\_competitors} function that selects two DQN competitors from config instead of one DQN and one Base; (2) \texttt{src/states.py} requires dispatch support for the \texttt{low\_marl} complexity profile; (3) \texttt{scripts/evaluate\_candidate.py} requires a metric reframe from \texttt{win\_rate\_vs\_baseline} to relative positional advantage between the two concurrent learners. The simulator engine itself requires no changes because it already trains all DQN-type drivers each episode.
+
+\textit{[Phase 3 implementation is pending Phase 2 benchmark completion and promotion-gate passage.]}
