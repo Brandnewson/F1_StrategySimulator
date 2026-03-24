@@ -2,37 +2,77 @@
 \label{chapter2}
 
 \section{Designing the simulator}
-The current simulator is intentionally a \textbf{low-complexity tactical benchmark}, not yet a full race strategist. The learning agent does not control tyres, pit windows, fuel modes, or pace programmes. It currently learns one focused tactical problem: whether to hold position or attempt an overtake, with a selectable risk level, near configured overtaking zones.
+It should be noted that majority of the simulators in F1 are discretised lap-by-lap where a base lap time is provided, and a faster car is represented by having a time less than that of the base lap time. Alternatively, a quasi-static approach which involves points in the coordinate space, and a vehicle model can be used. This is commonly known as a lap-time simulator, and can come in many forms of differing fidelity levels. For our purposes, discretising the simulator lap-by-lap, while computationally cheap, does not allow us to model the stochastic and chaotic nature of F1 races we are trying to investigate. Additionally, our goal is not to model the physical properties of the car like in lap-time simulators. Therefore, we will be pursuing a more novel approach of a combination of discretising a race lap-by-lap, but where overtaking will be a function of an overtaking zone difficulty. This is iterated upon through staged complexity tiers and a controlled stochasticity pathway, introducing more uncertainty and richer agent interactions as the project progresses.
 
-To support later dissertation stages, the simulator contract is now externalised to \texttt{config.json}. Reward semantics, feedback features, experiment protocol, and stochasticity presets are all configured without changing agent code. This keeps algorithm comparisons methodological and reproducible.
+All configuration for the simulator is externalised to \texttt{config.json}. Reward semantics, observation features, stochasticity presets, and experiment budgets are all controlled without touching agent code. This keeps every algorithm comparison methodologically clean, since only the learning internals differ between runs.
 
 \subsection{Modelling overtaking likelihood}
-The track contains overtaking points where decisions can be made. FastF1 race telemetry is used to estimate where overtakes cluster and to assign zone difficulty. For this project scope, timing-loop based position updates are sufficient to produce a realistic relative difficulty map, even if they are not a full continuous on-track position model.
+The track contains various overtaking zones at which agents decide whether to attempt an overtake or hold position. This is the fundamental mechanism through which race position changes in the simulator. We use the FastF1 library to access historical race telemetry for the 2023 Belgian Grand Prix, which allows us to gauge the difficulty of each overtaking zone from real on-track data. By plotting the number of position changes against track distance, we can observe where overtakes cluster naturally and how contested each zone tends to be. Bear in mind that position changes are recorded at timing loop locations rather than the true on-track position of each car, so we can only infer the rough area of high overtaking probability rather than an exact point. This is sufficient for our purposes of assigning a relative difficulty value to each zone.
 
-\begin{figure}
+\begin{figure}[h]
     \centering
     \includegraphics[width=0.5\linewidth]{NumberOfOvertakesSpa.png}
-    \caption{Absolute overtakes based on distance on track}
-    \label{fig:placeholder}
+    \caption{Absolute overtakes based on distance on track at the 2023 Belgian Grand Prix}
+    \label{fig:overtakes-spa}
 \end{figure}
 
-\begin{figure}
+\begin{figure}[h]
     \centering
     \includegraphics[width=0.5\linewidth]{overtakingMapping.png}
-    \caption{Overtake density plotted over the circuit}
-    \label{fig:placeholder}
+    \caption{Overtake density plotted over the Spa-Francorchamps circuit}
+    \label{fig:overtaking-mapping}
 \end{figure}
 
+Nine overtaking zones are defined across the Spa-Francorchamps circuit, with difficulty values derived from the observed overtake density. La Source, the first braking zone, receives a low difficulty of 0.2 reflecting its high real-world overtake frequency. The remaining zones, including Raidillon, Les Combes, and Blanchimont, receive higher difficulty values of 0.7 to 0.9, reflecting how rarely position changes occur there in practice.
+
+\subsection{Overtake success probability}
+\label{sec:overtake-prob}
+
+When an agent chooses to attempt an overtake, the simulator resolves the outcome by computing a success probability and sampling from it. The probability formula is:
+
+\[
+P_{\text{success}} = \text{clip}\!\left(\, p_{\text{base}} + \delta_{\text{risk}} + \delta_{\text{gap}} + \epsilon,\ p_{\min},\ p_{\max} \right)
+\]
+
+where each term is defined as follows.
+
+\textbf{Base probability.} The zone difficulty $d \in [0,1]$ directly controls the base success rate. An easy zone with $d = 0.2$ yields $p_{\text{base}} = 0.8$, while a hard zone with $d = 0.9$ yields $p_{\text{base}} = 0.1$.
+\[
+p_{\text{base}} = (1 - d) \times s_{\text{base}}
+\]
+where $s_{\text{base}}$ is a scale factor from the active stochasticity profile, set to 1.0 in all levels used in this study.
+
+\textbf{Risk adjustment.} The agent selects from three risk levels, each adding a fixed offset to the probability:
+\[
+\delta_{\text{risk}} = \begin{cases}
+-0.08 & \text{CONSERVATIVE} \\
+\phantom{+}0.00 & \text{NORMAL} \\
++0.12 & \text{AGGRESSIVE}
+\end{cases}
+\]
+A more aggressive attempt therefore shifts the probability upward but also incurs a larger failure penalty in the reward signal, creating a genuine risk-reward trade-off for the agent to learn.
+
+\textbf{Gap modifier.} A closer following distance increases the probability of a successful overtake. The gap $g$ in kilometres is normalised against a reference distance of 0.1\,km and the modifier is:
+\[
+\delta_{\text{gap}} = \left(1 - \frac{g}{0.1} - 0.5\right) \times 0.3
+\]
+This means a very close following gap ($g \approx 0$) adds up to $+0.15$ to the probability, while a gap at the reference distance subtracts $-0.15$.
+
+\textbf{Stochastic noise.} At higher stochasticity levels, Gaussian noise $\epsilon \sim \mathcal{N}(0, \sigma)$ is added to the probability before clipping. The noise standard deviation $\sigma$ is set by the active stochasticity level and is described in detail in Section~\ref{sec:stochasticity}. At s0, $\sigma = 0$ and outcomes are fully deterministic given the same state.
+
+The final probability is clipped to $[0.02,\ 0.95]$ to avoid degenerate certainty in either direction.
+
 \subsection{Config-driven action and feedback contracts}
+
 \subsubsection{Decision timing}
 One decision is created when all of the following are true:
 \begin{itemize}
-    \item the driver is approaching an overtaking zone (within 0.2 km),
+    \item the driver is approaching an overtaking zone (within 0.2\,km),
     \item there is a car ahead on track,
-    \item the gap to that car is at most 0.1 km,
+    \item the gap to that car is at most 0.1\,km,
     \item the driver is not in the post-attempt cooldown window.
 \end{itemize}
-The decision is resolved when the driver reaches that zone.
+The decision is resolved when the driver reaches that zone. Each (driver, zone, lap) combination may only produce one decision per race.
 
 \subsubsection{Action space}
 Low complexity uses four discrete actions:
@@ -53,52 +93,89 @@ The observation contract is configured by \texttt{feedback.features\_by\_complex
     \item current position (normalised),
     \item laps remaining (normalised).
 \end{enumerate}
-The active state dimension is derived from config, so all DQN-family algorithms consume the same observation contract in a given run.
+The state dimension is derived from config, so all DQN-family algorithms consume the same observation contract within a given run.
 
 \subsection{Finish-first reward contract}
 Reward is defined with a fixed component schema across all tiers:
 \[
 R = R_{\text{outcome}} + R_{\text{persistent\_position}} + R_{\text{tactical}} + R_{\text{pace}} + R_{\text{tyre\_pit}} + R_{\text{penalty}}.
 \]
-In implementation, each component is normalised and weighted through \texttt{reward.weights}, \texttt{reward.normalization}, and \texttt{reward.component\_activation\_by\_complexity}.
+Each component is normalised and weighted through \texttt{reward.weights}, \texttt{reward.normalization}, and \texttt{reward.component\_activation\_by\_complexity}.
 
 For low complexity, only \texttt{outcome}, \texttt{persistent\_position}, \texttt{tactical}, and \texttt{penalty} are active; \texttt{pace} and \texttt{tyre\_pit} are forced to zero. This keeps one invariant reward meaning while allowing future complexity tiers to activate additional components without redefining the objective.
 
 The objective hierarchy is finish-first:
 \begin{itemize}
-    \item \texttt{outcome} is terminal and dominant (start-to-finish position gain),
-    \item \texttt{persistent\_position} provides dense shaping from position changes that survive decision resolution,
-    \item \texttt{tactical} gives small local feedback for overtake outcomes with risk-scaled failure costs,
-    \item \texttt{penalty} remains available for invalid/catastrophic behaviour.
+    \item \texttt{outcome} is terminal and dominant (start-to-finish position gain, weight 2.0),
+    \item \texttt{persistent\_position} provides dense shaping from position changes that survive decision resolution (weight 0.1),
+    \item \texttt{tactical} gives small local feedback for overtake outcomes with risk-scaled failure costs of $-0.5$, $-1.0$, and $-1.5$ for CONSERVATIVE, NORMAL, and AGGRESSIVE respectively (weight 0.05),
+    \item \texttt{penalty} remains available for invalid or catastrophic behaviour (weight 2.0).
 \end{itemize}
-Thus, overtaking is not the target itself; it is only valuable when it contributes to final race outcome.
+Overtaking is not the objective itself. It is only valuable when it contributes to a better final race outcome.
 
-\subsection{Complexity and stochasticity roadmap}
-This dissertation stage uses a fixed two-track protocol at \textbf{low complexity only}:
-\begin{enumerate}
-    \item \textbf{Track A (primary ranking):} low+\texttt{s0}. This is the only track used to rank algorithms.
-    \item \textbf{Track B (robustness):} low+\texttt{s1} and low+\texttt{s2}. This is used to measure degradation and stability under increased stochasticity.
-\end{enumerate}
-Medium-MARL is explicitly a future stage. It is not implemented or reported as a result in this dissertation stage. Progression to medium is gated by evidence quality from Track A and Track B.
+\section{Complexity tiers}
+\label{sec:complexity}
+
+The simulator is designed around staged complexity tiers. Each tier introduces richer race dynamics while keeping the reward contract and evaluation protocol structurally identical. This allows results from the lower tier to transfer meaningfully into the higher tier rather than requiring a full experimental reset. The active tier is set via \texttt{complexity.active\_profile} in config.
+
+\subsection{Low complexity}
+Low complexity is the only implemented tier in this dissertation stage. It places one DQN-family agent against a single heuristic base agent in a two-car race over five laps. The base agent uses a gap-aware probability policy without any learned component, providing a stable and reproducible opponent against which the DQN agent is evaluated.
+
+The six-feature observation vector described above is sufficient for the agent to reason about proximity, zone difficulty, and race progress. Reward components are limited to outcome, persistent position, tactical, and penalty. Pace and tyre components are zero throughout. This keeps the learning problem focused on overtaking decision quality alone.
+
+\subsection{Medium complexity}
+Medium complexity is scoped but not implemented in this dissertation stage. It is intended to introduce multiple concurrent competitors, creating a genuinely multi-agent setting where position dynamics involve more than one opponent. The observation contract would be extended with additional features including gap to the car behind, nearest rival gap, and traffic density. Tyre degradation would remain inactive. Progression to this tier requires passing the Phase 2 promotion gate from low complexity.
+
+\subsection{High complexity}
+High complexity extends medium complexity with tyre degradation, pit stop decisions, and weather context. The full observation vector includes tyre age, degradation estimate, pit loss estimate, laps since last stop, weather code, and a safety flag. This tier is designed to test whether policies that learn robust overtaking strategies at lower complexity can adapt their decision-making when race dynamics depend on factors beyond track position. It is not implemented or reported in this dissertation stage.
+
+\section{Stochasticity levels}
+\label{sec:stochasticity}
+
+Alongside complexity, the simulator exposes a controlled stochasticity pathway. Three levels are defined: s0, s1, and s2. These are used to test how robustly learned policies hold up as the environment becomes less predictable. The active level is set via \texttt{stochasticity.active\_level}.
+
+The stochasticity mechanism operates directly on the overtake success probability described in Section~\ref{sec:overtake-prob}. At each level, a noise standard deviation $\sigma$ is applied to the Gaussian noise term $\epsilon$. The remaining scaling factors (\texttt{base\_probability\_scale}, \texttt{risk\_modifier\_scale}, \texttt{gap\_modifier\_scale}) are held at 1.0 across all three levels so that only the outcome variance changes, not the underlying structure of the probability function.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Stochasticity level definitions}
+\label{tab:stoch-levels}
+\begin{tabular}{|l|c|p{9cm}|}
+\hline
+\textbf{Level} & \textbf{Noise std $\sigma$} & \textbf{Interpretation} \\
+\hline
+s0 & 0.00 & Fully deterministic given the same state. The same action at the same zone with the same gap always produces the same outcome. Used as the primary ranking track. \\
+\hline
+s1 & 0.02 & Small Gaussian perturbation on success probability. Introduces modest outcome variance while preserving the rough ordering of zone difficulty. Used to measure initial robustness degradation. \\
+\hline
+s2 & 0.05 & Moderate perturbation. Sufficient to flip borderline outcomes and introduce meaningful uncertainty into difficult zones. Used to stress-test policy stability and seed variance. \\
+\hline
+\end{tabular}
+\end{table}
+
+The choice of s0 as the primary ranking track follows the reproducibility argument in \cite{henderson2018deep}: ranking decisions made under high variance require larger sample budgets to be statistically reliable. By separating the ranking track (s0) from the robustness tracks (s1, s2), the benchmark can use a controlled budget and still produce interpretable degradation evidence.
+
+We intentionally keep the noise additive rather than multiplicative. An additive term on the probability means the difficulty ordering of zones is preserved in expectation, even under s2. A policy that learns La Source is easy and Raidillon is hard will remain structurally correct at s2, but the magnitude of advantage it gets from that knowledge diminishes. This allows us to measure \textit{robustness of learned ordering}, not just whether the agent can still win when outcomes are randomised wholesale.
 
 \section{Algorithm comparison protocol}
 All comparison controls are externalised to \texttt{config.json}:
 \begin{itemize}
     \item \texttt{protocol.seed\_sets}, \texttt{protocol.train\_runs}, and \texttt{protocol.eval\_runs} fix budgets and seeds,
     \item \texttt{protocol.comparison\_matrix.algorithms} fixes the DQN-family lineup,
-    \item \texttt{protocol.benchmark\_contract.tracks} fixes Track A/Track B definitions,
-    \item \texttt{protocol.benchmark\_contract.promotion\_gate} fixes go/no-go criteria for medium-stage implementation.
+    \item \texttt{protocol.benchmark\_contract.tracks} fixes Track A and Track B definitions,
+    \item \texttt{protocol.benchmark\_contract.promotion\_gate} fixes go/no-go criteria for the medium-stage implementation.
 \end{itemize}
 
-Fairness is enforced by keeping the environment contract (state/reward/stochasticity) identical across vanilla, double, dueling, and rainbow-lite; only learning internals vary by algorithm.
+Fairness is enforced by keeping the environment contract identical across vanilla, double, dueling, and rainbow-lite. The state vector, reward schema, stochasticity level, opponent type, and starting position cycle are all identical across algorithm cells. Only the learning internals vary.
 
 \section{Evaluation and test protocol}
 Testing is split into protocol correctness, fairness, statistical validity, and robustness evidence:
 \begin{enumerate}
-    \item \textbf{Protocol correctness tests}: validate config contract before execution and ensure Track A/Track B run with expected seeds, budgets, complexity, and stochasticity settings.
+    \item \textbf{Protocol correctness tests}: validate config contract before execution and ensure Track A and Track B run with expected seeds, budgets, complexity, and stochasticity settings.
     \item \textbf{Fairness tests}: assert all algorithms receive identical non-learning conditions; fairness audit must pass with zero violations.
     \item \textbf{Statistical tests}: report confidence intervals and across-seed variance for all algorithms; use CI-gated ranking decisions, not mean-only decisions.
-    \item \textbf{Reproducibility tests}: rerun Track A with the same locked config/seeds and confirm ranking class consistency (winner/overlap/inconclusive).
+    \item \textbf{Reproducibility tests}: rerun Track A with the same locked config and seeds and confirm ranking class consistency.
     \item \textbf{Robustness tests}: report s0$\rightarrow$s1$\rightarrow$s2 degradation, variance trend, reward-component stability trend, and starting-position exposure parity trend.
 \end{enumerate}
 
@@ -106,7 +183,7 @@ Recommended run cadence is:
 \begin{itemize}
     \item smoke: 3 seeds,
     \item candidate: 5 seeds,
-    \item benchmark/dissertation: 5 seeds with larger run budgets, fixed per comparison cell.
+    \item benchmark and dissertation: 5 seeds with larger run budgets, fixed per comparison cell.
 \end{itemize}
 Stage 3 (medium complexity implementation) proceeds only if promotion-gate requirements are met: fairness pass, CI-stable Track A ranking, reproducibility consistency, and available robustness evidence from Track B.
 
@@ -116,9 +193,7 @@ In order to maintain structure, and uphold good coding practices, the following 
 \subsection{Software Development Lifecycle}
 By adhering to the SDLC, we will do the necessary planning and research, then create an actionable plan for the scope and requirements of the project.
 
-We also use sprints to keep track of objectives, and use working code as a measure of progress. 
-
-
+We also use sprints to keep track of objectives, and use working code as a measure of progress.
 
 \section{Software Architecture}
 \subsection{Schematic diagram of project}
@@ -129,4 +204,3 @@ We use Git as a version control software.
 
 \subsection{Good coding practice}
 We assert that docstrings are used in any function, and when writing in Python, which is the primary language used in this project, we use snake case.
-

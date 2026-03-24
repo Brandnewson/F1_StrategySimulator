@@ -513,6 +513,12 @@ def main() -> None:
     if not isinstance(algo_options, dict):
         algo_options = {}
 
+    # Rename DQN competitors so telemetry clearly identifies the algorithm variant being trained.
+    # e.g. config "DQN Agent" becomes "DQN[vanilla]" or "DQN[double]" in all logs and metrics.
+    for c in competitors:
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn":
+            c["name"] = f"DQN[{algo_name}]"
+
     dqn_driver_names = [
         c.get("name")
         for c in competitors

@@ -71,4 +71,204 @@ This dissertation & F1-inspired competitive simulator with staged complexity & R
 }
 \end{table}
 
+
+\chapter{Phase 0 and Phase 1 Experimental Validation}
+\label{appendix:phase01}
+
+This appendix documents the system integrity checks carried out in Phase~0 and the smoke evaluation results collected in Phase~1. Both phases are prerequisites to the Phase~2 DQN-family benchmark. Phase~0 verified that the simulator, reward accounting, stochasticity, and telemetry were correct before any learning claims were made. Phase~1 confirmed a learning signal at low compute cost and established the stochasticity sensitivity profile of the vanilla DQN baseline.
+
+% ---------------------------------------------------------------
+\section{Phase 0: System Integrity}
+% ---------------------------------------------------------------
+
+\subsection{Objective and scope}
+
+Phase~0 contained twelve white-box unit and integration tests grouped into three categories. Group~A checked simulator correctness. Group~B validated the stochastic probability calculations statistically. Group~C verified the telemetry contract. All tests were implemented in \texttt{tests/test\_phase0\_integrity.py} and executed under a fixed random seed with the Spa circuit at low complexity and stochasticity level s0.
+
+\subsection{Test inventory}
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Phase 0 integrity test inventory and outcomes}
+\label{tab:phase0-tests}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|p{0.6cm}|p{6.2cm}|p{9.0cm}|p{1.6cm}|}
+\hline
+\textbf{Grp} & \textbf{Test name} & \textbf{What it checks} & \textbf{Result} \\
+\hline
+A & \texttt{test\_one\_decision\_per\_zone\_per\_lap} & Each (driver, zone, lap) tuple appears at most once per run in the decision event log & Pass \\
+\hline
+A & \texttt{test\_cooldown\_enforcement} & Any two sequential attempt events for the same driver are separated by at least 5.0~s of simulated time & Pass \\
+\hline
+A & \texttt{test\_terminal\_reward\_correctness} & \texttt{outcome\_raw} equals starting position minus final position for every driver & Pass \\
+\hline
+A & \texttt{test\_reward\_sum\_identity} & \texttt{reward\_component\_sum\_error} is below $10^{-4}$ for every decision event & Pass \\
+\hline
+A & \texttt{test\_inactive\_components\_zero} & \texttt{pace} and \texttt{tyre\_pit} components are exactly 0.0 in every event at low complexity & Pass \\
+\hline
+B & \texttt{test\_aggression\_increases\_probability} & Mean success probability across 1000 samples satisfies AGGRESSIVE $>$ NORMAL $>$ CONSERVATIVE at fixed zone and gap & Pass \\
+\hline
+B & \texttt{test\_gap\_decreases\_probability} & Closer gap yields higher mean success probability at 1000 samples & Pass \\
+\hline
+B & \texttt{test\_zone\_difficulty\_scales\_probability} & Lower difficulty zone yields higher mean success probability at 1000 samples & Pass \\
+\hline
+C & \texttt{test\_jsonl\_schema} & Required top-level keys present in every race results JSONL record & Pass \\
+\hline
+C & \texttt{test\_decision\_event\_schema} & Required per-decision keys present including \texttt{reward\_component\_sum\_error} and \texttt{success\_probability} & Pass \\
+\hline
+C & \texttt{test\_component\_totals\_match\_events} & Per-driver \texttt{reward\_component\_totals} match the sum of individual decision events for decision-time components & Pass \\
+\hline
+\end{tabular}
+}
+\end{table}
+
+\subsection{Defects found and corrected}
+
+Two defects were identified during Phase~0 and corrected before any Phase~1 runs were executed.
+
+The first defect was in the base agent heuristic. The \texttt{default\_policy} function in \texttt{src/base\_agents.py} reads the gap to the car ahead via \texttt{getattr(driver, "gap\_to\_ahead", None)}. The \texttt{DriverState} class did not initialise this attribute, so the value was always \texttt{None}. This collapsed the base agent's overtake attempt probability to approximately 19\% at La Source instead of the intended 77\%, making the base agent effectively passive. The defect was corrected by setting \texttt{driver.gap\_to\_ahead = gap\_distance} in the simulator's \texttt{\_check\_overtakes} method before the agent action call. After correction the base agent attempted overtakes at a frequency consistent with its heuristic policy parameters.
+
+The second defect was a scoping error in \texttt{test\_one\_decision\_per\_zone\_per\_lap}. The deduplication set was initially keyed on driver name alone rather than on the (run number, driver name) pair, causing legitimate across-run repetitions to trigger false failures. The test was corrected to scope deduplication within each individual run.
+
+\subsection{Phase 0 gate outcome}
+
+All twelve tests passed. No \texttt{reward\_component\_sum\_error} exceeded $10^{-4}$. The stochastic calibration ordering assertions held across all 1000-sample replicates. The JSONL schema contained all required keys. Gate~G0 was cleared and Phase~1 proceeded.
+
+% ---------------------------------------------------------------
+\section{Phase 1: Single-Agent Smoke Evaluation}
+% ---------------------------------------------------------------
+
+\subsection{Objective and configuration}
+
+Phase~1 confirmed that a learning signal existed before the full Phase~2 benchmark matrix was run. All five smoke runs used a vanilla DQN agent trained for 200 episodes against a single heuristic base agent at low complexity on the Spa circuit. The epsilon decay was set to 0.995, producing $\varepsilon \approx 0.37$ by episode 200. Each run was evaluated over 20 races per seed across three evaluation seeds (101, 202, 303). The three s0 runs used independent training seeds (101, 202, 303). The s1 and s2 runs used training seed 101 only.
+
+The stochasticity levels used Gaussian noise on the overtake success probability. s0 used noise standard deviation 0.0 (deterministic). s1 used 0.02. s2 used 0.05.
+
+\subsection{s0 results: three training seeds}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 s0 smoke results across three training seeds (60 eval races per seed set)}
+\label{tab:phase1-s0}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{Train seed} & \textbf{Win rate} & \textbf{CI95 low} & \textbf{CI95 high} & \textbf{Position delta} & \textbf{Seed var.} & \textbf{DNF rate} \\
+\hline
+101 & 0.783 & 0.678 & 0.888 & 0.567 & 0.0033 & 0.0 \\
+202 & 0.767 & 0.659 & 0.875 & 0.533 & 0.0058 & 0.0 \\
+303 & 0.783 & 0.678 & 0.888 & 0.567 & 0.0033 & 0.0 \\
+\hline
+\end{tabular}
+\end{table}
+
+All three seeds exceeded the Gate~G1 criterion of win rate above 0.50 with CI95 lower bound above 0.50. Starting position exposure was perfectly balanced at 30 races from each of positions 1 and 2 in every run. No DNFs occurred. Gate~G1 was cleared.
+
+The three seeds produced closely grouped results, with seed variance between 0.003 and 0.006. This indicated convergence to a similar policy attractor across independent training runs.
+
+\subsection{Risk behaviour at s0}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Risk level counts and zone-level attempt rates at s0 (train seed 101, 60 eval races)}
+\label{tab:phase1-s0-risk}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Zone} & \textbf{Difficulty} & \textbf{Decisions} & \textbf{Attempt rate} & \textbf{Success rate} & \textbf{Avg reward} \\
+\hline
+La Source       & 0.2 & 30 & 1.00 & 0.867 & $+0.127$ \\
+Raidillon       & 0.9 & 28 & 1.00 & 0.143 & $-0.021$ \\
+Les Combes      & 0.7 & 46 & 0.870 & 0.300 & $+0.013$ \\
+Bruxelles       & 0.7 & 13 & 1.00 & 0.231 & $+0.015$ \\
+\hline
+\end{tabular}
+\end{table}
+
+Risk level counts at s0 were CONSERVATIVE~60, NORMAL~42, AGGRESSIVE~10. The agent showed a strong preference for cheaper-failure strategies at s0. Only four of nine configured zones appeared in any decision event. Zones at greater track distances from the start were not reached in sufficient proximity situations to trigger decisions within the two-car five-lap race format.
+
+The agent attempted at Raidillon (difficulty 0.9) 100\% of the time despite a 14\% success rate and a net-negative average reward. This indicated that the policy had not learned to discriminate HOLD decisions at high-difficulty zones within 200 training episodes.
+
+\subsection{Stochasticity degradation: s0, s1, and s2}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 stochasticity comparison (train seed 101, 60 eval races per level)}
+\label{tab:phase1-stoch}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{Level} & \textbf{Win rate} & \textbf{CI95 low} & \textbf{CI95 high} & \textbf{Tactical raw total} & \textbf{Outcome raw total} & \textbf{Seed var.} \\
+\hline
+s0 & 0.783 & 0.678 & 0.888 & $-11.0$ & $+17.0$ & 0.0033 \\
+s1 & 0.783 & 0.678 & 0.888 & $-17.5$ & $+17.0$ & 0.0033 \\
+s2 & 0.750 & 0.640 & 0.860 & $-27.5$ & $+15.0$ & 0.0100 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Risk level counts across stochasticity levels (train seed 101, 60 eval races per level)}
+\label{tab:phase1-risk-levels}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Level} & \textbf{CONSERVATIVE} & \textbf{NORMAL} & \textbf{AGGRESSIVE} & \textbf{Decisions} & \textbf{Attempt rate/run} \\
+\hline
+s0 & 60 & 42 & 10 & 118 & 1.87 \\
+s1 & 19 & 26 & 48 & 110 & 1.55 \\
+s2 & 18 & 30 & 49 &  97 & 1.62 \\
+\hline
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+\section{Phase 1 findings and implications}
+% ---------------------------------------------------------------
+
+\subsection{Win rate floor: La Source structural dominance}
+
+The win rate was flat from s0 to s1 (0.783 in both cases). This was not a sign of robustness. The dominant overtaking zone at La Source (difficulty 0.2) produced an 87--90\% success rate in all three levels with 100\% attempt rate. Adding a noise standard deviation of 0.02 to a near-certain probability event is insufficient to flip race outcomes at La Source. The s1 noise level fell below the La Source erosion threshold, making the s0-to-s1 comparison uninformative about true policy robustness.
+
+The tactically informative metric was the win rate from position-two starts. Stripping out the structural position-one advantage, the agent won approximately 57\% of P2-start races at both s0 and s1, falling to 50\% at s2. This 7 percentage point reduction at s2 was the genuine sensitivity signal.
+
+\subsection{AGGRESSIVE flip as a DQN overestimation indicator}
+
+The risk level distribution reversed completely between s0 and s1. At s0 the agent used CONSERVATIVE in 53\% of attempts. At s1 and s2 it used AGGRESSIVE in 52--51\% of attempts. This reversal persisted across stochasticity levels once noise was introduced.
+
+The root cause was Q-value overestimation under high-variance rewards. Vanilla DQN uses a max operator in the Bellman update, which preferentially propagates optimistic samples. Under noisy outcomes, AGGRESSIVE occasionally produced high-reward events. These upward noise samples inflated Q-values for AGGRESSIVE in training, biasing the policy toward the highest-penalty failure strategy at evaluation. The consequence appeared directly in the tactical component, which worsened from $-11.0$ at s0 to $-27.5$ at s2, a 2.5$\times$ increase despite fewer total decisions.
+
+This overestimation pattern under noise is the documented failure mode that motivated Double~DQN and is empirically visible here. It provides direct motivation for the Phase~2 algorithm comparison.
+
+\subsection{Zone discrimination collapse at s2}
+
+At s0 the agent applied a partial HOLD policy at Les Combes (87\% attempt rate). At s1 this discrimination strengthened to 73\% attempt rate, and the Raidillon HOLD rate improved to 90\%. At s2 both zones reverted to 100\% attempt rate. The learned discrimination did not persist beyond moderate noise. This indicated that the Q-value signal was too weak at 200 training episodes to maintain zone-specific HOLD behaviour when outcome variance exceeded the signal from the penalty gradient.
+
+\subsection{Seed variance as a robustness indicator}
+
+Seed variance was stable at 0.0033 across s0 and s1, then tripled to 0.010 at s2. This was the first measurable instability signal and the entry point for the RQ1 robustness analysis. Policy sensitivity to training seed increased at s2, confirming that higher noise was beginning to disrupt convergence reliability even within the 200-episode budget.
+
+\subsection{Phase 1 gate summary}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 gate G1 checklist}
+\label{tab:phase1-gate}
+\begin{tabular}{|p{8.5cm}|p{2.0cm}|}
+\hline
+\textbf{Criterion} & \textbf{Outcome} \\
+\hline
+At least one of three s0 seeds shows win rate above 0.50 & Met (all three) \\
+All CI95 lower bounds above 0.50 at s0 & Met (lowest: 0.659) \\
+Fairness violations equal zero (start position imbalance) & Met (ratio 0.0) \\
+s1 and s2 show interpretable degradation direction & Met (see note) \\
+\hline
+\end{tabular}
+\end{table}
+
+The degradation direction was interpretable but structurally attenuated. The headline win rate was flat at s1 due to La Source dominance, and only the s2 comparison showed a reduction. The behavioural degradation signal (AGGRESSIVE flip, zone discrimination collapse, rising tactical penalty, increased seed variance) was present and mechanistically consistent across s1 and s2. Gate~G1 was cleared and Phase~2 proceeded with this understanding recorded.
+
 \end{appendices}

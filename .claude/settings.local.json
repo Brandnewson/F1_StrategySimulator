@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Code/F1_StrategySimulator/metrics -type f -name *.json)"
+    ]
+  }
+}

@@ -868,6 +868,7 @@ class RaceSimulator:
                     and decision_key not in driver.pending_overtake_decisions
                     and decision_key not in driver.resolved_overtake_decision_keys
                 ):
+                    driver.gap_to_ahead = gap_distance  # expose gap so policy functions can read it
                     action = driver.agent.get_action(driver, self.race_state, upcoming_zone=zone)
                     dqn_context = None
                     if isinstance(driver.agent, DQNAgent):

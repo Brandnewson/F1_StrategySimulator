@@ -3,7 +3,7 @@
     "agent_review_mode": true,
     "competitors": [
         {
-            "name": "Vanilla DQN Driver",
+            "name": "DQN Agent",
             "agent": "dqn",
             "colour": "#022050"
         },
@@ -15,7 +15,7 @@
     ],
     "simulator": {
         "runs": 20,
-        "run_name": "vanilla agent vs base agent",
+        "run_name": "dqn agent vs base agent",
         "visualise_from_run_name": "",
         "method": "batch",
         "tick_rate": 100,
@@ -192,12 +192,12 @@
             ]
         },
         "train_runs": {
-            "low": 200,
+            "low": 500,
             "medium": 200,
             "high": 200
         },
         "eval_runs": {
-            "low": 200,
+            "low": 150,
             "medium": 200,
             "high": 200
         },
@@ -416,7 +416,7 @@
         "gamma": 0.99,
         "epsilon_start": 1.0,
         "epsilon_min": 0.02,
-        "epsilon_decay": 0.9995,
+        "epsilon_decay": 0.995,
         "buffer_capacity": 150000,
         "target_update_freq": 1000
     }
