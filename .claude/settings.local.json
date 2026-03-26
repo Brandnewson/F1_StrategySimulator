@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(find /c/Code/F1_StrategySimulator/metrics -type f -name *.json)",
-      "Bash(find C:CodeF1_StrategySimulatorreport -type f -name *mark* -o -name *rubric* -o -name *guidance* -o -name *criteria*)"
+      "Bash(find C:CodeF1_StrategySimulatorreport -type f -name *mark* -o -name *rubric* -o -name *guidance* -o -name *criteria*)",
+      "Bash(conda run -n f1StrategySim python -c \":*)",
+      "Bash(ls C:/Code/F1_StrategySimulator/metrics/phase2/*.json)",
+      "Bash(conda run:*)",
+      "Bash(ls:*)"
     ]
   }
 }

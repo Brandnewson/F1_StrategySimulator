@@ -11,6 +11,10 @@ DEFAULT_COMPLEXITY_PROFILES: Dict[str, Dict[str, Any]] = {
         "implemented": True,
         "description": "Single DQN driver against one Base driver.",
     },
+    "low_marl": {
+        "implemented": True,
+        "description": "Two DQN drivers competing against each other (independent learner MARL).",
+    },
     "medium": {
         "implemented": False,
         "description": "Multiple competitors in one race.",
@@ -88,3 +92,20 @@ def select_low_complexity_competitors(competitors: List[Dict[str, Any]]) -> List
 
     return [dqn_competitor, base_competitor]
 
+
+def select_low_marl_competitors(competitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Select exactly two DQN competitors for low-complexity MARL mode."""
+    dqn_competitors = []
+    for comp in competitors:
+        agent = str(comp.get("agent", "")).strip().lower()
+        if agent == "dqn":
+            dqn_competitors.append(deepcopy(comp))
+        if len(dqn_competitors) == 2:
+            break
+
+    if len(dqn_competitors) < 2:
+        raise ValueError(
+            f"low_marl complexity mode requires at least two competitors with agent='dqn'. "
+            f"Found {len(dqn_competitors)}."
+        )
+    return dqn_competitors

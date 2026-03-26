@@ -8,6 +8,11 @@
             "colour": "#022050"
         },
         {
+            "name": "DQN Agent 2",
+            "agent": "dqn",
+            "colour": "#CC0000"
+        },
+        {
             "name": "Base Agent",
             "agent": "base",
             "colour": "#FFA500"
@@ -32,6 +37,10 @@
             "low": {
                 "implemented": true,
                 "description": "Single DQN driver against one Base driver."
+            },
+            "low_marl": {
+                "implemented": true,
+                "description": "Two DQN drivers competing against each other (independent learner MARL)."
             },
             "medium": {
                 "implemented": false,
