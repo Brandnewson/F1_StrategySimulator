@@ -52,6 +52,10 @@
             }
         }
     },
+    "marl": {
+        "reward_sharing_alpha": 0.0,
+        "description": "Reward-sharing coefficient for Phase 4 incentive-regime sweep. 0.0 = purely competitive (Phase 3 baseline), 1.0 = fully cooperative. Applied only in low_marl profile with exactly two DQN agents."
+    },
     "reward": {
         "schema_version": "v1_finish_first",
         "weights": {

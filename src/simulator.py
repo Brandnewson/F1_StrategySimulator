@@ -309,6 +309,13 @@ class RaceSimulator:
         self.winner = None
         self.driver_finish_times: Dict[str, float] = {}  # driver_name -> time when they finished
         
+        # Reward sharing coefficient (Phase 4 incentive-regime sweep).
+        # Only active when complexity_profile == "low_marl", exactly 2 DQN agents are present,
+        # and alpha > 0.  At alpha=0.0 the terminal bonus is numerically identical to Phase 3.
+        self.reward_sharing_alpha = float(
+            self.config.get("marl", {}).get("reward_sharing_alpha", 0.0)
+        )
+
         # Track coordinates for visualization
         self.track_coords = track.get("coordinates") if isinstance(track, dict) else None
         
@@ -1076,11 +1083,40 @@ class RaceSimulator:
         raw_components["persistent_position"] = float(int(pos_before) - int(pos_after))
         return self._compose_reward_from_raw_components(raw_components)
 
+    def _get_mixed_outcome_raw(self, driver) -> float:
+        """Return the outcome raw delta for this driver, applying reward sharing when safe to do so.
+
+        Guard conditions (all must be true):
+          1. reward_sharing_alpha > 0.0
+          2. active complexity profile is "low_marl"
+          3. exactly two DQN agents are present in the current race
+
+        When any condition fails the method returns the driver's own positional delta
+        unchanged, preserving numerical identity with all Phase 2 and Phase 3 runs.
+        """
+        own_delta = float(int(driver.starting_position) - int(driver.position))
+        alpha = self.reward_sharing_alpha
+        if (
+            alpha <= 0.0
+            or self.active_complexity != "low_marl"
+            or sum(1 for d in self.race_state.drivers if isinstance(d.agent, DQNAgent)) != 2
+        ):
+            return own_delta
+        other_dqn = [
+            d for d in self.race_state.drivers
+            if d is not driver and isinstance(d.agent, DQNAgent)
+        ]
+        if len(other_dqn) != 1:
+            return own_delta
+        teammate = other_dqn[0]
+        teammate_delta = float(int(teammate.starting_position) - int(teammate.position))
+        return (1.0 - alpha) * own_delta + alpha * teammate_delta
+
     def _calculate_terminal_bonus(self, driver, finished: bool = True) -> Dict[str, Any]:
         """Compute config-driven terminal reward breakdown."""
         raw_components = self._blank_reward_components()
         if finished:
-            raw_components["outcome"] = float(int(driver.starting_position) - int(driver.position))
+            raw_components["outcome"] = self._get_mixed_outcome_raw(driver)
         else:
             raw_components["penalty"] = -1.0
         return self._compose_reward_from_raw_components(raw_components)

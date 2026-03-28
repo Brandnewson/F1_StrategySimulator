@@ -353,6 +353,15 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--run-prefix", default="marl_eval")
     parser.add_argument("--out", default="metrics/phase3/latest_marl.json")
+    parser.add_argument(
+        "--alpha", type=float, default=None,
+        help=(
+            "Reward-sharing coefficient (0.0 = purely competitive, 1.0 = fully cooperative). "
+            "Overrides config marl.reward_sharing_alpha when provided. "
+            "Omitting this flag preserves the config value, defaulting to 0.0 for full "
+            "idempotency with Phase 3 runs."
+        ),
+    )
     args = parser.parse_args()
 
     _disable_visualisations()
@@ -361,6 +370,11 @@ def main():
 
     # Force low_marl complexity
     base_config.setdefault("complexity", {})["active_profile"] = args.complexity_profile
+
+    # Apply reward-sharing alpha override (Phase 4).  When --alpha is not supplied the
+    # config value is used as-is, preserving numerical identity with Phase 3 runs.
+    if args.alpha is not None:
+        base_config.setdefault("marl", {})["reward_sharing_alpha"] = args.alpha
 
     # Resolve algo name from dqn_params
     dqn_cfg = base_config.get("dqn_params", {})
@@ -440,7 +454,8 @@ def main():
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
-        "phase": "phase3_marl",
+        "phase": "phase4_marl" if float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0)) > 0.0 else "phase3_marl",
+        "reward_sharing_alpha": float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0)),
         "algorithm": algo_name,
         "agent1_name": agent1_name,
         "agent2_name": agent2_name,

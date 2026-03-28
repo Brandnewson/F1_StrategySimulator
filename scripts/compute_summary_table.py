@@ -20,6 +20,7 @@ from collections import defaultdict
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PHASE2_DIR = ROOT / "metrics" / "phase2"
 PHASE3_DIR = ROOT / "metrics" / "phase3"
+PHASE4_DIR = ROOT / "metrics" / "phase4"
 OUT_JSON   = ROOT / "metrics" / "summary_tables.json"
 OUT_MD     = ROOT / "metrics" / "summary_tables.md"
 
@@ -131,6 +132,72 @@ def load_phase3() -> dict:
                     })
     return data
 
+# ── Phase 4 loading ───────────────────────────────────────────────────────────
+
+PHASE4_ALPHAS = ["0.25", "0.50", "0.75", "1.0"]
+
+def _phase4_stem(alpha_str: str, stoch: str, seed: int) -> str:
+    # Mapping matches the output filenames used in the run commands:
+    # 0.25 -> a025, 0.50 -> a05, 0.75 -> a075, 1.0 -> a10
+    label_map = {"0.25": "025", "0.50": "05", "0.75": "075", "1.0": "10"}
+    label = label_map.get(alpha_str, alpha_str.replace(".", ""))
+    return f"rainbow_a{label}_{stoch}_s{seed}"
+
+def load_phase4() -> dict:
+    """Returns {alpha_str: {stoch: [{"wr": float, "zone_diff": float, "risk_diff": float}]}}."""
+    data = defaultdict(lambda: defaultdict(list))
+    for alpha_str in PHASE4_ALPHAS:
+        for stoch in STOCH_LEVELS:
+            for seed in SEEDS:
+                stem = _phase4_stem(alpha_str, stoch, seed)
+                fpath = PHASE4_DIR / f"{stem}.json"
+                if not fpath.exists():
+                    print(f"  [phase4] missing: {fpath.name}")
+                    continue
+                with fpath.open() as fh:
+                    d = json.load(fh)
+                metrics = d.get("metrics", {})
+                wr_block = metrics.get("win_rate_a1_vs_a2", {})
+                wr = wr_block.get("mean", None)
+                if wr is None:
+                    wr = d.get("objective_score", None)
+                strat = metrics.get("strategy_differentiation", {})
+                zone_diff = strat.get("zone_differentiation_index", None)
+                risk_diff = strat.get("risk_differentiation_index", None)
+                if wr is not None:
+                    data[alpha_str][stoch].append({
+                        "wr":        round(wr, 4),
+                        "zone_diff": round(zone_diff, 4) if zone_diff is not None else None,
+                        "risk_diff": round(risk_diff, 4) if risk_diff is not None else None,
+                        "degenerate": is_degenerate(wr),
+                        "stem":      stem,
+                    })
+    return data
+
+def summarise_phase4(data: dict) -> dict:
+    summary = {}
+    for alpha_str in PHASE4_ALPHAS:
+        summary[alpha_str] = {}
+        for stoch in STOCH_LEVELS:
+            trials = data[alpha_str][stoch]
+            if not trials:
+                summary[alpha_str][stoch] = None
+                continue
+            wrs       = [t["wr"] for t in trials]
+            zdiffs    = [t["zone_diff"] for t in trials if t["zone_diff"] is not None]
+            rdiffs    = [t["risk_diff"] for t in trials if t["risk_diff"] is not None]
+            deg_count = sum(1 for t in trials if t["degenerate"])
+            stats = mean_std_n(wrs)
+            summary[alpha_str][stoch] = {
+                **stats,
+                "zone_diff_mean":  round(sum(zdiffs) / len(zdiffs), 4) if zdiffs else None,
+                "risk_diff_mean":  round(sum(rdiffs) / len(rdiffs), 4) if rdiffs else None,
+                "n_degenerate":    deg_count,
+                "collapse_rate":   round(deg_count / len(trials), 4),
+                "trials":          trials,
+            }
+    return summary
+
 # ── Summary computation ───────────────────────────────────────────────────────
 
 def summarise_phase2(data: dict) -> dict:
@@ -187,7 +254,7 @@ ALGO_DISPLAY = {
 def fmt(v, dec=3):
     return f"{v:.{dec}f}" if v is not None else "—"
 
-def render_md(p2: dict, p3: dict) -> str:
+def render_md(p2: dict, p3: dict, p4: dict = None) -> str:
     lines = []
     lines.append("# Cross-Algorithm Summary Tables\n")
     lines.append("*Generated automatically by `scripts/compute_summary_table.py`*\n")
@@ -296,6 +363,81 @@ def render_md(p2: dict, p3: dict) -> str:
                              f"{fmt(t['wr'])} | {deg} | "
                              f"{fmt(t['zone_diff'])} | {fmt(t['risk_diff'])} |")
 
+    # ── Phase 4 table ──
+    if p4:
+        lines.append("## Phase 4: Incentive Regime Sweep (Rainbow-lite, alpha sweep)")
+        lines.append("")
+        lines.append("All trials use rainbow-lite as the algorithmic substrate. Alpha is the "
+                     "reward-sharing coefficient: 0.0 = purely competitive (Phase 3 baseline), "
+                     "0.25 = weakly cooperative, 0.50 = balanced mixed, 1.0 = fully cooperative. "
+                     "Zone and risk differentiation indices are the primary RQ1/RQ2 evidence. "
+                     "Degenerate collapse is WR >= 0.85 or <= 0.15. n = 3 seeds per cell.")
+        lines.append("")
+        lines.append("| Alpha | s0 WR (CI 95 %) | s1 WR (CI 95 %) | s2 WR (CI 95 %) | "
+                     "Collapse rate | Zone diff (mean) | Risk diff (mean) |")
+        lines.append("|-------|-----------------|-----------------|-----------------|"
+                     "--------------|-----------------|-----------------|")
+
+        # Include alpha=0.0 baseline from Phase 3 rainbow data for direct comparison
+        rainbow_p3 = p3.get("rainbow_lite", {})
+        baseline_row = ["0.0 (baseline)"]
+        for stoch in STOCH_LEVELS:
+            s = rainbow_p3.get(stoch)
+            if s:
+                baseline_row.append(f"{fmt(s['mean'])} [{fmt(s['ci95_low'])}, {fmt(s['ci95_high'])}]")
+            else:
+                baseline_row.append("—")
+        total_b = sum(rainbow_p3[st]["n"] for st in STOCH_LEVELS if rainbow_p3.get(st))
+        degen_b = sum(rainbow_p3[st]["n_degenerate"] for st in STOCH_LEVELS if rainbow_p3.get(st))
+        col_b = f"{round(degen_b / total_b, 3):.1%} ({degen_b}/{total_b})" if total_b else "—"
+        zdiffs_b = [rainbow_p3[st]["zone_diff_mean"] for st in STOCH_LEVELS
+                    if rainbow_p3.get(st) and rainbow_p3[st]["zone_diff_mean"] is not None]
+        rdiffs_b = [rainbow_p3[st]["risk_diff_mean"] for st in STOCH_LEVELS
+                    if rainbow_p3.get(st) and rainbow_p3[st]["risk_diff_mean"] is not None]
+        baseline_row.append(col_b)
+        baseline_row.append(fmt(sum(zdiffs_b) / len(zdiffs_b), 3) if zdiffs_b else "—")
+        baseline_row.append(fmt(sum(rdiffs_b) / len(rdiffs_b), 3) if rdiffs_b else "—")
+        lines.append("| " + " | ".join(baseline_row) + " |")
+
+        for alpha_str in PHASE4_ALPHAS:
+            row = [alpha_str]
+            for stoch in STOCH_LEVELS:
+                s = p4.get(alpha_str, {}).get(stoch)
+                if s:
+                    row.append(f"{fmt(s['mean'])} [{fmt(s['ci95_low'])}, {fmt(s['ci95_high'])}]")
+                else:
+                    row.append("—")
+            all_cells = [p4.get(alpha_str, {}).get(st) for st in STOCH_LEVELS]
+            total = sum(s["n"] for s in all_cells if s)
+            degen = sum(s["n_degenerate"] for s in all_cells if s)
+            col_rate = f"{round(degen / total, 3):.1%} ({degen}/{total})" if total else "—"
+            zdiffs = [s["zone_diff_mean"] for s in all_cells if s and s["zone_diff_mean"] is not None]
+            rdiffs = [s["risk_diff_mean"] for s in all_cells if s and s["risk_diff_mean"] is not None]
+            row.append(col_rate)
+            row.append(fmt(sum(zdiffs) / len(zdiffs), 3) if zdiffs else "—")
+            row.append(fmt(sum(rdiffs) / len(rdiffs), 3) if rdiffs else "—")
+            lines.append("| " + " | ".join(row) + " |")
+
+        lines.append("")
+
+        # Per-trial listing
+        lines.append("## Phase 4: Full trial listing")
+        lines.append("")
+        lines.append("| Alpha | Stoch | Seed | A1 WR | Degenerate | Zone diff | Risk diff |")
+        lines.append("|-------|-------|------|-------|------------|-----------|-----------|")
+        for alpha_str in PHASE4_ALPHAS:
+            for stoch in STOCH_LEVELS:
+                s = p4.get(alpha_str, {}).get(stoch)
+                if not s:
+                    continue
+                for t in s["trials"]:
+                    seed = t["stem"].split("_s")[-1]
+                    deg = "YES" if t["degenerate"] else "no"
+                    lines.append(f"| {alpha_str} | {stoch} | {seed} | "
+                                 f"{fmt(t['wr'])} | {deg} | "
+                                 f"{fmt(t['zone_diff'])} | {fmt(t['risk_diff'])} |")
+        lines.append("")
+
     return "\n".join(lines) + "\n"
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -308,6 +450,10 @@ def main():
     print("[compute_summary_table] Loading Phase 3 data...")
     p3_raw = load_phase3()
     p3     = summarise_phase3(p3_raw)
+
+    print("[compute_summary_table] Loading Phase 4 data...")
+    p4_raw = load_phase4()
+    p4     = summarise_phase4(p4_raw)
 
     # Print console summary
     print("\n=== PHASE 2: Single-agent win rate vs Base Agent ===")
@@ -345,16 +491,46 @@ def main():
             row.append(f"{s['n_degenerate']}/{s['n']}" if s else "—")
         print(f"  {ALGO_DISPLAY[algo]:<14} {row[0]:>8} {row[1]:>8} {row[2]:>8}")
 
+    if any(p4[a][st] for a in PHASE4_ALPHAS for st in STOCH_LEVELS):
+        print("\n=== PHASE 4: Alpha sweep (rainbow-lite, zone/risk differentiation) ===")
+        print(f"{'Alpha':<8} {'s0 WR':>8} {'s1 WR':>8} {'s2 WR':>8}  Collapse  ZoneDiff  RiskDiff")
+        for alpha_str in PHASE4_ALPHAS:
+            vals, zdiffs, rdiffs = [], [], []
+            total, degen = 0, 0
+            for stoch in STOCH_LEVELS:
+                s = p4[alpha_str][stoch]
+                vals.append(f"{s['mean']:.3f}" if s else "  —  ")
+                if s:
+                    total += s["n"]
+                    degen += s["n_degenerate"]
+                    if s["zone_diff_mean"] is not None:
+                        zdiffs.append(s["zone_diff_mean"])
+                    if s["risk_diff_mean"] is not None:
+                        rdiffs.append(s["risk_diff_mean"])
+            col_r = f"{degen}/{total}" if total else "—"
+            zd = f"{sum(zdiffs)/len(zdiffs):.3f}" if zdiffs else "  —"
+            rd = f"{sum(rdiffs)/len(rdiffs):.3f}" if rdiffs else "  —"
+            print(f"  {alpha_str:<6} {vals[0]:>8} {vals[1]:>8} {vals[2]:>8}  "
+                  f"{col_r:<10} {zd:>8}  {rd:>8}")
+
     # Write outputs
-    out_data = {"phase2": p2, "phase3": {
-        algo: {stoch: {k: v for k, v in cell.items() if k != "trials"}
-               for stoch, cell in stoch_map.items() if cell}
-        for algo, stoch_map in p3.items()
-    }}
+    out_data = {
+        "phase2": p2,
+        "phase3": {
+            algo: {stoch: {k: v for k, v in cell.items() if k != "trials"}
+                   for stoch, cell in stoch_map.items() if cell}
+            for algo, stoch_map in p3.items()
+        },
+        "phase4": {
+            alpha_str: {stoch: {k: v for k, v in cell.items() if k != "trials"}
+                        for stoch, cell in stoch_map.items() if cell}
+            for alpha_str, stoch_map in p4.items()
+        },
+    }
     OUT_JSON.write_text(json.dumps(out_data, indent=2), encoding="utf-8")
     print(f"\n[compute_summary_table] JSON written to: {OUT_JSON}")
 
-    md = render_md(p2, p3)
+    md = render_md(p2, p3, p4)
     OUT_MD.write_text(md, encoding="utf-8")
     print(f"[compute_summary_table] Markdown written to: {OUT_MD}")
 
