@@ -182,14 +182,31 @@ Gate G1 criteria are met: all three s0 seeds show win rate above 0.5; fairness v
 
 \section{Phase 2: DQN-family benchmark infrastructure}
 
-Phase 2 runs the full four-algorithm comparison (vanilla, double, dueling, rainbow-lite) against the fixed Base Agent under the controlled single-agent contract. The evaluation uses 500 training episodes per trial (giving $\varepsilon \approx 0.08$ at convergence), 150 evaluation races per seed, and 5 seeds per algorithm per stochasticity track. Track A uses s0 as the primary ranking track; Track B uses s1 and s2 for robustness evidence. Two reproducibility reruns are included per algorithm cell.
+Phase 2 runs the full four-algorithm comparison (vanilla, double, dueling, rainbow-lite) against the fixed Base Agent under the controlled single-agent contract. The evaluation uses 500 training episodes per trial (giving $\varepsilon \approx 0.08$ at convergence), 150 evaluation races per seed, and 3 seeds per algorithm per stochasticity track. Track A uses s0 as the primary ranking track; Track B uses s1 and s2 for robustness evidence.
 
-The benchmark is orchestrated by \texttt{run\_benchmark\_matrix.py} with \texttt{--stage benchmark --track all --algos vanilla,double,dueling,rainbow\_lite}. The script enforces the fairness contract before execution and produces \texttt{summary.json} and \texttt{summary.md} on completion.
+The benchmark is orchestrated by \texttt{run\_benchmark\_matrix.py} with \texttt{--stage benchmark --track all --algos vanilla,double,dueling,rainbow\_lite}. The script enforces the fairness contract before execution and produces \texttt{summary.json} and \texttt{summary.md} on completion. A dedicated post-processing script, \texttt{scripts/compute\_summary\_table.py}, aggregates the per-seed metrics files across algorithms and stochasticity levels, computing means, standard deviations, and 95\% confidence intervals across seeds, and produces both a machine-readable JSON summary and a human-readable Markdown table. All statistics reported in Chapter~\ref{chapter4} are derived from this script to ensure numerical reproducibility.
 
-\textit{[Phase 2 results are pending benchmark completion and will be reported in Chapter~\ref{chapter4}.]}
+\textbf{Gate G2 outcome: passed.} All four algorithms complete without training collapse (DNF rate = 0 across all cells). The promotion-gate criterion of an interpretable robustness trend across s0--s1--s2 is met for all algorithms. Phase 3 implementation proceeds following Gate G2 passage.
 
 \section{Phase 3: Independent learner MARL infrastructure}
+\label{sec:phase3-infra}
 
-Phase 3 replaces the fixed Base Agent with a second concurrent DQN-family learner, as described in Section~\ref{sec:phase3-methodology}. Implementation requires three targeted changes to the codebase: (1) \texttt{src/runtime\_profiles.py} requires a new \texttt{select\_low\_marl\_competitors} function that selects two DQN competitors from config instead of one DQN and one Base; (2) \texttt{src/states.py} requires dispatch support for the \texttt{low\_marl} complexity profile; (3) \texttt{scripts/evaluate\_candidate.py} requires a metric reframe from \texttt{win\_rate\_vs\_baseline} to relative positional advantage between the two concurrent learners. The simulator engine itself requires no changes because it already trains all DQN-type drivers each episode.
+Phase 3 replaces the fixed Base Agent with a second concurrent DQN-family learner, as described in Section~\ref{sec:phase3-methodology}. Implementation required three targeted changes to the codebase beyond what Phase 2 used.
 
-\textit{[Phase 3 implementation is pending Phase 2 benchmark completion and promotion-gate passage.]}
+\subsection{Runtime profile extension}
+
+\texttt{src/runtime\_profiles.py} was extended with a \texttt{select\_low\_marl\_competitors} function that selects two DQN-family competitors from config instead of one DQN and one Base Agent. Both agents are initialised from the same \texttt{dqn\_params} configuration block, using the \texttt{algo} field (e.g.\ \texttt{"double"}) to select the variant for both. Each agent receives its own replay buffer, network parameters, and epsilon schedule; they share no weights or gradient updates at any point during training.
+
+\subsection{Complexity profile dispatch}
+
+\texttt{src/states.py} was extended with dispatch support for the \texttt{low\_marl} complexity profile. This profile activates the same six-feature observation contract and the same active reward components as the \texttt{low} profile, but signals to \texttt{runtime\_profiles.py} that two DQN agents should be selected rather than one DQN and one Base Agent. The simulator engine requires no changes: it already calls \texttt{train\_step} on every DQN-type driver at the end of each episode, so two DQN drivers train simultaneously by construction.
+
+\subsection{\texttt{evaluate\_marl.py}}
+
+A dedicated evaluation script, \texttt{scripts/evaluate\_marl.py}, handles Phase 3 trials. It differs from \texttt{evaluate\_candidate.py} in one key respect: the primary metric is \texttt{win\_rate\_a1\_vs\_a2} --- the fraction of evaluation races in which DQN Agent 1 (A1) finishes ahead of DQN Agent 2 (A2) --- rather than \texttt{win\_rate\_vs\_baseline}, which assumes a fixed opponent. The script additionally computes two strategy differentiation indices: \texttt{zone\_differentiation\_index}, which quantifies how different the two agents' per-zone attempt distributions are, and \texttt{risk\_differentiation\_index}, which quantifies divergence in their risk level (CONSERVATIVE / NORMAL / AGGRESSIVE) distributions. A non-stationarity drift metric computes the change in A1 win rate between the first 50 and last 50 evaluation races, providing evidence of whether the advantage relationship is stable or shifting across the evaluation window.
+
+\subsection{Crossplay and self-play validation}
+
+To assess evaluation protocol validity, a crossplay protocol was executed for rainbow-lite at s2 across three seeds. In the self-play condition, both evaluation slots are loaded with the same trained weights; any systematic deviation of the self-play A1 win rate from 0.500 indicates a structural positional bias in the evaluation setup, since identical policies must produce symmetric outcomes. In the swapped condition, the A1 and A2 model files are exchanged, isolating policy quality from positional assignment. The results of this crossplay analysis are presented in Section~\ref{sec:phase3-bias} and incorporated into the validity threat discussion in Section~\ref{sec:validity}.
+
+\textbf{Phase 3 outcome:} Nine core trials (500 training episodes, 3 seeds $\times$ 3 stochasticity levels) were completed for each of the four algorithms, yielding 36 core trials. Additional 750-episode trials were run for vanilla and rainbow-lite to test training-budget sensitivity, and crossplay trials were run for rainbow-lite at s2. Phase 3 results are reported in Chapter~\ref{chapter4}.

@@ -220,3 +220,6 @@ results.tsv
 metrics/
 .autoresearch_cache/
 *.lock
+
+# example reports
+report/examples
