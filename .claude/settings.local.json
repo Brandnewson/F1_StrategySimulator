@@ -6,7 +6,8 @@
       "Bash(conda run -n f1StrategySim python -c \":*)",
       "Bash(ls C:/Code/F1_StrategySimulator/metrics/phase2/*.json)",
       "Bash(conda run:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find /c/Code/F1_StrategySimulator -maxdepth 2 -name *.md -o -name *tone* -o -name *style* -o -name *guide*)"
     ]
   }
 }

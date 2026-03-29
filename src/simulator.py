@@ -218,7 +218,9 @@ class RaceSimulator:
         grid_gap_meters = 8
 
         if not hasattr(self, "_start_pos_cycle_idx"):
-            self._start_pos_cycle_idx = 0
+            self._start_pos_cycle_idx = int(
+                self.config.get("marl", {}).get("eval_start_pos_offset", 0)
+            )
 
         all_positions = list(range(1, num_drivers + 1))
         used_positions = set()
@@ -1088,17 +1090,19 @@ class RaceSimulator:
 
         Guard conditions (all must be true):
           1. reward_sharing_alpha > 0.0
-          2. active complexity profile is "low_marl"
+          2. active complexity profile is "low_marl" or "low_marl_vs_base"
           3. exactly two DQN agents are present in the current race
 
         When any condition fails the method returns the driver's own positional delta
         unchanged, preserving numerical identity with all Phase 2 and Phase 3 runs.
+        The Base agent in low_marl_vs_base is never included in the sharing formula —
+        the DQN count guard (== 2) ensures this automatically.
         """
         own_delta = float(int(driver.starting_position) - int(driver.position))
         alpha = self.reward_sharing_alpha
         if (
             alpha <= 0.0
-            or self.active_complexity != "low_marl"
+            or self.active_complexity not in ("low_marl", "low_marl_vs_base")
             or sum(1 for d in self.race_state.drivers if isinstance(d.agent, DQNAgent)) != 2
         ):
             return own_delta

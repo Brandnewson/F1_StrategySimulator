@@ -208,6 +208,43 @@ def _compute_agent_diagnostics(records: List[Dict], agent_name: str) -> Dict:
     }
 
 
+def _compute_vs_base_metrics(
+    records: List[Dict],
+    agent1_name: str,
+    agent2_name: str,
+    base_name: str,
+) -> Dict:
+    """Compute non-zero-sum cooperation metrics: how often each DQN beats the Base adversary."""
+    run_data = _group_by_run(records)
+    a1_beats_base: List[float] = []
+    a2_beats_base: List[float] = []
+    joint_beats_base: List[float] = []
+    base_positions: List[float] = []
+
+    for run_idx in sorted(run_data.keys()):
+        per_driver = run_data[run_idx]
+        d1 = per_driver.get(agent1_name)
+        d2 = per_driver.get(agent2_name)
+        db = per_driver.get(base_name)
+        if not d1 or not d2 or not db:
+            continue
+        p1 = float(d1.get("position", 999))
+        p2 = float(d2.get("position", 999))
+        pb = float(db.get("position", 999))
+        a1_beats_base.append(1.0 if p1 < pb else 0.0)
+        a2_beats_base.append(1.0 if p2 < pb else 0.0)
+        joint_beats_base.append(1.0 if p1 < pb and p2 < pb else 0.0)
+        base_positions.append(pb)
+
+    return {
+        "dqn_a1_beats_base_rate": _ci95(a1_beats_base),
+        "dqn_a2_beats_base_rate": _ci95(a2_beats_base),
+        "joint_dqn_beat_base_rate": _ci95(joint_beats_base),
+        "avg_base_position": _ci95(base_positions),
+        "n_races": len(a1_beats_base),
+    }
+
+
 def _compute_marl_metrics(
     records: List[Dict],
     agent1_name: str,
@@ -421,23 +458,38 @@ def main():
         )
         train_log_path, _ = _run_phase(train_cfg, seed=args.train_seed, verbose=args.verbose)
 
-    # Evaluation phase
+    # Evaluation phase — split into two balanced batches to remove positional bias.
+    # Batch 1 uses eval_start_pos_offset=0 (A1 gets position 1 first).
+    # Batch 2 uses eval_start_pos_offset=1 (A2 gets position 1 first).
+    # Each batch runs eval_runs // 2 races; together they guarantee balanced exposure.
+    half_runs = max(1, args.eval_runs // 2)
     all_eval_records = []
     eval_runs_meta = []
     run_offset = 0
     for seed in eval_seeds:
-        eval_run_name = f"{args.run_prefix}_eval_{timestamp}_{stoch}_s{seed}"
-        eval_cfg = _prepare_phase_config(
-            base_config, phase="evaluation",
-            runs=args.eval_runs, run_name=eval_run_name,
-            stochasticity_level=stoch, total_laps=total_laps,
-        )
-        print(f"[evaluate_marl] Evaluation: seed={seed}, runs={args.eval_runs}, stoch={stoch}")
-        eval_log_path, eval_records = _run_phase(eval_cfg, seed=seed, verbose=args.verbose)
-        all_eval_records.extend(_remap_run_numbers(eval_records, run_offset))
-        eval_runs_meta.append({"seed": seed, "runs": args.eval_runs, "stoch": stoch,
-                                "log_path": str(eval_log_path)})
-        run_offset += args.eval_runs
+        for batch_idx, pos_offset in enumerate([0, 1]):
+            batch_label = f"b{batch_idx}"
+            eval_run_name = f"{args.run_prefix}_eval_{timestamp}_{stoch}_s{seed}_{batch_label}"
+            eval_cfg = _prepare_phase_config(
+                base_config, phase="evaluation",
+                runs=half_runs, run_name=eval_run_name,
+                stochasticity_level=stoch, total_laps=total_laps,
+            )
+            eval_cfg.setdefault("marl", {})["eval_start_pos_offset"] = pos_offset
+            print(f"[evaluate_marl] Evaluation: seed={seed}, runs={half_runs}, stoch={stoch}, pos_offset={pos_offset}")
+            eval_log_path, eval_records = _run_phase(eval_cfg, seed=seed, verbose=args.verbose)
+            all_eval_records.extend(_remap_run_numbers(eval_records, run_offset))
+            if batch_idx == 0:
+                eval_runs_meta.append({"seed": seed, "runs": half_runs * 2, "stoch": stoch,
+                                        "log_path": str(eval_log_path)})
+            run_offset += half_runs
+
+    # Detect Base agent name (present in low_marl_vs_base profile)
+    base_agent_name = None
+    for c in base_config.get("competitors", []):
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "base":
+            base_agent_name = c.get("name", "Base Agent")
+            break
 
     # Compute metrics
     marl_metrics = _compute_marl_metrics(all_eval_records, agent1_name, agent2_name)
@@ -451,14 +503,30 @@ def main():
 
     seed_variance = float(np.var(np.array(seed_wrs, dtype=float), ddof=1)) if len(seed_wrs) > 1 else 0.0
 
+    vs_base_metrics = (
+        _compute_vs_base_metrics(all_eval_records, agent1_name, agent2_name, base_agent_name)
+        if base_agent_name is not None
+        else None
+    )
+
+    alpha_val = float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0))
+    complexity_profile = str(base_config.get("complexity", {}).get("active_profile", "low_marl"))
+    phase_label = (
+        "phase5_marl" if "vs_base" in complexity_profile
+        else "phase4_marl" if alpha_val > 0.0
+        else "phase3_marl"
+    )
+
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
-        "phase": "phase4_marl" if float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0)) > 0.0 else "phase3_marl",
-        "reward_sharing_alpha": float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0)),
+        "phase": phase_label,
+        "reward_sharing_alpha": alpha_val,
+        "complexity_profile": complexity_profile,
         "algorithm": algo_name,
         "agent1_name": agent1_name,
         "agent2_name": agent2_name,
+        "base_agent_name": base_agent_name,
         "stochasticity_level": stoch,
         "objective_score": float(marl_metrics["win_rate_a1_vs_a2"]["mean"]),
         "phases": {
@@ -472,9 +540,11 @@ def main():
                 "runs_per_seed": int(args.eval_runs),
                 "seeds": [int(s) for s in eval_seeds],
                 "seed_runs": eval_runs_meta,
+                "balanced_positions": True,
             },
         },
         "metrics": marl_metrics,
+        "vs_base_metrics": vs_base_metrics,
         "stability": {
             "seed_win_rate_variance": seed_variance,
             "seed_win_rates_a1": seed_wrs,

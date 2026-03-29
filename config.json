@@ -42,6 +42,10 @@
                 "implemented": true,
                 "description": "Two DQN drivers competing against each other (independent learner MARL)."
             },
+            "low_marl_vs_base": {
+                "implemented": true,
+                "description": "Two DQN drivers + one Base adversary (non-zero-sum MARL)."
+            },
             "medium": {
                 "implemented": false,
                 "description": "Multiple competitors in one race."

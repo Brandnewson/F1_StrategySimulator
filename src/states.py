@@ -6,7 +6,7 @@ from matplotlib.lines import Line2D
 from pathlib import Path
 import torch
 
-from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors
+from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors, select_low_marl_vs_base_competitors
 
 # Agents
 from base_agents import BaseAgent, RandomAgent
@@ -370,6 +370,8 @@ def init_race_state(config, track):
         competitors = select_low_complexity_competitors(competitors)
     elif active_complexity == "low_marl":
         competitors = select_low_marl_competitors(competitors)
+    elif active_complexity == "low_marl_vs_base":
+        competitors = select_low_marl_vs_base_competitors(competitors)
     else:
         raise ValueError(f"Complexity '{active_complexity}' is currently not supported.")
 

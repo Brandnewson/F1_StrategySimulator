@@ -15,6 +15,10 @@ DEFAULT_COMPLEXITY_PROFILES: Dict[str, Dict[str, Any]] = {
         "implemented": True,
         "description": "Two DQN drivers competing against each other (independent learner MARL).",
     },
+    "low_marl_vs_base": {
+        "implemented": True,
+        "description": "Two DQN drivers + one Base adversary (non-zero-sum MARL).",
+    },
     "medium": {
         "implemented": False,
         "description": "Multiple competitors in one race.",
@@ -109,3 +113,26 @@ def select_low_marl_competitors(competitors: List[Dict[str, Any]]) -> List[Dict[
             f"Found {len(dqn_competitors)}."
         )
     return dqn_competitors
+
+
+def select_low_marl_vs_base_competitors(competitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Select exactly two DQN competitors and one Base competitor for non-zero-sum MARL mode."""
+    dqn_competitors = []
+    base_competitor = None
+    for comp in competitors:
+        agent = str(comp.get("agent", "")).strip().lower()
+        if agent == "dqn" and len(dqn_competitors) < 2:
+            dqn_competitors.append(deepcopy(comp))
+        if agent == "base" and base_competitor is None:
+            base_competitor = deepcopy(comp)
+
+    if len(dqn_competitors) < 2:
+        raise ValueError(
+            f"low_marl_vs_base complexity mode requires at least two competitors with agent='dqn'. "
+            f"Found {len(dqn_competitors)}."
+        )
+    if base_competitor is None:
+        raise ValueError(
+            "low_marl_vs_base complexity mode requires exactly one competitor with agent='base'."
+        )
+    return dqn_competitors + [base_competitor]
