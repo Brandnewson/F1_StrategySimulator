@@ -336,6 +336,12 @@ Adding the Base agent changes the state space (3 drivers instead of 2), grid pos
 ### 9.5 Base agent does not adapt
 The Base agent uses a fixed policy throughout training and evaluation. In a real competitive system, adversaries adapt. The cooperative advantage observed at alpha=0.75 might diminish against an adaptive adversary that exploits the DQN pair's zone specialisation.
 
+### 9.6 Effective decision space is narrower than the 9-zone framing implies
+The Spa track defines 9 overtaking zones, but only 3 to 5 generate meaningful agent decisions per lap. The simulator requires a car ahead within 100m for a zone decision to trigger. Once a driver reaches position 1 after an early-zone overtake, they are skipped from the zone decision loop for the remainder of that lap because no car is ahead. In the 3-agent game, this is partially mitigated (more positional churn from Base interactions), but zones 6 to 9 still see substantially lower decision counts than zones 1 to 5. Zone differentiation metrics are therefore measuring specialisation across a reduced effective space. This does not invalidate cross-alpha comparisons (the zone structure is constant across conditions) but means the reported zone differentiation captures behaviour across approximately 3 to 5 active zones, not the full 9-zone track.
+
+### 9.7 Terminal bonus timing in 3-agent races
+In the 3-agent game, the first driver to finish a race has their terminal bonus computed immediately, using the teammate's current position at that moment. If the teammate's position changes before the teammate finishes (for example, by being overtaken by the Base agent), the first driver's blended outcome reflects an intermediate teammate position rather than the final one. This adds bounded noise to the reward signal (maximum error of alpha times one position shift per episode). The error is non-systematic and does not bias results in a consistent direction. The Phase 5 signal (83% JointBeatBase improvement at alpha=0.75 across 9 trials) substantially exceeds this noise floor. This limitation does not affect Phase 4 (2-agent races), where the trailing agent has no remaining opponents once the leader finishes.
+
 ---
 
 ## 10. Conclusions

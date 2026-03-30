@@ -203,6 +203,8 @@ The dissertation should explicitly acknowledge in its threats to validity:
 2. Cross-phase metric comparisons are confounded by the game structure change.
 3. Collapse rate estimates are based on 3 seeds with wide binomial confidence intervals.
 
+4. The effective decision space is 3 to 5 zones per lap, not 9 (the race leader has no car ahead and is skipped from the zone decision loop).
+
 These are limitations, not fatal flaws. The directional findings are robust. The precise mechanisms and magnitudes require further work.
 
 ---

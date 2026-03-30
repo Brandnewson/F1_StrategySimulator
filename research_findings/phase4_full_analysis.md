@@ -392,6 +392,9 @@ The IL-MARL setup intentionally excludes shared gradients, communication, or cen
 ### 8.5 Single track and complexity level
 All experiments use the Spa circuit at low_marl complexity. Zone convention formation may differ on other circuits with different overtaking zone distributions. Generalisability to medium/high complexity profiles (with tyre dynamics, traffic) is speculative.
 
+### 8.6 Effective decision space is narrower than the 9-zone framing implies
+The Spa track defines 9 overtaking zones, but in practice only 3 to 5 generate meaningful decisions. The simulator gates zone decisions on whether a car is ahead within 100m. Once a driver reaches position 1 (typically after a successful overtake at zones 1 to 3), `_find_driver_ahead_on_track()` returns None and the driver is skipped from the zone decision loop for the remainder of that lap. In a 2-agent race, this means the race leader makes no decisions at zones 6 to 9 on any lap where they are in front. Zones 1 (La Source), 3 (Les Combes), and occasionally 2, 4, and 5 dominate the decision data. The 5-second overtake cooldown is not the cause (inter-zone times exceed 5 seconds at all transitions). Zone differentiation metrics reported throughout this analysis are therefore measuring specialisation across a 3 to 5 zone effective decision space, not the full 9-zone track. All cross-alpha comparisons remain valid because the zone structure is constant across conditions.
+
 ---
 
 ## 9. Open questions for future work
