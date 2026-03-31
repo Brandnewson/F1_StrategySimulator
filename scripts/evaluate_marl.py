@@ -245,6 +245,70 @@ def _compute_vs_base_metrics(
     }
 
 
+def _compute_team_metrics(
+    records: List[Dict],
+    team_a_names: List[str],
+    team_b_names: List[str],
+    base_name: str,
+) -> Dict:
+    """Compute team-level metrics for low_marl_teams profile."""
+    run_data = _group_by_run(records)
+    team_a_avg_pos, team_b_avg_pos = [], []
+    team_a_wins, team_b_wins = [], []
+    team_a_beats_base, team_b_beats_base = [], []
+    intra_a_deltas, intra_b_deltas = [], []
+
+    for run_idx in sorted(run_data.keys()):
+        pd = run_data[run_idx]
+        a_pos = [float(pd[n].get("position", 999)) for n in team_a_names if n in pd]
+        b_pos = [float(pd[n].get("position", 999)) for n in team_b_names if n in pd]
+        base_pos = float(pd.get(base_name, {}).get("position", 999)) if base_name and base_name in pd else 999.0
+
+        if len(a_pos) == 2 and len(b_pos) == 2:
+            team_a_avg_pos.append(sum(a_pos) / 2)
+            team_b_avg_pos.append(sum(b_pos) / 2)
+            team_a_wins.append(1.0 if min(a_pos) < min(b_pos) else 0.0)
+            team_b_wins.append(1.0 if min(b_pos) < min(a_pos) else 0.0)
+            team_a_beats_base.append(1.0 if all(p < base_pos for p in a_pos) else 0.0)
+            team_b_beats_base.append(1.0 if all(p < base_pos for p in b_pos) else 0.0)
+
+            a_deltas = []
+            for n, p in zip(team_a_names, a_pos):
+                if n in pd:
+                    sp = float(pd[n].get("starting_position", p))
+                    a_deltas.append(sp - p)
+            b_deltas = []
+            for n, p in zip(team_b_names, b_pos):
+                if n in pd:
+                    sp = float(pd[n].get("starting_position", p))
+                    b_deltas.append(sp - p)
+            if len(a_deltas) == 2:
+                intra_a_deltas.append(a_deltas)
+            if len(b_deltas) == 2:
+                intra_b_deltas.append(b_deltas)
+
+    def _intra_corr(pairs):
+        if len(pairs) < 3:
+            return 0.0
+        x = [p[0] for p in pairs]
+        y = [p[1] for p in pairs]
+        sx, sy = float(np.std(x)), float(np.std(y))
+        if sx < 1e-9 or sy < 1e-9:
+            return 0.0
+        return float(np.corrcoef(x, y)[0, 1])
+
+    return {
+        "team_a_avg_position": _ci95(team_a_avg_pos),
+        "team_b_avg_position": _ci95(team_b_avg_pos),
+        "team_a_vs_team_b_win_rate": _ci95(team_a_wins),
+        "team_b_vs_team_a_win_rate": _ci95(team_b_wins),
+        "team_a_both_beat_base_rate": _ci95(team_a_beats_base),
+        "team_b_both_beat_base_rate": _ci95(team_b_beats_base),
+        "intra_team_a_cooperation": _intra_corr(intra_a_deltas),
+        "intra_team_b_cooperation": _intra_corr(intra_b_deltas),
+    }
+
+
 def _compute_marl_metrics(
     records: List[Dict],
     agent1_name: str,
@@ -399,6 +463,10 @@ def main():
             "idempotency with Phase 3 runs."
         ),
     )
+    parser.add_argument("--team-a-alpha", type=float, default=None,
+                        help="Per-team alpha for team_a (low_marl_teams profile).")
+    parser.add_argument("--team-b-alpha", type=float, default=None,
+                        help="Per-team alpha for team_b (low_marl_teams profile).")
     args = parser.parse_args()
 
     _disable_visualisations()
@@ -413,26 +481,35 @@ def main():
     if args.alpha is not None:
         base_config.setdefault("marl", {})["reward_sharing_alpha"] = args.alpha
 
+    # Apply per-team alpha overrides (Phase 6 low_marl_teams)
+    if args.team_a_alpha is not None:
+        base_config.setdefault("marl", {}).setdefault("teams", {}).setdefault("team_a", {})["alpha"] = args.team_a_alpha
+    if args.team_b_alpha is not None:
+        base_config.setdefault("marl", {}).setdefault("teams", {}).setdefault("team_b", {})["alpha"] = args.team_b_alpha
+
     # Resolve algo name from dqn_params
     dqn_cfg = base_config.get("dqn_params", {})
     algo_name = str(dqn_cfg.get("algo", "vanilla")).strip().lower() or "vanilla"
 
-    # Rename the two DQN competitors with distinct, stable names
+    # Rename DQN competitors with distinct, stable names (supports 2 or 4 DQN agents)
     dqn_competitors_seen = 0
     agent1_name = None
     agent2_name = None
+    all_dqn_names = []
     for c in base_config.get("competitors", []):
         if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn":
             dqn_competitors_seen += 1
+            team_id = c.get("team_id", "")
+            suffix = f"_{team_id}" if team_id else ""
+            c["name"] = f"DQN{suffix}_A{dqn_competitors_seen}_{algo_name}"
+            all_dqn_names.append(c["name"])
             if dqn_competitors_seen == 1:
-                c["name"] = f"DQN_A1_{algo_name}"
                 agent1_name = c["name"]
             elif dqn_competitors_seen == 2:
-                c["name"] = f"DQN_A2_{algo_name}"
                 agent2_name = c["name"]
 
     if not agent1_name or not agent2_name:
-        raise ValueError("MARL evaluation requires exactly two competitors with agent='dqn' in config.")
+        raise ValueError("MARL evaluation requires at least two competitors with agent='dqn' in config.")
 
     stoch = args.stochasticity_level.strip() or "s0"
     base_config.setdefault("stochasticity", {})["active_level"] = stoch
@@ -512,20 +589,36 @@ def main():
     alpha_val = float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0))
     complexity_profile = str(base_config.get("complexity", {}).get("active_profile", "low_marl"))
     phase_label = (
-        "phase5_marl" if "vs_base" in complexity_profile
+        "phase6_team_marl" if complexity_profile == "low_marl_teams"
+        else "phase5_marl" if "vs_base" in complexity_profile
         else "phase4_marl" if alpha_val > 0.0
         else "phase3_marl"
     )
+
+    # Compute team-level metrics for low_marl_teams profile
+    team_metrics = None
+    if complexity_profile == "low_marl_teams" and len(all_dqn_names) >= 4:
+        team_a_names = [n for n in all_dqn_names if "team_a" in n]
+        team_b_names = [n for n in all_dqn_names if "team_b" in n]
+        if len(team_a_names) >= 2 and len(team_b_names) >= 2:
+            team_metrics = _compute_team_metrics(
+                all_eval_records, team_a_names[:2], team_b_names[:2],
+                base_agent_name or "",
+            )
+
+    teams_cfg = base_config.get("marl", {}).get("teams", {})
 
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
         "phase": phase_label,
         "reward_sharing_alpha": alpha_val,
+        "team_alphas": {tid: tcfg.get("alpha", 0.0) for tid, tcfg in teams_cfg.items()} if teams_cfg else None,
         "complexity_profile": complexity_profile,
         "algorithm": algo_name,
         "agent1_name": agent1_name,
         "agent2_name": agent2_name,
+        "all_dqn_names": all_dqn_names,
         "base_agent_name": base_agent_name,
         "stochasticity_level": stoch,
         "objective_score": float(marl_metrics["win_rate_a1_vs_a2"]["mean"]),
@@ -545,6 +638,7 @@ def main():
         },
         "metrics": marl_metrics,
         "vs_base_metrics": vs_base_metrics,
+        "team_metrics": team_metrics,
         "stability": {
             "seed_win_rate_variance": seed_variance,
             "seed_win_rates_a1": seed_wrs,
@@ -560,6 +654,11 @@ def main():
     print(f"[evaluate_marl] {agent1_name} win rate: {wr['mean']:.3f} [{wr['ci95_low']:.3f}, {wr['ci95_high']:.3f}]")
     print(f"[evaluate_marl] Zone differentiation: {diff['zone_differentiation_index']:.3f} ({diff['interpretation']})")
     print(f"[evaluate_marl] Non-stationarity drift: {marl_metrics['non_stationarity_signal']['drift']:+.3f}")
+    if team_metrics:
+        ta = team_metrics["team_a_vs_team_b_win_rate"]
+        print(f"[evaluate_marl] Team A vs Team B win rate: {ta['mean']:.3f} [{ta['ci95_low']:.3f}, {ta['ci95_high']:.3f}]")
+        print(f"[evaluate_marl] Team A both beat Base: {team_metrics['team_a_both_beat_base_rate']['mean']:.3f}")
+        print(f"[evaluate_marl] Team B both beat Base: {team_metrics['team_b_both_beat_base_rate']['mean']:.3f}")
     print(f"[evaluate_marl] Metrics written to: {out_path}")
 
 

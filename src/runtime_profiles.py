@@ -19,6 +19,10 @@ DEFAULT_COMPLEXITY_PROFILES: Dict[str, Dict[str, Any]] = {
         "implemented": True,
         "description": "Two DQN drivers + one Base adversary (non-zero-sum MARL).",
     },
+    "low_marl_teams": {
+        "implemented": True,
+        "description": "Two teams of 2 DQN drivers + one Base adversary (team-based MARL).",
+    },
     "medium": {
         "implemented": False,
         "description": "Multiple competitors in one race.",
@@ -136,3 +140,40 @@ def select_low_marl_vs_base_competitors(competitors: List[Dict[str, Any]]) -> Li
             "low_marl_vs_base complexity mode requires exactly one competitor with agent='base'."
         )
     return dqn_competitors + [base_competitor]
+
+
+def select_low_marl_teams_competitors(competitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Select 4 DQN competitors (2 teams of 2) + 1 Base for team-based MARL mode."""
+    from collections import defaultdict
+    teams: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    base_competitor = None
+    for comp in competitors:
+        agent = str(comp.get("agent", "")).strip().lower()
+        if agent == "dqn":
+            tid = comp.get("team_id")
+            if tid is not None:
+                teams[str(tid)].append(deepcopy(comp))
+        elif agent == "base" and base_competitor is None:
+            base_competitor = deepcopy(comp)
+
+    if len(teams) != 2:
+        raise ValueError(
+            f"low_marl_teams requires exactly 2 teams with team_id set, "
+            f"found {len(teams)}: {list(teams.keys())}"
+        )
+    for tid, members in teams.items():
+        if len(members) < 2:
+            raise ValueError(
+                f"low_marl_teams: team '{tid}' needs at least 2 DQN agents, "
+                f"found {len(members)}."
+            )
+    if base_competitor is None:
+        raise ValueError(
+            "low_marl_teams requires exactly one competitor with agent='base'."
+        )
+
+    result = []
+    for tid in sorted(teams.keys()):
+        result.extend(teams[tid][:2])
+    result.append(base_competitor)
+    return result

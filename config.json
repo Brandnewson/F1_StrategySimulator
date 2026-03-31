@@ -5,12 +5,26 @@
         {
             "name": "DQN Agent",
             "agent": "dqn",
-            "colour": "#022050"
+            "colour": "#022050",
+            "team_id": "team_a"
         },
         {
             "name": "DQN Agent 2",
             "agent": "dqn",
-            "colour": "#CC0000"
+            "colour": "#0055AA",
+            "team_id": "team_a"
+        },
+        {
+            "name": "DQN Agent 3",
+            "agent": "dqn",
+            "colour": "#CC0000",
+            "team_id": "team_b"
+        },
+        {
+            "name": "DQN Agent 4",
+            "agent": "dqn",
+            "colour": "#FF4444",
+            "team_id": "team_b"
         },
         {
             "name": "Base Agent",
@@ -46,6 +60,10 @@
                 "implemented": true,
                 "description": "Two DQN drivers + one Base adversary (non-zero-sum MARL)."
             },
+            "low_marl_teams": {
+                "implemented": true,
+                "description": "Two teams of 2 DQN drivers + one Base adversary (team-based cooperative/competitive MARL)."
+            },
             "medium": {
                 "implemented": false,
                 "description": "Multiple competitors in one race."
@@ -58,7 +76,11 @@
     },
     "marl": {
         "reward_sharing_alpha": 0.0,
-        "description": "Reward-sharing coefficient for Phase 4 incentive-regime sweep. 0.0 = purely competitive (Phase 3 baseline), 1.0 = fully cooperative. Applied only in low_marl profile with exactly two DQN agents."
+        "description": "Reward-sharing coefficient for Phase 4 incentive-regime sweep. 0.0 = purely competitive (Phase 3 baseline), 1.0 = fully cooperative. Applied only in low_marl profile with exactly two DQN agents.",
+        "teams": {
+            "team_a": {"alpha": 0.0},
+            "team_b": {"alpha": 0.0}
+        }
     },
     "reward": {
         "schema_version": "v1_finish_first",
@@ -142,6 +164,16 @@
                 "has_car_ahead",
                 "current_position_norm",
                 "laps_remaining_norm"
+            ],
+            "low_marl_teams": [
+                "zone_distance_norm",
+                "gap_to_ahead_norm",
+                "zone_difficulty",
+                "has_car_ahead",
+                "current_position_norm",
+                "laps_remaining_norm",
+                "is_teammate_ahead",
+                "is_teammate_behind"
             ],
             "medium": [
                 "zone_distance_norm",

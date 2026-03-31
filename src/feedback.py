@@ -76,6 +76,8 @@ SUPPORTED_FEEDBACK_FEATURES = {
     "weather_code",
     "safety_flag",
     "rivals_pit_summary_norm",
+    "is_teammate_ahead",
+    "is_teammate_behind",
 }
 
 
@@ -232,6 +234,22 @@ def create_driver_feedback(
     nearest_rival_gap_km = min(gap_ahead_for_norm, gap_behind_for_norm)
     traffic_density_norm = float(np.clip(1.0 - (nearest_rival_gap_km / MAX_GAP_FOR_DECISION_KM), 0.0, 1.0))
 
+    # Team-aware features (only meaningful when team_id is set on the driver)
+    is_teammate_ahead = 0.0
+    is_teammate_behind = 0.0
+    driver_team_id = getattr(driver, "team_id", None)
+    if driver_team_id is not None:
+        driver_total = driver.completed_laps * race_state.track_distance + driver.current_distance
+        for other in race_state.drivers:
+            if other is driver:
+                continue
+            if getattr(other, "team_id", None) == driver_team_id:
+                other_total = other.completed_laps * race_state.track_distance + other.current_distance
+                if other_total > driver_total:
+                    is_teammate_ahead = 1.0
+                elif other_total < driver_total:
+                    is_teammate_behind = 1.0
+
     feature_values: Dict[str, float] = {
         "zone_distance_norm": float(np.clip(zone_distance_km / DECISION_RANGE_KM, 0.0, 1.0)),
         "gap_to_ahead_norm": float(np.clip(gap_ahead_for_norm / MAX_GAP_FOR_DECISION_KM, 0.0, 1.0)),
@@ -251,6 +269,8 @@ def create_driver_feedback(
         "weather_code": _weather_code_from_config(cfg if isinstance(cfg, dict) else {}),
         "safety_flag": 0.0,
         "rivals_pit_summary_norm": 0.0,
+        "is_teammate_ahead": is_teammate_ahead,
+        "is_teammate_behind": is_teammate_behind,
     }
 
     return DriverFeedback(feature_values=feature_values, active_features=active_features)

@@ -318,6 +318,14 @@ class RaceSimulator:
             self.config.get("marl", {}).get("reward_sharing_alpha", 0.0)
         )
 
+        # Per-team alpha lookup for low_marl_teams profile
+        self.team_alpha_map = {}
+        teams_cfg = self.config.get("marl", {}).get("teams", {})
+        if isinstance(teams_cfg, dict):
+            for tid, tcfg in teams_cfg.items():
+                if isinstance(tcfg, dict):
+                    self.team_alpha_map[str(tid)] = float(tcfg.get("alpha", 0.0))
+
         # Track coordinates for visualization
         self.track_coords = track.get("coordinates") if isinstance(track, dict) else None
         
@@ -1088,7 +1096,10 @@ class RaceSimulator:
     def _get_mixed_outcome_raw(self, driver) -> float:
         """Return the outcome raw delta for this driver, applying reward sharing when safe to do so.
 
-        Guard conditions (all must be true):
+        For low_marl_teams: finds teammate by team_id, uses per-team alpha from
+        self.team_alpha_map. Base agent (no team_id) always returns own delta.
+
+        For low_marl / low_marl_vs_base (legacy guard conditions, all must be true):
           1. reward_sharing_alpha > 0.0
           2. active complexity profile is "low_marl" or "low_marl_vs_base"
           3. exactly two DQN agents are present in the current race
@@ -1099,6 +1110,27 @@ class RaceSimulator:
         the DQN count guard (== 2) ensures this automatically.
         """
         own_delta = float(int(driver.starting_position) - int(driver.position))
+
+        # --- Team-based reward sharing for low_marl_teams ---
+        if self.active_complexity == "low_marl_teams":
+            driver_team_id = getattr(driver, "team_id", None)
+            if driver_team_id is None:
+                return own_delta
+            alpha = self.team_alpha_map.get(driver_team_id, 0.0)
+            if alpha <= 0.0:
+                return own_delta
+            teammates = [
+                d for d in self.race_state.drivers
+                if d is not driver and getattr(d, "team_id", None) == driver_team_id
+            ]
+            if not teammates:
+                return own_delta
+            teammate_delta_avg = sum(
+                float(int(t.starting_position) - int(t.position)) for t in teammates
+            ) / len(teammates)
+            return (1.0 - alpha) * own_delta + alpha * teammate_delta_avg
+
+        # --- Existing code below: unchanged for low_marl / low_marl_vs_base ---
         alpha = self.reward_sharing_alpha
         if (
             alpha <= 0.0

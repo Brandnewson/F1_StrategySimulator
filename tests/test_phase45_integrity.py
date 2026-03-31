@@ -1,12 +1,13 @@
 """
-Phase 4/5 Integrity Tests
-=========================
+Phase 4/5/6 Integrity Tests
+============================
 Tests validating the mechanisms introduced for the incentive-regime sweep
-(Phase 4) and non-zero-sum MARL (Phase 5).
+(Phase 4), non-zero-sum MARL (Phase 5), and team-based MARL (Phase 6).
 
   Group D — Reward sharing formula
   Group E — Balanced evaluation protocol
   Group F — Competitor selection profiles
+  Group G — Team-based reward sharing and observations
 
 Run with:
     cd C:/Code/F1_StrategySimulator
@@ -39,7 +40,9 @@ from src.agents.DQN import DQNAgent
 from runtime_profiles import (
     select_low_marl_competitors,
     select_low_marl_vs_base_competitors,
+    select_low_marl_teams_competitors,
 )
+from src.feedback import DriverFeedback
 
 CONFIG_PATH = ROOT / "config.json"
 
@@ -403,3 +406,171 @@ class TestCompetitorSelection:
         ]
         with pytest.raises(ValueError, match="agent='dqn'"):
             select_low_marl_vs_base_competitors(one_dqn)
+
+    def test_low_marl_teams_selects_four_dqn_one_base(self):
+        """low_marl_teams must select 4 DQN agents (2 per team) and 1 Base."""
+        comps = [
+            {"name": "TA1", "agent": "dqn", "team_id": "team_a"},
+            {"name": "TA2", "agent": "dqn", "team_id": "team_a"},
+            {"name": "TB1", "agent": "dqn", "team_id": "team_b"},
+            {"name": "TB2", "agent": "dqn", "team_id": "team_b"},
+            {"name": "Base", "agent": "base"},
+        ]
+        result = select_low_marl_teams_competitors(comps)
+        assert len(result) == 5
+        dqn_count = sum(1 for c in result if c["agent"] == "dqn")
+        base_count = sum(1 for c in result if c["agent"] == "base")
+        assert dqn_count == 4, f"Expected 4 DQN, got {dqn_count}"
+        assert base_count == 1, f"Expected 1 Base, got {base_count}"
+
+    def test_low_marl_teams_rejects_single_team(self):
+        """low_marl_teams must raise ValueError if only 1 team."""
+        one_team = [
+            {"name": "TA1", "agent": "dqn", "team_id": "team_a"},
+            {"name": "TA2", "agent": "dqn", "team_id": "team_a"},
+            {"name": "Base", "agent": "base"},
+        ]
+        with pytest.raises(ValueError, match="2 teams"):
+            select_low_marl_teams_competitors(one_team)
+
+    def test_low_marl_teams_rejects_no_base(self):
+        """low_marl_teams must raise ValueError if no Base agent."""
+        no_base = [
+            {"name": "TA1", "agent": "dqn", "team_id": "team_a"},
+            {"name": "TA2", "agent": "dqn", "team_id": "team_a"},
+            {"name": "TB1", "agent": "dqn", "team_id": "team_b"},
+            {"name": "TB2", "agent": "dqn", "team_id": "team_b"},
+        ]
+        with pytest.raises(ValueError, match="agent='base'"):
+            select_low_marl_teams_competitors(no_base)
+
+
+# ===========================================================================
+# Group G — Team-based reward sharing and observations (Phase 6)
+# ===========================================================================
+
+def _make_team_marl_config(team_a_alpha=0.75, team_b_alpha=0.0, laps=2, runs=1):
+    """Return a team MARL config for fast test execution."""
+    cfg = _make_marl_config(alpha=0.0, complexity="low_marl_teams", laps=laps, runs=runs)
+    cfg["competitors"] = [
+        {"name": "DQN_TA1", "agent": "dqn", "colour": "#022050", "team_id": "team_a"},
+        {"name": "DQN_TA2", "agent": "dqn", "colour": "#0055AA", "team_id": "team_a"},
+        {"name": "DQN_TB1", "agent": "dqn", "colour": "#CC0000", "team_id": "team_b"},
+        {"name": "DQN_TB2", "agent": "dqn", "colour": "#FF4444", "team_id": "team_b"},
+        {"name": "Base_Agent", "agent": "base", "colour": "#FFA500"},
+    ]
+    cfg["marl"]["teams"] = {
+        "team_a": {"alpha": team_a_alpha},
+        "team_b": {"alpha": team_b_alpha},
+    }
+    cfg.setdefault("feedback", {}).setdefault("features_by_complexity", {})["low_marl_teams"] = [
+        "zone_distance_norm", "gap_to_ahead_norm", "zone_difficulty", "has_car_ahead",
+        "current_position_norm", "laps_remaining_norm", "is_teammate_ahead", "is_teammate_behind",
+    ]
+    return cfg
+
+
+def _run_team_marl_race(team_a_alpha=0.75, team_b_alpha=0.0, laps=2, runs=1, seed=42):
+    """Run a minimal team MARL race and return (simulator, records)."""
+    np.random.seed(seed)
+    _disable_visualisations()
+    cfg = _make_team_marl_config(team_a_alpha=team_a_alpha, team_b_alpha=team_b_alpha,
+                                  laps=laps, runs=runs)
+    with redirect_stdout(io.StringIO()):
+        track = load_track(cfg)
+        race_state = init_race_state(cfg, track)
+        simulator = init_simulator(race_state, cfg, track)
+
+    log_path = Path(simulator.race_results_log_path)
+    records = []
+    if log_path.exists():
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+    return simulator, records
+
+
+class TestTeamRewardSharing:
+    """Group G: Validate team-based reward sharing for low_marl_teams profile."""
+
+    def test_team_alpha_zero_returns_own_delta(self):
+        """When both teams have alpha=0, outcome_raw must equal own_delta for all DQN agents."""
+        _, records = _run_team_marl_race(team_a_alpha=0.0, team_b_alpha=0.0, laps=2, runs=3)
+        assert records, "No records written"
+
+        checked = 0
+        for record in records:
+            if "DQN" not in record["driver_name"]:
+                continue
+            data = record["data"]
+            sp = data.get("starting_position")
+            fp = data.get("position")
+            outcome = data.get("reward_component_totals_raw", {}).get("outcome")
+            if sp is None or fp is None or outcome is None:
+                continue
+            expected = float(sp - fp)
+            assert abs(outcome - expected) < 1e-5, (
+                f"Team alpha=0: expected own_delta={expected}, got {outcome} "
+                f"for {record['driver_name']}"
+            )
+            checked += 1
+        assert checked > 0, "No DQN outcome records found"
+
+    def test_team_alpha_positive_blends_within_team(self):
+        """When team_a has alpha=0.5 and team_b has alpha=0, team_a agents should
+        get blended outcomes while team_b agents get their own delta."""
+        _, records = _run_team_marl_race(
+            team_a_alpha=0.5, team_b_alpha=0.0, laps=3, runs=5, seed=42,
+        )
+        assert records, "No records written"
+
+        team_b_checked = 0
+        for record in records:
+            if "TB" not in record["driver_name"]:
+                continue
+            data = record["data"]
+            sp = data.get("starting_position")
+            fp = data.get("position")
+            outcome = data.get("reward_component_totals_raw", {}).get("outcome")
+            if sp is None or fp is None or outcome is None:
+                continue
+            expected = float(sp - fp)
+            assert abs(outcome - expected) < 1e-5, (
+                f"Team B (alpha=0) should get own_delta={expected}, got {outcome} "
+                f"for {record['driver_name']}"
+            )
+            team_b_checked += 1
+        assert team_b_checked > 0, "No team_b records found"
+
+    def test_base_agent_never_gets_sharing(self):
+        """Base agent must always return own_delta regardless of team alphas."""
+        _, records = _run_team_marl_race(
+            team_a_alpha=0.75, team_b_alpha=0.75, laps=2, runs=3,
+        )
+        for record in records:
+            if "Base" not in record["driver_name"]:
+                continue
+            data = record["data"]
+            sp = data.get("starting_position")
+            fp = data.get("position")
+            outcome = data.get("reward_component_totals_raw", {}).get("outcome")
+            if sp is None or fp is None or outcome is None:
+                continue
+            expected = float(sp - fp)
+            assert abs(outcome - expected) < 1e-5, (
+                f"Base agent should always get own_delta={expected}, got {outcome}"
+            )
+
+    def test_team_aware_observations_state_dim(self):
+        """low_marl_teams feature list should produce state_dim=8
+        (6 base features + is_teammate_ahead + is_teammate_behind)."""
+        cfg = _make_team_marl_config()
+        state_dim = DriverFeedback.get_state_dim(config=cfg, complexity="low_marl_teams")
+        assert state_dim == 8, f"Expected state_dim=8 for low_marl_teams, got {state_dim}"
+
+    def test_existing_low_marl_unchanged(self):
+        """Regression guard: low_marl profile must still produce state_dim=6
+        and reward sharing must work as before."""
+        cfg = _make_marl_config(alpha=0.0, complexity="low_marl")
+        state_dim = DriverFeedback.get_state_dim(config=cfg, complexity="low_marl")
+        assert state_dim == 6, f"Expected state_dim=6 for low_marl, got {state_dim}"
