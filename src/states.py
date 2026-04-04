@@ -6,7 +6,7 @@ from matplotlib.lines import Line2D
 from pathlib import Path
 import torch
 
-from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors, select_low_marl_vs_base_competitors, select_low_marl_teams_competitors
+from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors, select_low_marl_vs_base_competitors, select_low_marl_3dqn_vs_base_competitors, select_low_marl_teams_competitors
 
 # Agents
 from base_agents import BaseAgent, RandomAgent
@@ -373,6 +373,8 @@ def init_race_state(config, track):
         competitors = select_low_marl_competitors(competitors)
     elif active_complexity == "low_marl_vs_base":
         competitors = select_low_marl_vs_base_competitors(competitors)
+    elif active_complexity == "low_marl_3dqn_vs_base":
+        competitors = select_low_marl_3dqn_vs_base_competitors(competitors)
     elif active_complexity == "low_marl_teams":
         competitors = select_low_marl_teams_competitors(competitors)
     else:

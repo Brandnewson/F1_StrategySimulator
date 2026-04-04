@@ -326,6 +326,14 @@ class RaceSimulator:
                 if isinstance(tcfg, dict):
                     self.team_alpha_map[str(tid)] = float(tcfg.get("alpha", 0.0))
 
+        # Curriculum alpha scheduling (Phase 8).
+        # When enabled, alpha starts at 0 and linearly ramps to the target value
+        # over training, allowing agents to learn individual policies before
+        # cooperative incentive is introduced.
+        self._alpha_curriculum = self.config.get("marl", {}).get("alpha_curriculum", {})
+        self._alpha_target = self.reward_sharing_alpha
+        self._team_alpha_targets = dict(self.team_alpha_map)
+
         # Track coordinates for visualization
         self.track_coords = track.get("coordinates") if isinstance(track, dict) else None
         
@@ -1130,23 +1138,24 @@ class RaceSimulator:
             ) / len(teammates)
             return (1.0 - alpha) * own_delta + alpha * teammate_delta_avg
 
-        # --- Existing code below: unchanged for low_marl / low_marl_vs_base ---
+        # --- Flat reward sharing for low_marl / low_marl_vs_base / low_marl_3dqn_vs_base ---
         alpha = self.reward_sharing_alpha
         if (
             alpha <= 0.0
-            or self.active_complexity not in ("low_marl", "low_marl_vs_base")
-            or sum(1 for d in self.race_state.drivers if isinstance(d.agent, DQNAgent)) != 2
+            or self.active_complexity not in ("low_marl", "low_marl_vs_base", "low_marl_3dqn_vs_base")
+            or not isinstance(driver.agent, DQNAgent)
         ):
             return own_delta
         other_dqn = [
             d for d in self.race_state.drivers
             if d is not driver and isinstance(d.agent, DQNAgent)
         ]
-        if len(other_dqn) != 1:
+        if not other_dqn:
             return own_delta
-        teammate = other_dqn[0]
-        teammate_delta = float(int(teammate.starting_position) - int(teammate.position))
-        return (1.0 - alpha) * own_delta + alpha * teammate_delta
+        teammate_delta_avg = sum(
+            float(int(t.starting_position) - int(t.position)) for t in other_dqn
+        ) / len(other_dqn)
+        return (1.0 - alpha) * own_delta + alpha * teammate_delta_avg
 
     def _calculate_terminal_bonus(self, driver, finished: bool = True) -> Dict[str, Any]:
         """Compute config-driven terminal reward breakdown."""
@@ -1475,6 +1484,20 @@ class RaceSimulator:
         print(f"{'='*60}\n")
         runs = self.config.get('simulator', {}).get('runs')
         for run_idx in range(runs):
+            # Curriculum alpha: ramp from 0 to target over training episodes
+            if self._alpha_curriculum.get("enabled"):
+                warmup = int(self._alpha_curriculum.get("warmup_episodes", 0))
+                ramp = int(self._alpha_curriculum.get("ramp_episodes", max(1, runs - warmup)))
+                if run_idx < warmup:
+                    fraction = 0.0
+                elif run_idx < warmup + ramp:
+                    fraction = (run_idx - warmup) / max(1, ramp)
+                else:
+                    fraction = 1.0
+                self.reward_sharing_alpha = self._alpha_target * fraction
+                for tid, target in self._team_alpha_targets.items():
+                    self.team_alpha_map[tid] = target * fraction
+
             print(f"\n=== Starting Simulation Run {run_idx + 1} of {runs} ===")
             self.race_reset()
             while not self._all_drivers_finished():

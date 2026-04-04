@@ -210,39 +210,43 @@ def _compute_agent_diagnostics(records: List[Dict], agent_name: str) -> Dict:
 
 def _compute_vs_base_metrics(
     records: List[Dict],
-    agent1_name: str,
-    agent2_name: str,
+    dqn_names: List[str],
     base_name: str,
 ) -> Dict:
     """Compute non-zero-sum cooperation metrics: how often each DQN beats the Base adversary."""
     run_data = _group_by_run(records)
-    a1_beats_base: List[float] = []
-    a2_beats_base: List[float] = []
+    per_agent_beats: Dict[str, List[float]] = {n: [] for n in dqn_names}
     joint_beats_base: List[float] = []
     base_positions: List[float] = []
 
     for run_idx in sorted(run_data.keys()):
         per_driver = run_data[run_idx]
-        d1 = per_driver.get(agent1_name)
-        d2 = per_driver.get(agent2_name)
         db = per_driver.get(base_name)
-        if not d1 or not d2 or not db:
+        if not db:
             continue
-        p1 = float(d1.get("position", 999))
-        p2 = float(d2.get("position", 999))
         pb = float(db.get("position", 999))
-        a1_beats_base.append(1.0 if p1 < pb else 0.0)
-        a2_beats_base.append(1.0 if p2 < pb else 0.0)
-        joint_beats_base.append(1.0 if p1 < pb and p2 < pb else 0.0)
+        agent_positions: Dict[str, float] = {}
+        skip = False
+        for n in dqn_names:
+            d = per_driver.get(n)
+            if not d:
+                skip = True
+                break
+            agent_positions[n] = float(d.get("position", 999))
+        if skip:
+            continue
+        for n in dqn_names:
+            per_agent_beats[n].append(1.0 if agent_positions[n] < pb else 0.0)
+        joint_beats_base.append(1.0 if all(p < pb for p in agent_positions.values()) else 0.0)
         base_positions.append(pb)
 
-    return {
-        "dqn_a1_beats_base_rate": _ci95(a1_beats_base),
-        "dqn_a2_beats_base_rate": _ci95(a2_beats_base),
-        "joint_dqn_beat_base_rate": _ci95(joint_beats_base),
-        "avg_base_position": _ci95(base_positions),
-        "n_races": len(a1_beats_base),
-    }
+    result: Dict = {}
+    for i, n in enumerate(dqn_names, 1):
+        result[f"dqn_a{i}_beats_base_rate"] = _ci95(per_agent_beats[n])
+    result["joint_dqn_beat_base_rate"] = _ci95(joint_beats_base)
+    result["avg_base_position"] = _ci95(base_positions)
+    result["n_races"] = len(joint_beats_base)
+    return result
 
 
 def _compute_team_metrics(
@@ -467,6 +471,12 @@ def main():
                         help="Per-team alpha for team_a (low_marl_teams profile).")
     parser.add_argument("--team-b-alpha", type=float, default=None,
                         help="Per-team alpha for team_b (low_marl_teams profile).")
+    parser.add_argument("--alpha-curriculum", action="store_true",
+                        help="Enable curriculum alpha scheduling: ramp from 0 to target alpha over training.")
+    parser.add_argument("--warmup-episodes", type=int, default=100,
+                        help="Episodes at alpha=0 before ramp begins (default: 100).")
+    parser.add_argument("--ramp-episodes", type=int, default=300,
+                        help="Episodes over which alpha ramps from 0 to target (default: 300).")
     args = parser.parse_args()
 
     _disable_visualisations()
@@ -487,14 +497,23 @@ def main():
     if args.team_b_alpha is not None:
         base_config.setdefault("marl", {}).setdefault("teams", {}).setdefault("team_b", {})["alpha"] = args.team_b_alpha
 
+    # Apply curriculum alpha scheduling (Phase 8)
+    if args.alpha_curriculum:
+        base_config.setdefault("marl", {})["alpha_curriculum"] = {
+            "enabled": True,
+            "warmup_episodes": args.warmup_episodes,
+            "ramp_episodes": args.ramp_episodes,
+        }
+
     # Resolve algo name from dqn_params
     dqn_cfg = base_config.get("dqn_params", {})
     algo_name = str(dqn_cfg.get("algo", "vanilla")).strip().lower() or "vanilla"
 
-    # Rename DQN competitors with distinct, stable names (supports 2 or 4 DQN agents)
+    # Rename DQN competitors with distinct, stable names (supports 2, 3 or 4 DQN agents)
     dqn_competitors_seen = 0
     agent1_name = None
     agent2_name = None
+    agent3_name = None
     all_dqn_names = []
     for c in base_config.get("competitors", []):
         if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn":
@@ -507,6 +526,8 @@ def main():
                 agent1_name = c["name"]
             elif dqn_competitors_seen == 2:
                 agent2_name = c["name"]
+            elif dqn_competitors_seen == 3:
+                agent3_name = c["name"]
 
     if not agent1_name or not agent2_name:
         raise ValueError("MARL evaluation requires at least two competitors with agent='dqn' in config.")
@@ -580,16 +601,25 @@ def main():
 
     seed_variance = float(np.var(np.array(seed_wrs, dtype=float), ddof=1)) if len(seed_wrs) > 1 else 0.0
 
+    alpha_val = float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0))
+    complexity_profile = str(base_config.get("complexity", {}).get("active_profile", "low_marl"))
+
+    # Determine which DQN names are active based on the selector for this profile
+    active_dqn_names = all_dqn_names  # default: all
+    if complexity_profile == "low_marl_3dqn_vs_base":
+        active_dqn_names = all_dqn_names[:3]
+    elif complexity_profile in ("low_marl_vs_base", "low_marl"):
+        active_dqn_names = all_dqn_names[:2]
+
     vs_base_metrics = (
-        _compute_vs_base_metrics(all_eval_records, agent1_name, agent2_name, base_agent_name)
+        _compute_vs_base_metrics(all_eval_records, active_dqn_names, base_agent_name)
         if base_agent_name is not None
         else None
     )
 
-    alpha_val = float(base_config.get("marl", {}).get("reward_sharing_alpha", 0.0))
-    complexity_profile = str(base_config.get("complexity", {}).get("active_profile", "low_marl"))
     phase_label = (
         "phase6_team_marl" if complexity_profile == "low_marl_teams"
+        else "phase7_3dqn_vs_base" if complexity_profile == "low_marl_3dqn_vs_base"
         else "phase5_marl" if "vs_base" in complexity_profile
         else "phase4_marl" if alpha_val > 0.0
         else "phase3_marl"
@@ -613,11 +643,13 @@ def main():
         "config_path": str((ROOT / args.config).resolve()),
         "phase": phase_label,
         "reward_sharing_alpha": alpha_val,
+        "alpha_curriculum": base_config.get("marl", {}).get("alpha_curriculum") or None,
         "team_alphas": {tid: tcfg.get("alpha", 0.0) for tid, tcfg in teams_cfg.items()} if teams_cfg else None,
         "complexity_profile": complexity_profile,
         "algorithm": algo_name,
         "agent1_name": agent1_name,
         "agent2_name": agent2_name,
+        "agent3_name": agent3_name,
         "all_dqn_names": all_dqn_names,
         "base_agent_name": base_agent_name,
         "stochasticity_level": stoch,
