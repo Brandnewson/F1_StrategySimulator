@@ -6,7 +6,7 @@ from matplotlib.lines import Line2D
 from pathlib import Path
 import torch
 
-from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors, select_low_marl_vs_base_competitors, select_low_marl_3dqn_vs_base_competitors, select_low_marl_teams_competitors
+from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors, select_low_marl_vs_base_competitors, select_low_marl_3dqn_vs_base_competitors, select_low_marl_teams_competitors, select_low_llm_vs_base_competitors
 
 # Agents
 from base_agents import BaseAgent, RandomAgent
@@ -377,6 +377,8 @@ def init_race_state(config, track):
         competitors = select_low_marl_3dqn_vs_base_competitors(competitors)
     elif active_complexity == "low_marl_teams":
         competitors = select_low_marl_teams_competitors(competitors)
+    elif active_complexity == "low_llm_vs_base":
+        competitors = select_low_llm_vs_base_competitors(competitors)
     else:
         raise ValueError(f"Complexity '{active_complexity}' is currently not supported.")
 
@@ -461,6 +463,15 @@ def init_race_state(config, track):
                     f"Using BaseAgent for {driver.name}."
                 )
             driver.agent = BaseAgent(name=f"{driver.name}_base")
+        elif agent_spec == "llm":
+            from agents.LLM import LLMAgent
+            llm_params = config.get("llm_params", {})
+            alpha_mode = str(llm_params.get("alpha_mode", "competitive"))
+            driver.agent = LLMAgent(
+                config=config,
+                name=f"{driver.name}_LLM",
+                alpha_mode=alpha_mode,
+            )
         elif agent_spec == "dqn":
             # Initialize DQN agent with correct state dimension
             state_dim = DriverFeedback.get_state_dim(config=config, complexity=active_complexity)

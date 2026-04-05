@@ -27,6 +27,10 @@ DEFAULT_COMPLEXITY_PROFILES: Dict[str, Dict[str, Any]] = {
         "implemented": True,
         "description": "Two teams of 2 DQN drivers + one Base adversary (team-based MARL).",
     },
+    "low_llm_vs_base": {
+        "implemented": True,
+        "description": "One LLM agent against one Base agent.",
+    },
     "medium": {
         "implemented": False,
         "description": "Multiple competitors in one race.",
@@ -204,3 +208,24 @@ def select_low_marl_teams_competitors(competitors: List[Dict[str, Any]]) -> List
         result.extend(teams[tid][:2])
     result.append(base_competitor)
     return result
+
+
+def select_low_llm_vs_base_competitors(competitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Select one LLM competitor and one Base competitor."""
+    llm_comp = None
+    base_comp = None
+    for comp in competitors:
+        agent = str(comp.get("agent", "")).strip().lower()
+        if agent == "llm" and llm_comp is None:
+            llm_comp = deepcopy(comp)
+        if agent == "base" and base_comp is None:
+            base_comp = deepcopy(comp)
+        if llm_comp is not None and base_comp is not None:
+            break
+
+    if llm_comp is None:
+        raise ValueError("low_llm_vs_base requires one competitor with agent='llm'.")
+    if base_comp is None:
+        raise ValueError("low_llm_vs_base requires one competitor with agent='base'.")
+
+    return [llm_comp, base_comp]

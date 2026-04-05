@@ -6,3 +6,5 @@ pyproj
 scipy
 fastf1
 torch
+anthropic
+python-dotenv

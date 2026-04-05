@@ -30,6 +30,11 @@
             "name": "Base Agent",
             "agent": "base",
             "colour": "#FFA500"
+        },
+        {
+            "name": "LLM Agent",
+            "agent": "llm",
+            "colour": "#8B5CF6"
         }
     ],
     "simulator": {
@@ -468,5 +473,11 @@
         "epsilon_decay": 0.995,
         "buffer_capacity": 150000,
         "target_update_freq": 1000
+    },
+    "llm_params": {
+        "model": "claude-haiku-4-5-20251001",
+        "alpha_mode": "competitive",
+        "max_retries": 1,
+        "temperature": 0.0
     }
 }

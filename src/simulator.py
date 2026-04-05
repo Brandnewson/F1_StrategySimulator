@@ -225,9 +225,11 @@ class RaceSimulator:
         all_positions = list(range(1, num_drivers + 1))
         used_positions = set()
 
-        dqn_drivers = [d for d in self.race_state.drivers if isinstance(d.agent, DQNAgent)]
+        from agents.LLM import LLMAgent
+        dqn_drivers = [d for d in self.race_state.drivers
+                       if isinstance(d.agent, (DQNAgent, LLMAgent))]
 
-        # Assign DQN drivers positions in a round-robin cycle to ensure even coverage
+        # Assign DQN/LLM drivers positions in a round-robin cycle to ensure even coverage
         for dqn_driver in dqn_drivers:
             pos = all_positions[self._start_pos_cycle_idx % num_drivers]
             self._start_pos_cycle_idx += 1

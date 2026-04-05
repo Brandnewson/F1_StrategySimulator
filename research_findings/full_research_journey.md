@@ -205,6 +205,7 @@ Phase 5:  Fix the game structure             → Yes! +83% at alpha=0.75
 Phase 6:  Does it scale to teams?            → No — credit assignment breaks down
 Phase 7:  Where exactly is the boundary?     → N=4 (cliff, not slope)
 Phase 8:  Can training schedule fix it?      → Partially — prevents damage, can't create cooperation
+Phase 9:  How much is learned vs obvious?    → LLM matches Rainbow-lite within 2% (zero training)
 ```
 
 ## Key Literature References
@@ -232,6 +233,7 @@ Phase 8:  Can training schedule fix it?      → Partially — prevents damage, 
 | 6 | `research_findings/phase6_full_analysis.md` | `metrics/phase6/` (36 files) | `metrics/phase6/config_*.json` |
 | 7 | `research_findings/phase7_full_analysis.md` | `metrics/phase7a/` (18), `metrics/phase7b/` (27) | `metrics/phase7a/config_*.json`, `metrics/phase7b/config_*.json` |
 | 8 | `research_findings/phase8_full_analysis.md` | `metrics/phase8a/` (9), `metrics/phase8b/` (9) | Reuses Phase 6/7A configs |
+| 9 | `research_findings/phase9_analysis.md` | `metrics/phase9/` (3 files) | `config.json` (llm_params) |
 
 ## Source Code Changes by Phase
 
@@ -239,8 +241,9 @@ Phase 8:  Can training schedule fix it?      → Partially — prevents damage, 
 |-------|---------------|
 | 7 | `src/runtime_profiles.py` (new profile), `src/states.py` (routing), `src/simulator.py` (generalized reward sharing), `scripts/evaluate_marl.py` (3-agent metrics) |
 | 8 | `src/simulator.py` (curriculum scheduling in `run_batch`), `scripts/evaluate_marl.py` (CLI flags + output recording) |
+| 9 | `src/agents/LLM.py` (new), `src/states.py` (llm agent registration), `src/runtime_profiles.py` (low_llm_vs_base profile), `src/simulator.py` (LLM position cycling), `scripts/evaluate_llm_agent.py` (new), `scripts/tune_llm_prompt.py` (new) |
 
-All changes are additive — backward compatible with Phases 1-6.
+All changes are additive — backward compatible with Phases 1-8.
 
 
 ---
@@ -267,6 +270,17 @@ All changes are additive — backward compatible with Phases 1-6.
    (Phase 8). By gradually ramping cooperation from zero, you recovered 69% of the lost performance and eliminated the
   caution pathology where agents stop trying. But genuine coordination still didn't emerge.
 
+  Then you asked a different kind of question: how much of what the RL agents learned was actually clever, and how much
+  was just strategically obvious? You replaced the DQN with an LLM (Claude Haiku) that had domain knowledge but zero
+  training (Phase 9). The LLM matched Rainbow-lite's 84% win rate within 2 percentage points — but through a completely
+  different strategy. It never attempted Raidillon (which the DQN wastes attempts on), discovered the Campus→Stavelot
+  cooldown tradeoff (which the DQN cannot represent), and used zero AGGRESSIVE risk (which the DQN relies on). Same
+  performance, different path. This confirmed that single-agent strategy at this scale is "strategically obvious" —
+  the real complexity lies in the multi-agent coordination problems of Phases 3-8.
+
   Your novel contribution: You cleanly separated two failure modes that the literature had conflated — the
   training-order problem (solvable with curriculum scheduling) and the credit assignment problem (requires fundamentally
-   different architectures). Nobody had demonstrated this decomposition empirically before.
+   different architectures). Nobody had demonstrated this decomposition empirically before. Additionally, by introducing
+  an LLM semantic baseline, you showed that RL-emergent zone strategies are largely rediscoveries of domain-obvious
+  structure, while identifying specific RL failure modes (Raidillon overexploration, cooldown-blind zone allocation)
+  visible only by contrast with a semantic reasoner.
