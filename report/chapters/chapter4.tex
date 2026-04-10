@@ -81,3 +81,143 @@ The dominant challenge in Phase~3 is non-stationarity from a concurrently adapti
 \subsection{RQ1 answer}
 
 Concurrent training produces interpretable strategic structure when the algorithm prevents collapse. Rainbow-lite generates hawk-dove risk equilibria and zone specialisation in all nine trials. These behaviours emerge from iterated best-response dynamics without any coordination mechanism. Zone specialisation is a training-budget effect at high stochasticity rather than a threshold phenomenon. H1 is confirmed with the qualification that the specialisation signal requires sufficient training budget to stabilise.
+
+\section{RQ2: How does incentive structure alter strategy, and is there a destabilisation threshold?}
+\label{sec:rq2}
+
+Phase~3 established what happens with purely competitive agents (alpha of 0). RQ2 asks what happens when the rules change. Five phases address this question by varying alpha, game structure, agent count, and training schedule.
+
+\subsection{Phase 4: zero-sum alpha sweep}
+
+Phase~4 introduces the alpha reward mixing mechanism into the two-agent zero-sum game from Phase~3. Five alpha values are tested across 45 trials total. Table~\ref{tab:phase4-collapse} reports collapse rates by alpha value.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 4 collapse rates by alpha value in two-agent zero-sum game (9 trials per alpha)}
+\label{tab:phase4-collapse}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Alpha} & \textbf{Collapse rate} & \textbf{Competitive trials} \\
+\hline
+0.00 & 0 of 9 (0\%)   & 100\% \\
+0.25 & 1 of 9 (11\%)  & 89\% \\
+0.50 & 1 of 9 (11\%)  & 89\% \\
+0.75 & 8 of 9 (89\%)  & 11\% \\
+1.00 & 9 of 9 (100\%) & 0\%  \\
+\hline
+\end{tabular}
+\end{table}
+
+The transition between alpha of 0.5 and 0.75 is sharp. Below this threshold, low collapse rates indicate that partial incentive alignment does not destabilise learning. Above it, agents converge to passivity in nearly every trial. At alpha of one, every trial collapses.
+
+The mechanism is structural. In a two-agent zero-sum race, one agent's position gain comes at the other's expense. An agent receiving a large fraction of its teammate's reward is penalised when its own overtakes improve its position at the teammate's cost. Q-values for active strategies become negatively rewarded through the cooperative term. Agents learn that the safest strategy is to hold position and let the teammate act. Once both agents reach this conclusion, both collapse to passivity simultaneously. This is consistent with the cooperative game dynamics described by \citet{claus1998dynamics}.
+
+H2 predicted a sharp threshold. The Phase~4 data confirm this at the 0.5 to 0.75 boundary. The threshold is not a function of a particular alpha value but of the point at which the cooperative reward term begins to dominate the individual gradient.
+
+\subsection{Phase 5: non-zero-sum game and genuine cooperative advantage}
+
+Phase~4 raised a structural question. Is cooperation fundamentally incompatible with independent learning, or is the zero-sum game the problem? Phase~5 changes the game structure by adding a fixed Base adversary as a third competitor. Both DQN agents can now improve simultaneously by outperforming the adversary. Table~\ref{tab:phase5-results} shows the joint beat-base rate by alpha value across 45 trials.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 5 joint beat-base rate by alpha value in three-agent non-zero-sum game (9 trials per alpha)}
+\label{tab:phase5-results}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Alpha} & \textbf{Joint beat-base rate} & \textbf{Change from alpha 0} & \textbf{Collapse rate} \\
+\hline
+0.00 & 0.310 & baseline & 0\% \\
+0.25 & 0.294 & $-5\%$   & 0\% \\
+0.50 & 0.433 & $+40\%$  & 0\% \\
+0.75 & 0.567 & $+83\%$  & 0\% \\
+1.00 & 0.436 & $+41\%$  & 0\% \\
+\hline
+\end{tabular}
+\end{table}
+
+Collapse disappears at all alpha values. The joint beat-base rate follows an inverted-U curve peaking at alpha of 0.75. Alpha of one produces less benefit than alpha of 0.75 because agents need a minimum of individual incentive to maintain coherent individual learning gradients. When the individual component is removed entirely, agents lose the signal that their own actions have consequences, weakening the overtaking strategy that generates joint performance.
+
+Hawk-dove risk roles re-emerge under cooperation. At alpha of 0.75 the two agents adopt complementary risk profiles directed against the Base adversary rather than against each other. The weaker agent at alpha of zero (Agent~2, 63 per cent beat-base rate) improves most at alpha of 0.75 (78 per cent beat-base rate). This is coordinated resource partitioning, not redistribution of a fixed outcome pool.
+
+An ablation study confirms causality. Replacing one DQN agent with a Base agent at alpha of 0.75 reduces joint beat-base from 0.567 to 0.421. Replacing both DQN agents with Base agents at alpha of 0.75 reduces it to 0.289. The alpha effect operates on top of the policy quality effect. Game structure alone does not explain the Phase~5 improvement \citep{hughes2018inequity}.
+
+\subsection{Phase 6: scaling to five agents}
+
+Phase~6 scales the successful Phase~5 configuration to four DQN agents (two per team) plus one Base adversary. Table~\ref{tab:phase6-results} shows both-beat-base rates across symmetric and asymmetric alpha conditions.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 6 both-beat-base rate by team alpha condition in five-agent game (9 trials per condition)}
+\label{tab:phase6-results}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Condition} & \textbf{Both-beat-base rate} & \textbf{Change from 0 vs 0} \\
+\hline
+Team A alpha 0.0 vs Team B alpha 0.0 & 0.350 & baseline \\
+Team A alpha 0.5 vs Team B alpha 0.5 & 0.306 & $-12\%$ \\
+Team A alpha 0.75 vs Team B alpha 0.75 & 0.243 & $-31\%$ \\
+Team A alpha 0.75 vs Team B alpha 0.0 & 0.291 & $-17\%$ \\
+\hline
+\end{tabular}
+\end{table}
+
+Every form of cooperation degrades performance. The cooperative team loses to the competitive team in the asymmetric condition (47.5 per cent win rate for the cooperative team). The 83 per cent improvement from Phase~5 becomes a 31 per cent degradation at five agents.
+
+The root cause is credit assignment dilution. In Phase~5 each agent's actions strongly influence one teammate. At alpha of 0.75 in a three-agent race, 75 per cent of reward comes from the teammate whose race the agent directly affects. In Phase~6, each agent's influence is diluted across three other agents sharing the track. Three-quarters of the reward signal comes from sources the agent can barely control. Q-value updates become noisy. Agents learn caution rather than coordination. This is the credit assignment problem identified by \citet{agogino2004unifying}: shared team reward becomes uninformative to individual agents when the team is large relative to any one agent's sphere of influence.
+
+\subsection{Phase 7: characterising the scaling boundary}
+
+Phase~7 identifies the agent count at which cooperation transitions from beneficial to neutral or harmful. Phase~7A tests three DQN agents plus one Base adversary. Phase~7B applies a low-alpha sweep within the five-agent configuration. Table~\ref{tab:phase7-boundary} shows the alpha of 0.75 effect across agent counts.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 7 cooperative advantage by total agent count at alpha 0.75}
+\label{tab:phase7-boundary}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Configuration} & \textbf{Alpha 0.75 effect} & \textbf{Interpretation} \\
+\hline
+3 agents (Phase 5)  & $+83\%$ & Strong cooperative advantage \\
+4 agents (Phase 7A) & $+5\%$  & No meaningful effect (within noise) \\
+5 agents (Phase 6)  & $-31\%$ & Cooperative harm \\
+\hline
+\end{tabular}
+\end{table}
+
+Adding one agent to the successful Phase~5 setup eliminates the entire cooperative advantage. The boundary is at four agents and it is a cliff rather than a slope. Phase~7B confirms that this failure is not parametric. Testing alpha values of 0.10, 0.15, and 0.25 in the five-agent game produces no improvement over the competitive baseline (beat-base rates between 0.344 and 0.347, against a baseline of 0.350). There is no alpha value that recovers cooperative performance at this scale.
+
+Interestingly, alpha of 0.75 increases zone differentiation by 63 per cent at four agents relative to alpha of zero. Agents do respond to the cooperative signal by specialising their zone coverage. But this specialisation does not translate into better joint outcomes. Instead, attempt rates drop 38 to 64 per cent across zones. Agents specialise by becoming cautious, not by becoming effective. The cooperative signal teaches them to avoid conflict rather than to exploit their respective strengths.
+
+\subsection{Phase 8: curriculum alpha scheduling}
+
+Phase~8 tests whether the Phase~6 and Phase~7 failures are caused by the training order rather than by a fundamental incompatibility between cooperation and independent learning. The curriculum schedule trains agents at alpha of zero for 100 episodes before ramping to the target alpha over 300 episodes. Table~\ref{tab:phase8-results} shows results in both the four-agent and five-agent configurations.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 8 curriculum results versus fixed alpha and competitive baseline}
+\label{tab:phase8-results}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Condition} & \textbf{4-agent joint beat-base} & \textbf{5-agent both-beat-base} & \textbf{Recovery} \\
+\hline
+Competitive (alpha 0.0) & 0.159 & 0.350 & baseline \\
+Fixed alpha 0.75        & 0.167 & 0.243 & --- \\
+Curriculum (0 to 0.75)  & 0.184 & 0.318 & 4-agent: n/a; 5-agent: 69\% \\
+\hline
+\end{tabular}
+\end{table}
+
+At five agents, curriculum scheduling recovers 69 per cent of the Phase~6 performance loss. The caution pathology is 86 to 89 per cent eliminated. Agents that first learn individual policies retain aggressive behaviour when cooperative reward is introduced gradually. At four agents, curriculum produces the highest joint beat-base of any condition (0.184) but still falls short of demonstrating genuine cooperative advantage over a competitive baseline.
+
+Despite the recovery, cooperation does not emerge. Intra-team action correlation remains negative ($-0.189$) in the five-agent curriculum condition. Both agents improve individually but do not coordinate actions. Curriculum scheduling prevents the damage from training order but cannot solve the underlying credit assignment problem.
+
+This finding separates two failure modes that prior literature conflated \citep{panait2005cooperative}. The training-order problem is solved by curriculum: immediate cooperative reward overwrites individual policies with passivity, and gradual introduction prevents this. The credit assignment problem is not solved: at four or more agents, no scheduling of a shared team reward can produce cooperative gradients strong enough to align agent behaviour at the individual action level. Architectural solutions are required. Centralised training with decentralised execution methods such as QMIX \citep{rashid2018qmix} are specifically designed to address this, by giving agents access to global information during training even when executing from local observations alone.
+
+\subsection{RQ2 answer}
+
+The destabilisation threshold exists and is structural. In zero-sum games it appears between alpha of 0.5 and 0.75. In non-zero-sum games it appears at four total agents regardless of alpha value or training schedule. H2 is confirmed. The threshold is not a function of alpha parameterisation but of the relationship between agent count and the strength of individual credit signal in the reward formula.
