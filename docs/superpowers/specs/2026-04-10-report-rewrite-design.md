@@ -23,6 +23,27 @@ The rewrite strategy is **Option B: RQ-centric restructure**. Chapter 4 is reorg
 5. **Impersonal technical language** — "we" is acceptable; "I did this" is not.
 6. **Don't stress about hitting exactly 30 pages** — write elegantly and completely; the user will review and prune.
 
+## Prose style rules (mandatory for all LaTeX content)
+
+These rules apply to every sentence written in Chapters 1 to 4 and Appendix A. Check each sentence before writing it.
+
+**Punctuation:**
+- No semi-colons in prose.
+- No colons in prose. Colons are permitted in headings, table headers, and LaTeX list environments only.
+- No em-dashes.
+
+**Vocabulary to avoid (signs of AI writing):**
+- Banned words: delve, nuanced, multifaceted, robust, leverage, pivotal, crucial, vital, comprehensive, groundbreaking, revolutionary, streamline, navigate, tapestry, foster, underscore, at the intersection of.
+- Banned openers: "Additionally,", "Furthermore,", "Moreover,", "It is worth noting that", "It should be noted that", "In order to" (use "to"), "Due to the fact that" (use "because").
+
+**Sentence construction:**
+- One idea per sentence. If a sentence contains a comma joining two independent clauses, split it into two sentences.
+- Short sentences are preferred. If a sentence exceeds 25 words, consider splitting it.
+- Prefer active voice.
+
+**British English spellings throughout:**
+- behaviour, colour, recognise, optimise, generalise, analyse, modelling, labelling, programme (not program, except when referring to computer code).
+
 ---
 
 ## Reference additions (currently in refs.bib but uncited)
