@@ -9,13 +9,13 @@ The simulator is implemented as a set of well-separated Python modules, each wit
 
 The simulator engine owns the tick-by-tick race loop. It maintains a \texttt{RaceState} object that tracks all driver positions, lap counts, and time gaps at each simulation step. At each overtaking zone decision point, the engine calls \texttt{src/feedback.py} to construct the observation vector for the approaching driver and then queries the driver's agent for an action. The overtake resolution outcome is sampled from the probability function described in Section~\ref{sec:overtake-prob} and logged to telemetry. At the end of each episode the engine computes terminal reward components and calls \texttt{on\_episode\_end} on each DQN-type driver to trigger epsilon decay.
 
-Agent implementations are defined under \texttt{src/agents/DQN.py} and \texttt{src/base\_agents.py}. All agents inherit from \texttt{BaseAgent}, which provides the \texttt{get\_action(driver, race\_state)} interface that the simulator calls uniformly. This abstraction means the simulator does not need to distinguish between algorithm variants at the engine level; it simply calls \texttt{get\_action} and receives a \texttt{DriverAction} containing a risk level and an overtake attempt flag.
+Agent implementations are defined under \texttt{src/agents/DQN.py} and \texttt{src/base\_agents.py}. All agents inherit from \texttt{BaseAgent}, which provides the \texttt{get\_action(driver, race\_state)} interface that the simulator calls uniformly. This abstraction means the simulator does not need to distinguish between algorithm variants at the engine level. It simply calls \texttt{get\_action} and receives a \texttt{DriverAction} containing a risk level and an overtake attempt flag.
 
 Driver initialisation and complexity dispatch are handled by \texttt{src/states.py}. When the simulator starts an episode it calls \texttt{states.py} to create \texttt{DriverState} objects, which include the correctly instantiated agent, the starting position assignment for this episode, and the active feedback contract. The complexity profile determines which competitor types are selected via \texttt{src/runtime\_profiles.py}.
 
 \subsection{Config-driven design as a fairness control}
 
-All parameters that affect the experimental outcome are externalised to \texttt{config.json}. This includes hyperparameters (\texttt{dqn\_params}), the reward component schema and weights (\texttt{reward}), the observation feature list (\texttt{feedback.features\_by\_complexity}), stochasticity presets (\texttt{stochasticity.levels}), the evaluation protocol budgets (\texttt{protocol.train\_runs}, \texttt{protocol.eval\_runs}), and the seed sets (\texttt{protocol.seed\_sets}). No algorithm file reads or modifies these values; they are injected at construction time.
+All parameters that affect the experimental outcome are externalised to \texttt{config.json}. This includes hyperparameters (\texttt{dqn\_params}), the reward component schema and weights (\texttt{reward}), the observation feature list (\texttt{feedback.features\_by\_complexity}), stochasticity presets (\texttt{stochasticity.levels}), the evaluation protocol budgets (\texttt{protocol.train\_runs}, \texttt{protocol.eval\_runs}), and the seed sets (\texttt{protocol.seed\_sets}). No algorithm file reads or modifies these values. They are injected at construction time.
 
 This design ensures that the only difference between a vanilla and a double DQN run is the learning algorithm itself. An external reviewer can fully reconstruct any comparison from the config snapshot embedded in the output metrics JSON.
 
@@ -23,7 +23,7 @@ This design ensures that the only difference between a vanilla and a double DQN 
 
 \subsection{DQN-family agents}
 
-All four DQN variants are implemented in \texttt{src/agents/DQN.py} as parameterisations of a single \texttt{DQNAgent} class, selected via the \texttt{dqn\_params.algo} config field. This approach guarantees that all shared infrastructure — the training loop, the action space, the epsilon schedule, the feedback interface — is identical across variants. Only the elements specific to each variant differ.
+All four DQN variants are implemented in \texttt{src/agents/DQN.py} as parameterisations of a single \texttt{DQNAgent} class, selected via the \texttt{dqn\_params.algo} config field. This approach guarantees that all shared infrastructure (the training loop, the action space, the epsilon schedule, and the feedback interface) is identical across variants. Only the elements specific to each variant differ.
 
 \textbf{Vanilla DQN.} The vanilla variant uses a \texttt{SimpleDQN} network: a two-hidden-layer MLP with ReLU activations and a linear Q-value output head. The hidden layer width is configured via \texttt{dqn\_params.hidden\_size} (512 in the Phase 2 runs). Experience is stored in a uniform circular replay buffer of capacity 150{,}000. The target network is updated every 1{,}000 gradient steps by hard copy. The Bellman target is computed as:
 \[
@@ -31,12 +31,12 @@ y = r + \gamma \max_{a'} Q_{\text{target}}(s', a')
 \]
 This is the baseline against which all other variants are compared \citep{mnih2015human}.
 
-\textbf{Double DQN.} The double variant uses the same \texttt{SimpleDQN} architecture and uniform replay as vanilla. The only change is in target computation: the online network selects the greedy action in the next state, but the target network evaluates it. This decouples action selection from evaluation and reduces the systematic overestimation of Q-values that vanilla DQN exhibits when rewards are noisy \citep{vanhasselt2016double}:
+\textbf{Double DQN.} The double variant uses the same \texttt{SimpleDQN} architecture and uniform replay as vanilla. The only change is in target computation. The online network selects the greedy action in the next state, but the target network evaluates it. This decouples action selection from evaluation and reduces the systematic overestimation of Q-values that vanilla DQN exhibits when rewards are noisy \citep{vanhasselt2016double}:
 \[
 y = r + \gamma Q_{\text{target}}\!\left(s',\, \mathop{\arg\max}_{a'} Q_{\text{online}}(s', a')\right)
 \]
 
-\textbf{Dueling DQN.} The dueling variant replaces \texttt{SimpleDQN} with \texttt{DuelingDQN}, which uses a shared feature trunk but splits into two output heads: a scalar state-value head $V(s)$ and an action-advantage head $A(s,a)$. The Q-value is reconstructed as:
+\textbf{Dueling DQN.} The dueling variant replaces \texttt{SimpleDQN} with \texttt{DuelingDQN}, which uses a shared feature trunk but splits into two output heads. These are a scalar state-value head $V(s)$ and an action-advantage head $A(s,a)$. The Q-value is reconstructed as:
 \[
 Q(s,a) = V(s) + \left(A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')\right)
 \]
@@ -65,15 +65,15 @@ Rainbow-lite  & DuelingDQN  & Yes & Yes & 3 \\
 
 \subsection{Base agent}
 
-The Base Agent is implemented in \texttt{src/base\_agents.py} as a gap-aware heuristic policy. At each decision point it identifies the upcoming overtaking zone, reads the zone difficulty and the gap to the car ahead, and builds a soft preference distribution over the three risk levels. Easier zones and closer gaps increase the weight on \textsc{AGGRESSIVE}; harder zones and larger gaps increase the weight on \textsc{CONSERVATIVE}. An overtake attempt is then made with a probability that depends on the sampled risk level and the gap.
+The Base Agent is implemented in \texttt{src/base\_agents.py} as a gap-aware heuristic policy. At each decision point it identifies the upcoming overtaking zone, reads the zone difficulty and the gap to the car ahead, and builds a soft preference distribution over the three risk levels. Easier zones and closer gaps increase the weight on \textsc{AGGRESSIVE}. Harder zones and larger gaps increase the weight on \textsc{CONSERVATIVE}. An overtake attempt is then made with a probability that depends on the sampled risk level and the gap.
 
-The Base Agent serves as a stable, reproducible fixed opponent for Phase 2. It does not learn and its policy does not change between episodes. This is a deliberate experimental control: if both competitors were learning simultaneously in Phase 2, improvements in the DQN agent's win rate could partly reflect opponent degradation rather than genuine policy improvement. A fixed opponent eliminates this confound and provides the clean single-agent baseline required before Phase 3 introduces concurrent learning.
+The Base Agent serves as a stable, reproducible fixed opponent for Phase 2. It does not learn and its policy does not change between episodes. This is a deliberate experimental control. If both competitors were learning simultaneously in Phase 2, improvements in the DQN agent's win rate could partly reflect opponent degradation rather than genuine policy improvement. A fixed opponent eliminates this confound and provides the clean single-agent baseline required before Phase 3 introduces concurrent learning.
 
 \subsection{Shared training infrastructure}
 
-The epsilon-greedy exploration schedule is shared across all variants. Epsilon starts at 1.0 and decays multiplicatively each episode by a factor of 0.995. With 500 training episodes (the Phase 2 budget), epsilon reaches approximately 0.08, meaning the agent selects a random action roughly 8\% of the time at the end of training. This represents a near-converged policy; 25-episode smoke runs (Phase 1 budget) reach only $\epsilon \approx 0.88$, confirming that Phase 1 was an early-training signal check rather than a convergence measurement.
+The epsilon-greedy exploration schedule is shared across all variants. Epsilon starts at 1.0 and decays multiplicatively each episode by a factor of 0.995. With 500 training episodes (the Phase 2 budget), epsilon reaches approximately 0.08, meaning the agent selects a random action roughly 8\% of the time at the end of training. This represents a near-converged policy. By contrast, 25-episode smoke runs (Phase 1 budget) reach only $\epsilon \approx 0.88$, confirming that Phase 1 was an early-training signal check rather than a convergence measurement.
 
-The \textsc{Adam} optimiser is used with a learning rate of $7 \times 10^{-4}$ across all variants. Target network synchronisation occurs every 1{,}000 gradient steps for vanilla, double, and dueling; rainbow-lite uses the same frequency for the hard target copy. Batch size is 64 throughout.
+The \textsc{Adam} optimiser is used with a learning rate of $7 \times 10^{-4}$ across all variants. Target network synchronisation occurs every 1{,}000 gradient steps for vanilla, double, and dueling. Rainbow-lite uses the same frequency for the hard target copy. Batch size is 64 throughout.
 
 \section{Benchmark infrastructure}
 
@@ -81,13 +81,13 @@ The \textsc{Adam} optimiser is used with a learning rate of $7 \times 10^{-4}$ a
 
 \texttt{scripts/evaluate\_candidate.py} runs a single train-then-eval trial for one algorithm variant. It accepts command-line arguments for the training budget, evaluation budget, training seed, evaluation seeds, complexity profile, stochasticity level, and output path. The script first runs training episodes with the agent in exploration mode (epsilon-greedy active), then freezes the policy and runs evaluation episodes with exploration disabled. At the end of the run it writes a structured JSON metrics file containing the win rate, objective score, fairness diagnostics, and full behavioural diagnostics including the per-zone attempt/success breakdown and risk distribution.
 
-This script is the unit of experiment: each call produces one data point in the comparison matrix. It deliberately has no knowledge of the broader matrix; that orchestration is handled by \texttt{run\_benchmark\_matrix.py}.
+This script is the unit of experiment. Each call produces one data point in the comparison matrix. It deliberately has no knowledge of the broader matrix. That orchestration is handled by \texttt{run\_benchmark\_matrix.py}.
 
 \subsection{\texttt{run\_benchmark\_matrix.py}}
 
 \texttt{scripts/run\_benchmark\_matrix.py} sequences calls to \texttt{evaluate\_candidate.py} across the full comparison matrix. The matrix is defined by the Cartesian product of the algorithm list (\texttt{protocol.comparison\_matrix.algorithms}), the seed set (\texttt{protocol.seed\_sets}), and the benchmark tracks (\texttt{protocol.benchmark\_contract.tracks}). Each cell in the matrix is an independent trial run with the appropriate combination of algorithm, seed, and stochasticity level.
 
-The script enforces the fairness contract before execution: it verifies that all algorithms receive identical non-learning conditions (same state vector dimension, same reward schema, same stochasticity level, same starting position cycle) and aborts if any violation is detected. On completion it writes a \texttt{summary.json} containing per-algorithm statistics with 95\% confidence intervals and a \texttt{summary.md} human-readable table for rapid inspection.
+The script enforces the fairness contract before execution. It verifies that all algorithms receive identical non-learning conditions (same state vector dimension, same reward schema, same stochasticity level, same starting position cycle) and aborts if any violation is detected. On completion it writes a \texttt{summary.json} containing per-algorithm statistics with 95\% confidence intervals and a \texttt{summary.md} human-readable table for rapid inspection.
 
 \subsection{Telemetry and logging}
 
@@ -103,7 +103,7 @@ Twelve tests are organised into three groups. Group~A checks simulator correctne
 
 \section{Phase 1: Single-agent smoke validation}
 
-Phase 1 uses a minimal budget (25 training episodes, 20 evaluation races, 3 seeds at s0; 1 seed at s1 and s2) to confirm that a learning signal exists and that fairness and reproducibility checks pass before committing to the full Phase 2 budget. The Phase 1 configuration uses vanilla DQN only.
+Phase 1 uses a minimal budget (25 training episodes, 20 evaluation races, 3 seeds at s0 and 1 seed each at s1 and s2) to confirm that a learning signal exists and that fairness and reproducibility checks pass before committing to the full Phase 2 budget. The Phase 1 configuration uses vanilla DQN only.
 
 \subsection{s0 learning signal}
 
@@ -127,7 +127,7 @@ Table~\ref{tab:phase1-s0} reports win rate results across the three s0 seeds. Al
 \end{tabular}
 \end{table}
 
-It must be noted that with only 20 evaluation races per seed, the 95\% confidence interval on a win rate of 0.783 spans approximately $\pm 0.18$, computed as a Wilson score interval at $n=20$. These results confirm a positive learning signal and the absence of systematic failure, but they are not narrow enough to make strong statistical claims. Phase 2 uses 150 evaluation races per seed to reduce this margin to approximately $\pm 0.08$.
+With only 20 evaluation races per seed, the 95\% confidence interval on a win rate of 0.783 spans approximately $\pm 0.18$, computed as a Wilson score interval at $n=20$. These results confirm a positive learning signal and the absence of systematic failure, but they are not narrow enough to make strong statistical claims. Phase 2 uses 150 evaluation races per seed to reduce this margin to approximately $\pm 0.08$.
 
 \subsection{Zone behaviour at s0}
 
@@ -152,7 +152,7 @@ Bruxelles      & 0.7 & 13/13 & 0.23 & $+0.015$ \\
 
 \subsection{Stochasticity degradation (s1 and s2)}
 
-Table~\ref{tab:phase1-stoch} shows win rate and risk distribution across s0, s1, and s2, all using seed 101. The s1 win rate is identical to s0 (0.783), while the s2 win rate drops by 3.3 percentage points to 0.750. The flat s0-to-s1 result is explained by La Source structural dominance: at $\sigma = 0.02$ the noise is too small to erode a zone with base probability 0.8, so La Source continues to produce near-certain overtake success and the win rate does not change.
+Table~\ref{tab:phase1-stoch} shows win rate and risk distribution across s0, s1, and s2, all using seed 101. The s1 win rate is identical to s0 (0.783), while the s2 win rate drops by 3.3 percentage points to 0.750. The flat s0-to-s1 result is explained by La Source structural dominance. At $\sigma = 0.02$ the noise is too small to erode a zone with base probability 0.8, so La Source continues to produce near-certain overtake success and the win rate does not change.
 
 \begin{table}[htbp]
 \centering
@@ -170,17 +170,17 @@ s2 & 0.750 & 18 & 30 & 49 \\
 \end{tabular}
 \end{table}
 
-The risk distribution shows a dramatic reversal from s0 to s1. At s0, the agent selects CONSERVATIVE on 60 out of 112 risk decisions (54\%) and AGGRESSIVE on only 10 (9\%). At s1, the distribution inverts: AGGRESSIVE accounts for 48 out of 93 decisions (52\%) and CONSERVATIVE for only 19 (20\%). This reversal is not explained by an improvement in strategy; it is consistent with Q-value overestimation under noisy reward signals, where additive noise inflates the apparent Q-values of aggressive actions that occasionally succeed and receive a windfall reward in a small training sample \citep{vanhasselt2016double}. This finding directly motivates the double DQN comparison in Phase 2.
+The risk distribution shows a dramatic reversal from s0 to s1. At s0, the agent selects CONSERVATIVE on 60 out of 112 risk decisions (54\%) and AGGRESSIVE on only 10 (9\%). At s1, the distribution inverts: AGGRESSIVE accounts for 48 out of 93 decisions (52\%) and CONSERVATIVE for only 19 (20\%). This reversal is not explained by an improvement in strategy. It is consistent with Q-value overestimation under noisy reward signals, where additive noise inflates the apparent Q-values of aggressive actions that occasionally succeed and receive a windfall reward in a small training sample \citep{vanhasselt2016double}. This finding directly motivates the double DQN comparison in Phase 2.
 
 \subsection{Gate G1 outcome}
 
-Gate G1 criteria are met: all three s0 seeds show win rate above 0.5; fairness violations are zero across all runs; and the s0--to--s2 degradation direction is interpretable, with the risk distribution inversion providing a specific behavioural hypothesis for Phase 2 to test.
+Gate G1 criteria are met. All three s0 seeds show win rate above 0.5. Fairness violations are zero across all runs. The s0--to--s2 degradation direction is interpretable, with the risk distribution inversion providing a specific behavioural hypothesis for Phase 2 to test.
 
 \textbf{Gate G1 outcome: passed.}
 
 \section{Phase 2: DQN-family benchmark infrastructure}
 
-Phase 2 runs the full four-algorithm comparison (vanilla, double, dueling, rainbow-lite) against the fixed Base Agent under the controlled single-agent contract. The evaluation uses 500 training episodes per trial (giving $\varepsilon \approx 0.08$ at convergence), 150 evaluation races per seed, and 3 seeds per algorithm per stochasticity track. Track A uses s0 as the primary ranking track; Track B uses s1 and s2 for robustness evidence.
+Phase 2 runs the full four-algorithm comparison (vanilla, double, dueling, rainbow-lite) against the fixed Base Agent under the controlled single-agent contract. The evaluation uses 500 training episodes per trial (giving $\varepsilon \approx 0.08$ at convergence), 150 evaluation races per seed, and 3 seeds per algorithm per stochasticity track. Track A uses s0 as the primary ranking track. Track B uses s1 and s2 for robustness evidence.
 
 The benchmark is orchestrated by \texttt{run\_benchmark\_matrix.py} with \texttt{--stage benchmark --track all --algos vanilla,double,dueling,rainbow\_lite}. The script enforces the fairness contract before execution and produces \texttt{summary.json} and \texttt{summary.md} on completion. A dedicated post-processing script, \texttt{scripts/compute\_summary\_table.py}, aggregates the per-seed metrics files across algorithms and stochasticity levels, computing means, standard deviations, and 95\% confidence intervals across seeds, and produces both a machine-readable JSON summary and a human-readable Markdown table. All statistics reported in Chapter~\ref{chapter4} are derived from this script to ensure numerical reproducibility.
 
@@ -193,19 +193,19 @@ Phase 3 replaces the fixed Base Agent with a second concurrent DQN-family learne
 
 \subsection{Runtime profile extension}
 
-\texttt{src/runtime\_profiles.py} was extended with a \texttt{select\_low\_marl\_competitors} function that selects two DQN-family competitors from config instead of one DQN and one Base Agent. Both agents are initialised from the same \texttt{dqn\_params} configuration block, using the \texttt{algo} field (e.g.\ \texttt{"double"}) to select the variant for both. Each agent receives its own replay buffer, network parameters, and epsilon schedule; they share no weights or gradient updates at any point during training.
+\texttt{src/runtime\_profiles.py} was extended with a \texttt{select\_low\_marl\_competitors} function that selects two DQN-family competitors from config instead of one DQN and one Base Agent. Both agents are initialised from the same \texttt{dqn\_params} configuration block, using the \texttt{algo} field (e.g.\ \texttt{"double"}) to select the variant for both. Each agent receives its own replay buffer, network parameters, and epsilon schedule. They share no weights or gradient updates at any point during training.
 
 \subsection{Complexity profile dispatch}
 
-\texttt{src/states.py} was extended with dispatch support for the \texttt{low\_marl} complexity profile. This profile activates the same six-feature observation contract and the same active reward components as the \texttt{low} profile, but signals to \texttt{runtime\_profiles.py} that two DQN agents should be selected rather than one DQN and one Base Agent. The simulator engine requires no changes: it already calls \texttt{train\_step} on every DQN-type driver at the end of each episode, so two DQN drivers train simultaneously by construction.
+\texttt{src/states.py} was extended with dispatch support for the \texttt{low\_marl} complexity profile. This profile activates the same six-feature observation contract and the same active reward components as the \texttt{low} profile, but signals to \texttt{runtime\_profiles.py} that two DQN agents should be selected rather than one DQN and one Base Agent. The simulator engine requires no changes. It already calls \texttt{train\_step} on every DQN-type driver at the end of each episode, so two DQN drivers train simultaneously by construction.
 
 \subsection{\texttt{evaluate\_marl.py}}
 
-A dedicated evaluation script, \texttt{scripts/evaluate\_marl.py}, handles Phase 3 trials. It differs from \texttt{evaluate\_candidate.py} in one key respect: the primary metric is \texttt{win\_rate\_a1\_vs\_a2} --- the fraction of evaluation races in which DQN Agent 1 (A1) finishes ahead of DQN Agent 2 (A2) --- rather than \texttt{win\_rate\_vs\_baseline}, which assumes a fixed opponent. The script additionally computes two strategy differentiation indices: \texttt{zone\_differentiation\_index}, which quantifies how different the two agents' per-zone attempt distributions are, and \texttt{risk\_differentiation\_index}, which quantifies divergence in their risk level (CONSERVATIVE / NORMAL / AGGRESSIVE) distributions. A non-stationarity drift metric computes the change in A1 win rate between the first 50 and last 50 evaluation races, providing evidence of whether the advantage relationship is stable or shifting across the evaluation window.
+A dedicated evaluation script, \texttt{scripts/evaluate\_marl.py}, handles Phase 3 trials. It differs from \texttt{evaluate\_candidate.py} in one key respect. The primary metric is \texttt{win\_rate\_a1\_vs\_a2} --- the fraction of evaluation races in which DQN Agent 1 (A1) finishes ahead of DQN Agent 2 (A2) --- rather than \texttt{win\_rate\_vs\_baseline}, which assumes a fixed opponent. The script additionally computes two strategy differentiation indices. \texttt{Zone\_differentiation\_index} quantifies how different the two agents' per-zone attempt distributions are, and \texttt{risk\_differentiation\_index} quantifies divergence in their risk level (CONSERVATIVE / NORMAL / AGGRESSIVE) distributions. A non-stationarity drift metric computes the change in A1 win rate between the first 50 and last 50 evaluation races, providing evidence of whether the advantage relationship is stable or shifting across the evaluation window.
 
 \subsection{Crossplay and self-play validation}
 
-To assess evaluation protocol validity, a crossplay protocol was executed for rainbow-lite at s2 across three seeds. In the self-play condition, both evaluation slots are loaded with the same trained weights; any systematic deviation of the self-play A1 win rate from 0.500 indicates a structural positional bias in the evaluation setup, since identical policies must produce symmetric outcomes. In the swapped condition, the A1 and A2 model files are exchanged, isolating policy quality from positional assignment. The results of this crossplay analysis are presented in Section~\ref{sec:phase3-bias} and incorporated into the validity threat discussion in Section~\ref{sec:validity}.
+To assess evaluation protocol validity, a crossplay protocol was executed for rainbow-lite at s2 across three seeds. In the self-play condition, both evaluation slots are loaded with the same trained weights. Any systematic deviation of the self-play A1 win rate from 0.500 indicates a structural positional bias in the evaluation setup, since identical policies must produce symmetric outcomes. In the swapped condition, the A1 and A2 model files are exchanged, isolating policy quality from positional assignment. The results of this crossplay analysis are presented in Section~\ref{sec:phase3-bias} and incorporated into the validity threat discussion in Section~\ref{sec:validity}.
 
 \textbf{Phase 3 outcome:} Nine core trials (500 training episodes, 3 seeds $\times$ 3 stochasticity levels) were completed for each of the four algorithms, yielding 36 core trials. Additional 750-episode trials were run for vanilla and rainbow-lite to test training-budget sensitivity, and crossplay trials were run for rainbow-lite at s2. Phase 3 results are reported in Chapter~\ref{chapter4}.
 
@@ -224,4 +224,4 @@ Phases~4 to~10 required six extensions to the codebase beyond what Phase~3 used.
 
 \textbf{LLM agent.} The LLM baseline implements the \texttt{BaseAgent} interface defined in \texttt{src/base\_agents.py}. It serialises the observation vector to a natural language prompt, calls the Claude Haiku API, and parses the JSON response for an action label. A fallback to HOLD is applied on any parse failure. The agent has no internal state between episodes and requires no training infrastructure.
 
-\textbf{Extended evaluation script.} \texttt{scripts/evaluate\_marl.py} was extended to record team-level metrics alongside the per-agent metrics used in Phase~3. The primary new metric is \texttt{joint\_beat\_base\_rate}: the fraction of evaluation races in which both DQN agents finish ahead of the Base adversary. This metric measures genuine cooperative performance rather than relative performance between the two DQN agents.
+\textbf{Extended evaluation script.} \texttt{scripts/evaluate\_marl.py} was extended to record team-level metrics alongside the per-agent metrics used in Phase~3. The primary new metric is \texttt{joint\_beat\_base\_rate}, which records the fraction of evaluation races in which both DQN agents finish ahead of the Base adversary. This metric measures genuine cooperative performance rather than relative performance between the two DQN agents.

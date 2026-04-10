@@ -6,7 +6,7 @@ Four DQN-family algorithms are compared in single-agent and multi-agent settings
 
 A reward sharing sweep from purely competitive to fully cooperative incentives reveals a sharp destabilisation threshold in zero-sum games above alpha of 0.5. Changing the game structure to include a common adversary eliminates this collapse entirely. At alpha of 0.75 in the three-agent non-zero-sum setting, joint performance against the adversary improves by 83 per cent over the competitive baseline.
 
-Scaling to five agents reverses this result completely. Cooperative incentive at any alpha value degrades joint performance by up to 31 per cent. Curriculum scheduling recovers 69 per cent of this loss by separating two previously conflated failure modes: a training-order problem that curriculum solves, and a credit assignment problem that requires architectural solutions.
+Scaling to five agents reverses this result completely. Cooperative incentive at any alpha value degrades joint performance by up to 31 per cent. Curriculum scheduling recovers 69 per cent of this loss by separating two previously conflated failure modes. One is a training-order problem that curriculum solves. The other is a credit assignment problem that requires architectural solutions.
 
 A zero-shot large language model baseline matches the best-trained RL agent within two per cent win rate using a qualitatively different strategy. Difference rewards, tested as an alternative cooperative formulation, produce competitive rather than cooperative incentives due to a mean-field approximation that inverts the cooperative gradient.
 

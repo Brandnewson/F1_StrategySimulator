@@ -2,7 +2,7 @@
 \label{chapter2}
 
 \section{Designing the simulator}
-It should be noted that majority of the simulators in F1 are discretised lap-by-lap where a base lap time is provided, and a faster car is represented by having a time less than that of the base lap time. Alternatively, a quasi-static approach which involves points in the coordinate space, and a vehicle model can be used. This is commonly known as a lap-time simulator, and can come in many forms of differing fidelity levels. For our purposes, discretising the simulator lap-by-lap, while computationally cheap, does not allow us to model the stochastic and chaotic nature of F1 races we are trying to investigate. Additionally, our goal is not to model the physical properties of the car like in lap-time simulators. Therefore, we will be pursuing a more novel approach of a combination of discretising a race lap-by-lap, but where overtaking will be a function of an overtaking zone difficulty. This is iterated upon through staged complexity tiers and a controlled stochasticity pathway, introducing more uncertainty and richer agent interactions as the project progresses.
+Most F1 simulators discretise the race lap-by-lap, providing a base lap time and representing a faster car by subtracting from that time. A quasi-static approach using coordinate-space points and a vehicle model is also used, producing lap-time simulators of varying fidelity. Discretising lap-by-lap is computationally cheap but does not allow modelling of the stochastic and chaotic nature of F1 races under investigation. Modelling the physical properties of the car, as lap-time simulators do, is also outside the scope of this project. Therefore, we will be pursuing a more novel approach of a combination of discretising a race lap-by-lap, but where overtaking will be a function of an overtaking zone difficulty. This is iterated upon through staged complexity tiers and a controlled stochasticity pathway, introducing more uncertainty and richer agent interactions as the project progresses.
 
 All configuration for the simulator is externalised to \texttt{config.json}. Reward semantics, observation features, stochasticity presets, and experiment budgets are all controlled without touching agent code. This keeps every algorithm comparison methodologically clean, since only the learning internals differ between runs.
 
@@ -102,7 +102,7 @@ R = R_{\text{outcome}} + R_{\text{persistent\_position}} + R_{\text{tactical}} +
 \]
 Each component is normalised and weighted through \texttt{reward.weights}, \texttt{reward.normalization}, and \texttt{reward.component\_activation\_by\_complexity}.
 
-For low complexity, only \texttt{outcome}, \texttt{persistent\_position}, \texttt{tactical}, and \texttt{penalty} are active; \texttt{pace} and \texttt{tyre\_pit} are forced to zero. This keeps one invariant reward meaning while allowing future complexity tiers to activate additional components without redefining the objective.
+For low complexity, only \texttt{outcome}, \texttt{persistent\_position}, \texttt{tactical}, and \texttt{penalty} are active. \texttt{Pace} and \texttt{tyre\_pit} are forced to zero. This keeps one invariant reward meaning while allowing future complexity tiers to activate additional components without redefining the objective.
 
 The objective hierarchy is finish-first:
 \begin{itemize}
@@ -127,7 +127,7 @@ The six-feature observation vector described above is sufficient for the agent t
 Medium complexity is scoped but not implemented in this dissertation stage. It is intended to introduce multiple concurrent competitors, creating a genuinely multi-agent setting where position dynamics involve more than one opponent. The observation contract would be extended with additional features including gap to the car behind, nearest rival gap, and traffic density. Tyre degradation would remain inactive. Progression to this tier requires passing the Phase 2 promotion gate from low complexity.
 
 \subsection{High complexity}
-High complexity extends medium complexity with tyre degradation, pit stop decisions, and weather context. The full observation vector includes tyre age, degradation estimate, pit loss estimate, laps since last stop, weather code, and a safety flag. This tier is designed to test whether policies that learn robust overtaking strategies at lower complexity can adapt their decision-making when race dynamics depend on factors beyond track position. It is not implemented or reported in this dissertation stage.
+High complexity extends medium complexity with tyre degradation, pit stop decisions, and weather context. The full observation vector includes tyre age, degradation estimate, pit loss estimate, laps since last stop, weather code, and a safety flag. This tier is designed to test whether policies that learn reliable overtaking strategies at lower complexity can adapt their decision-making when race dynamics depend on factors beyond track position. It is not implemented or reported in this dissertation stage.
 
 \section{Stochasticity levels}
 \label{sec:stochasticity}
@@ -154,7 +154,7 @@ s2 & 0.05 & Moderate perturbation. Sufficient to flip borderline outcomes and in
 \end{tabular}
 \end{table}
 
-The choice of s0 as the primary ranking track follows the reproducibility argument in \cite{henderson2018deep}: ranking decisions made under high variance require larger sample budgets to be statistically reliable. By separating the ranking track (s0) from the robustness tracks (s1, s2), the benchmark can use a controlled budget and still produce interpretable degradation evidence.
+The choice of s0 as the primary ranking track follows the reproducibility argument in \cite{henderson2018deep}. Ranking decisions made under high variance require larger sample budgets to be statistically reliable. By separating the ranking track (s0) from the robustness tracks (s1, s2), the benchmark can use a controlled budget and still produce interpretable degradation evidence.
 
 We intentionally keep the noise additive rather than multiplicative. An additive term on the probability means the difficulty ordering of zones is preserved in expectation, even under s2. A policy that learns La Source is easy and Raidillon is hard will remain structurally correct at s2, but the magnitude of advantage it gets from that knowledge diminishes. This allows us to measure \textit{robustness of learned ordering}, not just whether the agent can still win when outcomes are randomised wholesale.
 
@@ -173,8 +173,8 @@ Fairness is enforced by keeping the environment contract identical across vanill
 Testing is split into protocol correctness, fairness, statistical validity, and robustness evidence:
 \begin{enumerate}
     \item \textbf{Protocol correctness tests}: validate config contract before execution and ensure Track A and Track B run with expected seeds, budgets, complexity, and stochasticity settings.
-    \item \textbf{Fairness tests}: assert all algorithms receive identical non-learning conditions; fairness audit must pass with zero violations.
-    \item \textbf{Statistical tests}: report confidence intervals and across-seed variance for all algorithms; use CI-gated ranking decisions, not mean-only decisions.
+    \item \textbf{Fairness tests}: assert all algorithms receive identical non-learning conditions and confirm the fairness audit passes with zero violations.
+    \item \textbf{Statistical tests}: report confidence intervals and across-seed variance for all algorithms and use CI-gated ranking decisions rather than mean-only decisions.
     \item \textbf{Reproducibility tests}: rerun Track A with the same locked config and seeds and confirm ranking class consistency.
     \item \textbf{Robustness tests}: report s0$\rightarrow$s1$\rightarrow$s2 degradation, variance trend, reward-component stability trend, and starting-position exposure parity trend.
 \end{enumerate}
@@ -185,7 +185,7 @@ Recommended run cadence is:
     \item candidate: 5 seeds,
     \item benchmark and dissertation: 5 seeds with larger run budgets, fixed per comparison cell.
 \end{itemize}
-Stage 3 (medium complexity implementation) proceeds only if promotion-gate requirements are met: fairness pass, CI-stable Track A ranking, reproducibility consistency, and available robustness evidence from Track B.
+Stage 3 (medium complexity implementation) proceeds only if promotion-gate requirements are met. These are a fairness pass, CI-stable Track A ranking, reproducibility consistency, and available robustness evidence from Track B.
 
 \section{MARL experimental methodology}
 \label{sec:marl-methodology}
@@ -203,7 +203,7 @@ This framing follows the recommendation in \citet{henderson2018deep} to isolate 
 
 Phase 3 introduces genuine MARL by replacing the fixed Base Agent with a second concurrent DQN-family learner. Both agents train simultaneously, each maintaining its own independent replay buffer and updating its own network parameters each episode. This is the independent learner (IL) formulation, which is the standard baseline in the MARL literature for operationalising non-stationarity in value-based multi-agent settings \citep{foerster2017stabilising,hernandezleal2019survey}.
 
-The IL formulation is the appropriate first MARL baseline for three reasons. First, it preserves genuine non-stationarity: each agent's effective environment is non-stationary because the opponent is also adapting its policy, creating the feedback loops central to RQ1 and RQ2. Second, the existing simulator training loop already iterates over all drivers and calls \texttt{train\_step} for each DQN-type driver independently; enabling two DQN agents requires only a profile change, not a redesign of the engine. Third, it provides a clean anchor from which future centralised-training/decentralised-execution methods such as VDN and QMIX can be measured \citep{sunehag2018vdn,rashid2018qmix}.
+The IL formulation is the appropriate first MARL baseline for three reasons. First, it preserves genuine non-stationarity. Each agent's effective environment is non-stationary because the opponent is also adapting its policy, creating the feedback loops central to RQ1 and RQ2. Second, the existing simulator training loop already iterates over all drivers and calls \texttt{train\_step} for each DQN-type driver independently. Enabling two DQN agents requires only a profile change, not a redesign of the engine. Third, it provides a clean anchor from which future centralised-training/decentralised-execution methods such as VDN and QMIX can be measured \citep{sunehag2018vdn,rashid2018qmix}.
 
 The primary evaluation metric in Phase 3 shifts from \texttt{win\_rate\_vs\_baseline} (which assumes a fixed opponent) to relative positional advantage between the two concurrent learners as stochasticity increases. This measures whether non-stationarity erodes the positional stability of the stronger learner, which is the specific signal required for RQ1's MARL component. Emergent differences in risk distribution between the two agents constitute the primary evidence for RQ2.
 
@@ -223,7 +223,7 @@ The SDLC integrates directly with the config-driven design described below. Beca
 
 All hyperparameters, reward semantics, stochasticity presets, observation contracts, and evaluation budgets are defined in \texttt{config.json} and loaded at runtime. No algorithm implementation touches these controls directly. This design choice is an active fairness control, not a convenience preference.
 
-Under this contract, an evaluator can verify that two algorithms were compared under identical conditions by inspecting a single JSON file. The algorithm code in \texttt{src/agents/DQN.py} contains only the learning logic; the environment, reward schema, feature set, and protocol budgets are external to it. This directly satisfies the reproducibility requirement identified in \citet{henderson2018deep}: that comparisons must be provably identical in all conditions other than the learning internals being compared.
+Under this contract, an evaluator can verify that two algorithms were compared under identical conditions by inspecting a single JSON file. The algorithm code in \texttt{src/agents/DQN.py} contains only the learning logic. The environment, reward schema, feature set, and protocol budgets are external to it. This directly satisfies the reproducibility requirement identified in \citet{henderson2018deep}, which holds that comparisons must be provably identical in all conditions other than the learning internals being compared.
 
 \section{Software Architecture}
 
