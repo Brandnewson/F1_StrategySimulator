@@ -1,248 +1,83 @@
 \chapter{Results, Evaluation and Discussion}
 \label{chapter4}
 
-\section{Phase 1: Smoke validation results}
+This chapter presents results across all ten research phases and interprets them in the context of the three research questions. Section~\ref{sec:prelim} summarises the preliminary validation gates that confirmed experimental integrity before any multi-agent claims were made. Sections~\ref{sec:rq1} to~\ref{sec:rq3} address RQ1, RQ2, and RQ3 in turn, drawing on evidence from the relevant phases. Section~\ref{sec:discussion} compares findings against the existing literature. Section~\ref{sec:validity} identifies the main validity threats. Section~\ref{sec:futurework} sets out directions for future work.
 
-Phase 1 uses a minimal budget to confirm that a learning signal exists before committing to the full Phase 2 comparison. The results presented here use vanilla DQN with 25 training episodes and 20 evaluation races. Three seeds are run at s0; one seed (101) is run at s1 and s2 to obtain an early stochasticity degradation signal. These results are intentionally preliminary. Statistical claims are limited to directional evidence; Phase 2 uses a 150-race evaluation budget to produce confidence interval estimates with meaningful precision.
+\section{Preliminary validation}
+\label{sec:prelim}
 
-\subsection{Learning signal confirmation}
-
-All three s0 seeds produce win rates above 0.75 against the fixed Base Agent (Table~\ref{tab:ch3-s0-results}). The across-seed range is 1.7 percentage points, indicating low sensitivity to initialisation at this budget level. Zero DNF events and zero fairness violations confirm that the experimental contract is operating correctly: both drivers face the same conditions across all evaluation races.
-
-The win rates above 0.75 with only 25 training episodes at $\varepsilon \approx 0.88$ suggest that the agent is not learning a nuanced policy at this point. Rather, it has found a simple strategy — consistently attempt at La Source, the easiest zone — which is sufficient to win the majority of two-car races over 5 laps. This interpretation is supported by the zone behaviour data in Table~\ref{tab:phase1-zones-s0}: La Source sees 100\% attempt rate with 87--90\% success across all three seeds, while harder zones show inconsistent or unprofitable behaviour. The Phase 1 win rate is therefore a lower bound on what a more thoroughly trained policy would achieve rather than an estimate of converged performance.
-
-\subsection{Stochasticity sensitivity analysis}
-
-Table~\ref{tab:ch3-stoch-results} shows the win rate and risk distribution across stochasticity levels for seed 101. The s1 win rate (0.783) is identical to s0 (0.783). This flat result is explained by La Source structural dominance: at $\sigma = 0.02$ the Gaussian noise term is too small to erode La Source's base success probability of 0.8, so the zone continues to produce near-certain success on every lap and the overall win rate does not change.
-
-At s2 ($\sigma = 0.05$) the win rate falls by 3.3 percentage points to 0.750. This modest drop must be interpreted alongside the zone behaviour. At s2, zone coverage narrows to three zones (La Source, Raidillon, Les Combes), while the s0 agent engages four zones plus occasional Campus attempts. The agent under s2 noise has learned to concentrate at zones where the noisy reward signal has been most consistently positive, which in a 25-episode run is dominated by La Source. This is structural conservatism from a short training run rather than an evidence of deliberate zone selection.
-
-\subsection{Behavioural diagnostics: the AGGRESSIVE flip}
-
-The most diagnostically important Phase 1 finding is the risk distribution reversal from s0 to s1/s2 shown in Table~\ref{tab:ch3-stoch-results}. At s0, vanilla DQN selects CONSERVATIVE on 54\% of risk decisions and AGGRESSIVE on only 9\%. At s1, this inverts: AGGRESSIVE accounts for 52\% of decisions and CONSERVATIVE for 20\%. The distribution is nearly identical at s2 (AGGRESSIVE 51\%, CONSERVATIVE 19\%).
-
-This pattern is consistent with systematic Q-value overestimation in vanilla DQN under noisy rewards \citep{vanhasselt2016double}. At s0 the reward signal is deterministic given state and action, so the Q-values for aggressive actions at difficult zones stabilise near their true (low) values. At s1, the $\sigma = 0.02$ noise occasionally produces a higher reward from an aggressive attempt through a lucky draw; in a 25-episode training run this windfall is sufficient to inflate the Q-value for AGGRESSIVE beyond its true expectation. The agent then exploits this overestimate in evaluation, selecting AGGRESSIVE even at zones where it is unprofitable. The expected consequence is higher tactical reward variance and increased penalty accumulation, which is observed: average tactical reward per zone worsens from $-0.021$ (Raidillon, s0) to more negative values under s1/s2 noise.
-
-Double DQN's decoupled target computation directly addresses this overestimation mechanism by separating action selection from value evaluation \citep{vanhasselt2016double}. A key diagnostic question for Phase 2 is therefore: does the double DQN risk distribution remain closer to the s0 baseline under s1 and s2 noise? If it does, the AGGRESSIVE flip is confirmed as an overestimation artefact, which constitutes direct evidence for H3. If double and rainbow do not show a more stable risk distribution than vanilla under noise, that null result is itself an important finding for RQ3.
-
-\subsection{Statistical reliability}
-
-With $n = 20$ evaluation races per seed, the Wilson 95\% confidence interval on a win rate of 0.783 spans approximately $\pm 0.18$. These intervals are too wide for ranking decisions. Phase 1 is not designed to produce statistically reliable rankings; it is designed to confirm the sign of the learning signal and identify qualitative behavioural anomalies before committing to the larger budget. Both objectives are met. Phase 2 uses 150 evaluation races per seed, reducing the CI95 margin to approximately $\pm 0.08$, which is sufficient for ranking decisions under the CI-gated protocol described in Section~\ref{sec:stochasticity}.
-
-\subsection{Phase 1 conclusions in relation to research questions}
-
-Phase 1 provides partial evidence for RQ3 (DQN-family appropriateness) and early directional signal for RQ1 (robustness). The consistent win rates above 0.75 across three seeds confirm that vanilla DQN can learn a viable overtaking strategy in the low-complexity environment, supporting the choice of DQN-family as the value-based comparator group \citep{mnih2015human,zhu2021actionspaces}. The AGGRESSIVE flip under s1/s2 noise provides the first empirical symptom of Q-value overestimation and generates a specific testable prediction: double DQN's stabilised targets should produce a more conservative risk distribution under noise. This prediction will be evaluated in Phase 2.
-
-Phase 1 does not address RQ1 in its MARL framing (non-stationarity from concurrent opponents) or RQ2 (emergent strategic behaviours), since both of these require Phase 3. The Phase 1 stochasticity results describe single-agent robustness against a fixed opponent, not MARL robustness.
-
-\section{Phase 2: DQN-family comparison results}
-
-Phase 2 runs the four-algorithm comparison (vanilla, double, dueling, rainbow-lite) under the controlled single-agent contract: 500 training episodes per trial ($\varepsilon \approx 0.08$ at convergence), 150 evaluation races per seed, and 3 seeds per algorithm per stochasticity track. All statistics are computed by \texttt{scripts/compute\_summary\_table.py} from the raw metrics files to ensure numerical consistency. Track A uses s0 as the primary ranking track; Track B uses s1 and s2 for robustness evidence.
-
-\subsection{Hypotheses under test}
-
-Three hypotheses were derived from Phase 1 and the MARL literature prior to running Phase 2:
-
-\textbf{H3a (double DQN stabilisation).} Double DQN selects AGGRESSIVE less frequently than vanilla at s1 and s2, consistent with corrected Q-value overestimation reducing the inflated returns from lucky aggressive attempts under noise \citep{vanhasselt2016double}.
-
-\textbf{H3b (dueling DQN zone discrimination).} Dueling DQN's value/advantage decomposition improves zone-level discrimination, increasing the HOLD rate at Raidillon (difficulty 0.9) relative to vanilla because the state-value head can learn that the state at a hard zone is generally poor regardless of action.
-
-\textbf{H3c (rainbow-lite variance reduction).} Rainbow-lite, combining double targets, dueling architecture, prioritised replay, and n-step returns, shows the lowest across-seed variance in win rate at s2, because PER focuses learning on the high-TD-error transitions that drive policy instability and n-step returns reduce the horizon lag that makes rewards from noisy zones slow to correct.
-
-\subsection{Win rate and objective score by algorithm}
-
-Table~\ref{tab:phase2-winrates} reports the mean win rate against the fixed Base Agent for each algorithm at each stochasticity level. With $n = 3$ seeds per cell, the 95\% confidence intervals reflect between-seed variation and should be treated as directional estimates rather than high-precision bounds.
+Three gate checks were completed before multi-agent experiments began. Table~\ref{tab:gates} summarises the outcome of each gate. Full details for Phases~0 and~1 are in Appendix~\ref{appendix:phase01}.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{Phase 2 win rate vs.\ Base Agent by algorithm and stochasticity level (mean, 95\% CI, $n = 3$ seeds per cell)}
-\label{tab:phase2-winrates}
-\begin{tabular}{|l|c|c|c|c|}
+\caption{Experimental gate outcomes for Phases 0 to 2}
+\label{tab:gates}
+\begin{tabular}{|l|l|l|p{6cm}|}
 \hline
-\textbf{Algorithm} & \textbf{s0 (primary)} & \textbf{CI95 at s0} & \textbf{s1} & \textbf{s2} \\
+\textbf{Gate} & \textbf{Phase} & \textbf{Outcome} & \textbf{Key evidence} \\
 \hline
-Vanilla DQN   & 0.746 & {[0.727, 0.765]} & 0.804 & 0.747 \\
-Double DQN    & 0.795 & {[0.786, 0.803]} & 0.747 & 0.740 \\
-Dueling DQN   & 0.724 & {[0.711, 0.737]} & 0.716 & 0.751 \\
-Rainbow-lite  & 0.835 & {[0.817, 0.852]} & 0.839 & 0.840 \\
+G0 & Phase 0 system integrity & Pass & 12 of 12 tests pass; 3 defects found and corrected before any learning runs \\
+\hline
+G1 & Phase 1 smoke validation & Pass & Win rate above 0.75 across three seeds; AGGRESSIVE flip identified as Q-value overestimation symptom \\
+\hline
+G2 & Phase 2 DQN benchmark & Pass & Rainbow-lite wins 0.835 of races (CI95 0.817 to 0.852); zero collapse across nine trials \\
 \hline
 \end{tabular}
 \end{table}
 
-Rainbow-lite achieves the highest s0 win rate (0.835, CI95: [0.817, 0.852]). Its confidence interval does not overlap with vanilla's (0.746, CI95: [0.727, 0.765]), providing statistically distinguishable evidence of superior single-agent performance at the primary ranking track within this three-seed budget. Double DQN ranks second (0.795, CI95: [0.786, 0.803]), also non-overlapping with vanilla's interval. Dueling DQN ranks lowest at s0 (0.724, CI95: [0.711, 0.737]) --- below vanilla --- indicating that the V/A decomposition alone does not improve performance on the primary ranking track.
+Phase~2 produced the DQN-family ranking used in all subsequent phases. Rainbow-lite ranked first at s0 (win rate 0.835, CI95 0.817 to 0.852), with a confidence interval that does not overlap vanilla DQN's interval (0.746, CI95 0.727 to 0.765). Rainbow-lite also showed near-zero robustness degradation across stochasticity levels (change of $+0.005$ from s0 to s2), confirming that its PER and double-target mechanisms prevent the Q-value instability documented in Phase~1. Dueling DQN ranked last at s0 (0.724), below vanilla, indicating that the value-advantage decomposition adds no benefit in the La Source-dominant two-agent environment. The s0 ranking was rainbow-lite, then double, then vanilla, then dueling. This order informed algorithm selection for all subsequent phases.
 
-The s0 ranking is: rainbow-lite $>$ double $>$ vanilla $>$ dueling. This provides support for H3c and partial support for H3a, but H3b is not confirmed: dueling DQN does not outperform vanilla at s0.
+\section{RQ1: What strategic behaviours emerge and how robust are they?}
+\label{sec:rq1}
 
-\subsection{Stochasticity robustness profiles}
+Phase~3 is the first setting where emergent strategy from two concurrently learning agents can be observed. Two identical DQN-family agents train simultaneously, each maintaining independent replay buffers and network parameters with no shared weights or gradient updates at any point.
 
-Table~\ref{tab:phase2-robustness} shows the s0--to--s2 win rate change for each algorithm.
+\subsection{Collapse rates and the algorithm hierarchy}
 
-\begin{table}[htbp]
-\centering
-\small
-\caption{Phase 2 stochasticity robustness: s0--to--s2 win rate change ($n = 3$ seeds)}
-\label{tab:phase2-robustness}
-\begin{tabular}{|l|c|c|c|c|}
-\hline
-\textbf{Algorithm} & \textbf{s0} & \textbf{s1} & \textbf{s2} & \textbf{s0 to s2 change} \\
-\hline
-Vanilla DQN   & 0.746 & 0.804 & 0.747 & $+0.001$ \\
-Double DQN    & 0.795 & 0.747 & 0.740 & $-0.055$ \\
-Dueling DQN   & 0.724 & 0.716 & 0.751 & $+0.027$ \\
-Rainbow-lite  & 0.835 & 0.839 & 0.840 & $+0.005$ \\
-\hline
-\end{tabular}
-\end{table}
-
-Rainbow-lite shows a near-constant win rate across all three stochasticity levels ($+0.005$ from s0 to s2), confirming H3c: PER, double-target correction, and n-step returns collectively prevent the policy instability documented in Phase 1's vanilla smoke runs. Vanilla and dueling both show small positive changes from s0 to s2, which at first appears counterintuitive. This is explained by La Source structural dominance: in a five-lap race with a single easily exploited zone (difficulty = 0.2, base success probability 0.8), the stochastic noise at s2 ($\sigma = 0.05$) is insufficient to erode La Source's success rate below the win-determining threshold. The win rate therefore remains stable regardless of algorithm because the primary win condition is near-deterministic La Source success rather than higher-order strategy that the learning algorithm governs. The small positive changes reflect seed-level variation across three seeds.
-
-Double DQN shows the only meaningful s0--to--s2 degradation ($-0.055$). This was not predicted by H3a. One explanation is that double-target correction reduces Q-value overestimation at hard zones, which marginally reduces the frequency with which the agent exploits spurious high Q-values at s1 and s2, creating a small net decrease in win rate when the primary performance lever (La Source) is unchanged. The Phase 3 MARL context provides a more stringent test of double DQN's stabilisation mechanism.
-
-\subsection{Phase 2 conclusions in relation to RQ3}
-
-Phase 2 directly answers RQ3. Rainbow-lite is the strongest and most robust DQN-family variant in single-agent evaluation, with a statistically distinguishable win rate advantage at s0 and near-zero robustness degradation across all stochasticity levels. Double DQN is the second-ranked variant, confirming that the Q-value correction mechanism adds value above vanilla. Dueling DQN underperforms vanilla at s0, suggesting that the advantage/value decomposition is not beneficial in the La Source-dominant environment where the dominant strategy is nearly context-free and the advantage function carries limited discriminative information \citep{wang2016dueling}.
-
-The Phase 2 robustness profiles are limited as evidence for RQ1 in its MARL framing, because the fixed-opponent setup insulates win rates from the non-stationarity that defines the MARL challenge. Phase 3, which replaces the fixed Base Agent with a second concurrent learner, provides the genuine robustness test under MARL non-stationarity.
-
-\section{Phase 3: Independent learner MARL results}
-\label{sec:phase3-results}
-
-Phase 3 evaluates IL-MARL across all four DQN-family variants: 500 training episodes, 150 evaluation races, 3 seeds per algorithm per stochasticity level (s0, s1, s2), yielding 36 core trials. Additional 750-episode trials were run for vanilla and rainbow-lite to examine training-budget sensitivity. A crossplay protocol for rainbow-lite at s2 was used to quantify evaluation protocol positional bias. Results are organised by finding to prioritise interpretive clarity over algorithm-by-algorithm enumeration.
-
-\subsection{Collapse rates and competitive stability}
-\label{sec:phase3-collapse}
-
-The primary metric of interest in IL-MARL is whether both agents maintain competitive strategies across training --- what this analysis terms \textit{competitive stability}. A trial is classified as \textit{degenerate} when one agent's win rate reaches $\leq 0.15$ or $\geq 0.85$, indicating that one agent has converged to near-total passivity while the other wins by default. Table~\ref{tab:phase3-collapse} reports collapse rates by algorithm and stochasticity level.
+The primary Phase~3 finding is that algorithm choice determines whether competitive equilibrium is maintained at all. Table~\ref{tab:phase3-collapse} reports collapse rates by algorithm across all nine core trials per algorithm.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{Phase 3 degenerate collapse rates by algorithm and stochasticity level (3 seeds per cell, 500 training episodes)}
+\caption{Phase 3 degenerate collapse rates by algorithm (nine trials per algorithm)}
 \label{tab:phase3-collapse}
 \begin{tabular}{|l|c|c|c|c|c|}
 \hline
-\textbf{Algorithm} & \textbf{s0 collapses} & \textbf{s1 collapses} & \textbf{s2 collapses} & \textbf{Total} & \textbf{Competitive} \\
+\textbf{Algorithm} & \textbf{s0} & \textbf{s1} & \textbf{s2} & \textbf{Total} & \textbf{Competitive trials} \\
 \hline
-Vanilla DQN   & 1/3 & 1/3 & 2/3 & 4/9 (44\%) & 56\% \\
-Double DQN    & 1/3 & 0/3 & 0/3 & 1/9 (11\%) & 89\% \\
-Dueling DQN   & 1/3 & 1/3 & 2/3 & 4/9 (44\%) & 56\% \\
-Rainbow-lite  & 0/3 & 0/3 & 0/3 & 0/9 (0\%)  & 100\% \\
+Vanilla DQN   & 1 of 3 & 1 of 3 & 2 of 3 & 4 of 9 (44\%) & 56\% \\
+Double DQN    & 1 of 3 & 0 of 3 & 0 of 3 & 1 of 9 (11\%) & 89\% \\
+Dueling DQN   & 1 of 3 & 1 of 3 & 2 of 3 & 4 of 9 (44\%) & 56\% \\
+Rainbow-lite  & 0 of 3 & 0 of 3 & 0 of 3 & 0 of 9 (0\%)  & 100\% \\
 \hline
 \end{tabular}
 \end{table}
 
-Rainbow-lite achieves zero collapses across all nine core trials. Vanilla and dueling both show 44\% collapse rates with identical per-stochasticity profiles: one collapse at s0, one at s1, and two at s2. Double DQN shows a substantially lower rate (11\%) with its single collapse at s0; neither the s1 nor the s2 trials produce degenerate outcomes for double DQN.
+Rainbow-lite achieves zero collapses across all nine trials. Vanilla and dueling both show 44 per cent collapse rates with identical per-stochasticity profiles. Double DQN shows an 11 per cent rate. The ablation is unambiguous. Vanilla and dueling, which share neither PER nor double-target correction, achieve the same collapse rate. Adding double-target correction alone reduces the rate to 11 per cent. Adding PER alongside double-target correction eliminates collapse entirely.
 
-The ablation hierarchy is unambiguous: vanilla (44\%) $=$ dueling (44\%) $\gg$ double (11\%) $\gg$ rainbow (0\%). Both vanilla and dueling lack PER and double-target correction and achieve the same collapse rate. Adding double-target correction alone (double DQN) reduces the rate to 11\%. Adding PER alongside double-target correction (rainbow-lite) eliminates collapse entirely. Neither mechanism alone is sufficient; PER combined with double-target correction is the effective combination.
+The collapse mechanism is replay buffer contamination under positional asymmetry. The trailing agent's early overtake attempts at high-difficulty zones yield predominantly negative rewards. These populate the replay buffer with \textsc{attempt, negative reward} transitions. Under uniform sampling, Q(\textsc{hold}) climbs above Q(\textsc{attempt}) across gradient updates. The shared epsilon decay schedule then locks in the passive strategy before recovery is possible. Extended vanilla trials at 750 episodes worsened collapse rather than resolving it, confirming that the feedback loop is irreversible within the training horizon once activated. This pattern is consistent with the instability pathology for independent Q-learners documented by \citet{foerster2017stabilising} and \citet{matignon2012independent}.
 
-\subsection{The degenerate collapse mechanism}
+\citet{schroeaderdewitt2020ippo} show that independent learning with policy gradient methods achieves competitive performance on the StarCraft benchmark. The Phase~3 result is consistent with this finding. It is not independent learning per se that fails, but independent value-based learning with uniform replay under positional asymmetry. PER addresses the asymmetry by up-weighting high-TD-error transitions from both agents' early training windows.
 
-Extended vanilla trials at 750 episodes were run to test whether more training resolves collapse. Two of three tested seeds at both s0 and s2 (750 episodes) produce total absorbing-state collapse (win rate = 1.000 or 0.047), with the third seed at s0/750 episodes producing a near-collapse zone-monopoly (win rate 0.287). Critically, the s0/seed-101 trial at 750 episodes produces win rate 1.000 under fully deterministic outcomes --- zero stochasticity, zero outcome variance. This definitively establishes that stochasticity is not the primary driver of collapse. The mechanism is positional and replay-driven.
+\subsection{Emergent equilibrium classes}
 
-The trailing agent (assigned P2 at race start) faces a structural learning disadvantage: early overtake attempts at high-difficulty zones yield predominantly negative rewards, which populate the replay buffer with \textit{(attempt, negative\_reward)} transitions. Under uniform sampling these are replayed equally frequently alongside any positive experiences. Q(HOLD) climbs relative to Q(ATTEMPT) across gradient updates. The shared epsilon decay schedule reduces exploration regardless of each agent's learning trajectory, locking in the passive strategy before recovery is possible. Once Q(HOLD) is globally dominant the gradient points permanently towards passivity, and collapse is irreversible within the training horizon. Stochasticity at s1/s2 \textit{accelerates} this process by adding variance to already-penalised attempt outcomes, explaining the worsening collapse rate at s2 for both vanilla and dueling.
+Two equilibrium classes emerge across Phase~3, determined by whether the algorithm prevents collapse.
 
-More training budget does not help: the additional 250 episodes in the 750-episode vanilla runs complete --- rather than interrupt --- the feedback loop. This is a counterintuitive but important finding: collapse in IL-MARL with uniform replay is determined by whether the positional feedback loop activates early enough during training, not by total training budget.
+\textbf{Class 1: degenerate hierarchical resolution.} One agent converges to complete passivity while the other wins by default. This accounts for 44 per cent of vanilla and dueling trials. No strategic information is produced. This is the degenerate Nash equilibrium of non-cooperative two-agent Q-learning under positional asymmetry, as described by \citet{tan1993multiagent}.
 
-\subsection{Double DQN's partial resistance}
+\textbf{Class 2: zone specialisation with hawk-dove risk equilibrium.} Agents develop differentiated zone coverage and opposing risk profiles without any shared coordination mechanism. This occurs in 100 per cent of rainbow-lite trials and 89 per cent of double DQN trials. The canonical example is the rainbow-lite s2, seed~202, 750-episode trial, which achieves a zone differentiation index of 0.405. Agent~1 concentrates on La Source, Les Combes, and Bruxelles with a predominantly conservative risk profile. Agent~2 takes a broader but thinner footprint across five zones with an aggressive risk bias. The two agents partition secondary overtaking territory while both contesting the highest-value zone.
 
-Double DQN's 11\% collapse rate is substantially better than vanilla and dueling despite sharing their lack of PER. The mechanism is double DQN's decoupled target: by separating action selection from value evaluation, it prevents systematic Q-value overestimation at high-difficulty zones. In vanilla, inflated Q-values at hard zones (particularly Raidillon, difficulty = 0.9) cause the trailing agent to overcommit to aggressive attempts at those zones, depleting any positive reward signal for other zones and accelerating the buffer contamination loop. Double DQN's correction suppresses this overcommitment, giving the trailing agent a better opportunity to discover profitable zone-attempt combinations during the critical early training window before epsilon has fully decayed.
+This specialisation emerges from iterated best-response dynamics \citep{busoniu2008survey}. When one agent commits to aggressive attempts at a zone, the other's best response is to focus on lower-risk alternatives. Zone preferences strengthen over time as Q-values for each agent's territory become more reliable than Q-values for the contested territory. The hawk-dove risk profile is a mixed-strategy equilibrium of the risk-selection subgame, consistent with competitive two-agent MARL theory.
 
-The s1 and s2 double DQN trials also show higher mean zone differentiation indices (0.285 at s1, 0.391 at s2) than vanilla (0.214 and 0.150 respectively), consistent with double DQN's correction enabling both agents to develop more distinct zone preferences rather than competing for the same zones with overestimated Q-values.
+Zone specialisation is also a training-budget effect. At 500 episodes, the zone differentiation index for rainbow-lite at s2 is 0.022. At 750 episodes it rises to 0.405. PER requires sufficient zone-specific transitions to assign reliable relative priorities for secondary zones. At 500 episodes these priorities are unreliable for rarely-visited zones, causing both agents to default to La Source.
 
-\subsection{Evaluation protocol positional bias}
-\label{sec:phase3-bias}
+\subsection{Non-stationarity versus stochasticity}
 
-A crossplay protocol applied to rainbow-lite at s2 reveals a structural evaluation bias. When both evaluation slots are loaded with identical model weights (self-play condition), both agents make identical decisions and the expected win rate is 0.500 by symmetry. Measured self-play win rates for Agent A1 are 0.393, 0.420, and 0.347 across the three tested seeds --- a mean of 0.387, representing approximately 11 percentage points of structural disadvantage against the A1 evaluation label.
+A crossplay protocol applied to rainbow-lite at s2 reveals a structural evaluation bias. The A1 slot receives a less favourable starting position across evaluation races, producing an approximately 11 percentage point disadvantage relative to the expected parity floor of 0.500. All raw A1 win rates in Phase~3 are subject to this confounder. The collapse versus non-collapse classification is not affected, since a win rate of 0.960 is degenerate regardless of the offset. Bias-corrected results for rainbow-lite at s2 show four of five seeds at or above the parity floor.
 
-The bias is attributable to fixed starting position assignment at evaluation initialisation: the A1 slot consistently receives a less favourable starting position across evaluation races independent of which policy is loaded. All raw Phase 3 A1 win rates are subject to this confounder. The collapse versus non-collapse classification is unaffected: a win rate of 0.960 is degenerate regardless of the 11\,pp offset. After bias correction, bias-corrected results for rainbow-lite at s2 show 4 of 5 seeds with A1 at or above the parity floor; the apparent systematic A2 dominance in the raw data dissolves under correction. This finding is incorporated into the validity threat analysis in Section~\ref{sec:validity}.
+The dominant challenge in Phase~3 is non-stationarity from a concurrently adapting opponent, not stochastic outcome noise. Vanilla and dueling collapse rates rise from one of three at s0 to two of three at s2, showing that stochasticity accelerates but does not cause collapse. Rainbow-lite maintains zero collapses at all stochasticity levels, with mean win rates of approximately 0.553 at s0, 0.552 at s1, and 0.400 at s2. This pattern is consistent with \citet{foerster2017stabilising}, who find that MARL non-stationarity is a more severe stability challenge than stochastic outcome variance for independent learners.
 
-\subsection{Emergent strategic behaviours}
-\label{sec:phase3-emergent}
+\subsection{RQ1 answer}
 
-Two distinct equilibrium classes emerge across Phase 3, determined by the algorithm's collapse-prevention capacity.
-
-\textbf{Class 1 --- hierarchical degenerate resolution (vanilla, dueling; 44\% of trials).} One agent converges to complete passivity (Q(HOLD) globally dominant) while the other wins by default. Zone differentiation and risk differentiation both collapse to 0.000, as the passive agent produces no decisions on which to differentiate. No strategic information is generated by these trials. This is the degenerate Nash equilibrium of the non-cooperative two-agent Q-learning game under positional asymmetry: once one agent defects to pure passivity, any active strategy from the other agent is a best response, perpetuating the asymmetry indefinitely.
-
-\textbf{Class 2 --- zone specialisation with hawk-dove risk equilibrium (rainbow-lite, 100\% of trials; double DQN, 89\% of trials).} Agents develop differentiated zone coverage and opposing risk profiles without any shared coordination mechanism. The canonical example from the dataset is the rainbow-lite s2/seed-202 trial at 750 episodes (zone differentiation index = 0.405, the highest in the Phase 3 dataset): A1 concentrates on La Source, Les Combes, and Bruxelles with a predominantly conservative risk profile (353 of 472 risk decisions CONSERVATIVE), while A2 takes a broader but thinner footprint across five zones with an aggressive risk bias (359 of 639 decisions AGGRESSIVE). The agents have implicitly partitioned secondary overtaking zones whilst both contesting the highest-value zone (La Source).
-
-This zone specialisation emerges spontaneously from iterated best-response dynamics: when two agents compete repeatedly for the same high-value zone, the expected value of secondary zones rises for the agent that persistently fails at the primary zone, eventually producing territorial partitioning. The hawk-dove risk profile is a mixed-strategy equilibrium of the risk-selection subgame, as documented in the multi-agent RL literature for competitive two-agent settings \citep{busoniu2008survey}.
-
-A notable variant of Class 2 behaviour is observed in the double DQN s1/seed-303 trial: both agents simultaneously abandon La Source (the nominally easiest zone) and instead specialise in harder zones. A1 concentrates on Les Combes (59.7\% attempt rate, 23.3\% success); A2 focuses on Raidillon (100\% attempt rate, 38.7\% success --- notably high for a zone of difficulty 0.9, attributable to favourable gap conditions under s1 noise). This mutual La Source abandonment is the only observed instance in the 36-trial dataset and suggests that under specific initialisation trajectories, Q(attempt, La Source) can fail to rise above Q(HOLD) for both agents simultaneously, redirecting competition entirely to secondary zones.
-
-\subsection{Zone specialisation as a training-budget effect}
-
-Zone differentiation indices for rainbow-lite at s2 increase substantially from 500 to 750 training episodes in two of three tested seeds: seed 202 increases from 0.188 to 0.405 (a 2$\times$ improvement), and seed 101 from 0.022 to 0.163 (a 7$\times$ improvement). The value of 0.405 at seed 202/750 episodes is the highest zone differentiation index recorded across all 36 core Phase 3 trials. Zone specialisation at s2 is therefore a training-budget effect rather than a stochasticity threshold: 500 episodes is insufficient for stable zone preferences to form under high stochasticity, because the PER priority estimator requires enough zone-specific transitions to assign reliable relative priorities; at 500 episodes the priority estimates for secondary zones are unreliable, causing both agents to retreat to La Source. At 750 episodes, priorities stabilise sufficiently for secondary zone preferences to emerge.
-
-\subsection{Phase 3 conclusions in relation to RQ1 and RQ2}
-
-\textbf{RQ1 (robustness under MARL non-stationarity).} Rainbow-lite maintains competitive equilibrium at all tested stochasticity levels (0\% collapse across 9 trials). Mean win rates of approximately 0.553 at s0, 0.552 at s1 (five seeds), and 0.400 at s2 (three seeds, 500 episodes) show a downward trend as stochasticity increases, but with no collapse at any level. The more diagnostically important metric is the collapse rate rather than the mean win rate: vanilla and dueling both show accelerating collapse as stochasticity rises (from 1/3 at s0 to 2/3 at s2 for both), confirming that stochasticity compounds the structural MARL failure mode when PER is absent. MARL non-stationarity from a concurrently adapting opponent is the dominant robustness challenge --- more severe than stochastic outcome noise --- consistent with the non-stationarity instability documented for independent Q-learners in \citet{foerster2017stabilising,hernandezleal2019survey}.
-
-\textbf{RQ2 (emergent strategic behaviours).} Two equilibrium classes emerge as predicted by competitive game theory. Non-degenerate trials consistently exhibit hawk-dove risk equilibria and partial zone specialisation, with both behaviours arising without any coordination mechanism. Zone specialisation is more pronounced at higher training budgets and more stable at lower stochasticity levels, consistent with the information requirements of zone preference formation under noisy reward signals. The degenerate equilibrium class generates no strategic information and is caused by a design-level incompatibility between uniform experience replay and the positional asymmetry inherent in two-car racing, not by any strategic interaction between agents \citep{hernandezleal2019survey}.
-
-\section{Discussion}
-
-\subsection{RQ3: DQN-family appropriateness and variant reliability}
-
-Phase 1 confirms that the DQN family is viable for the low-complexity discrete tactical setting. The action space (four discrete actions at sparse decision points) is a natural fit for Q-learning, consistent with the action-space suitability argument in \citet{zhu2021actionspaces}. Replay-based off-policy learning improves reuse of the limited overtaking decision experience available in a five-lap race, as motivated by \citet{mnih2015human,schaul2016prioritized}.
-
-The AGGRESSIVE flip observed under s1/s2 noise is a direct empirical symptom of the overestimation mechanism that double DQN was designed to address \citep{vanhasselt2016double}. This makes Phase 1 a mechanistically informative result: it does not merely show that performance degrades under noise, but identifies the specific failure mode (overestimation of noisy Q-values) and links it to a known algorithm-level remedy.
-
-Phase 2 confirms that the DQN family is appropriate, and provides a clear answer to which variant is most reliable. Rainbow-lite achieves the highest single-agent win rate at s0 (0.835, statistically distinguishable from vanilla's 0.746 with non-overlapping CI95 intervals) and the most stable robustness profile across s0--s2 ($+0.005$ change). Double DQN ranks second at s0 (0.795, also non-overlapping with vanilla), confirming the Q-value correction mechanism's benefit. Dueling DQN underperforms vanilla at s0 (0.724 vs.\ 0.746), indicating that the V/A decomposition adds no value in the La Source-dominant single-agent environment where the advantage function carries little discriminative information.
-
-Phase 3 adds a second, more important dimension to the reliability assessment: collapse prevention under MARL non-stationarity. The ablation hierarchy is unambiguous --- vanilla (44\%) $=$ dueling (44\%) $\gg$ double (11\%) $\gg$ rainbow (0\%) --- and directly isolates PER as the load-bearing anti-collapse mechanism, with double-target correction providing meaningful but incomplete protection alone. This MARL reliability finding carries more practical weight than the single-agent win rate ranking: in a genuinely multi-agent environment, an algorithm that produces competitive equilibria 100\% of the time is more useful than one that achieves marginally higher win rates when it does not collapse.
-
-\subsection{RQ1: Robustness under stochasticity}
-
-Phase 1 provides a single-agent baseline for stochasticity robustness: vanilla DQN's win rate drops 3.3 percentage points from s0 to s2, but the more diagnostic signal is the risk distribution inversion and narrowing zone coverage, both of which indicate policy instability rather than graceful degradation. A robust policy would maintain its risk distribution and zone coverage under noise; vanilla at Phase 1 budget does not.
-
-RQ1 in its MARL framing requires Phase 3, which introduces the additional non-stationarity source of a concurrently adapting opponent.
-
-Phase 2 single-agent robustness profiles show minimal degradation across s0--s2 for all variants when facing a fixed heuristic opponent, largely because La Source structural dominance insulates win rates from stochasticity effects. This confirms that a fixed-opponent evaluation is an insufficient test of stochasticity robustness: it measures noise tolerance, not non-stationarity robustness.
-
-Phase 3 provides the genuine robustness test. Rainbow-lite maintains competitive equilibrium at all tested stochasticity levels (0\% collapse across 9 trials), with mean win rates of approximately 0.553, 0.552, and 0.400 at s0, s1, and s2 respectively. The downward trend in mean win rate is less important than the zero collapse rate: a policy that produces competitive outcomes in 100\% of trials across all stochasticity levels is robust by the definition relevant to RQ1. Vanilla and dueling both show accelerating collapse as stochasticity rises (from 1/3 at s0 to 2/3 at s2 for both), confirming that MARL non-stationarity compounds the structural instability when PER is absent. The dominant robustness challenge is not stochastic outcome noise but the non-stationarity introduced by a concurrently adapting opponent, consistent with the instability pathology documented for independent Q-learners in \citet{foerster2017stabilising}.
-
-\subsection{RQ2: Emergent strategic behaviours}
-
-Phase 1 does not address RQ2, as all Phase 1 runs use a fixed heuristic opponent. Phase 3 is the first setting where emergent behaviour from interaction between two learning agents can be observed.
-
-The Phase 1 AGGRESSIVE flip finding predicted that both agents might adopt overestimation-driven aggressive strategies simultaneously when facing noisy outcomes, competing at hard zones despite poor expected return. Phase 3 reveals the actual outcome is more varied: vanilla's Q-value overestimation does not produce symmetric mutual aggression; instead it produces asymmetric collapse, where one agent's overestimation of hard-zone Q-values accelerates buffer contamination leading to passivity.
-
-Phase 3 reveals two emergent equilibrium classes. The degenerate class (vanilla and dueling, 44\% of trials) is not a strategic behaviour at all --- it is a design pathology of uniform replay under positional asymmetry that produces zero strategic information. The competitive class (rainbow-lite, 100\%; double DQN, 89\%) produces genuine emergent strategies: agents spontaneously develop hawk-dove risk profiles (one predominantly aggressive, one predominantly conservative) and partial zone specialisation, without any coordination mechanism. Both behaviours emerge from iterated best-response dynamics \citep{busoniu2008survey}: when one agent commits to aggressive attempts at a zone, the other's best response is to focus on lower-risk alternatives, producing emergent territorial partitioning. The zone specialisation equilibrium is more pronounced at higher training budgets (zone differentiation index 0.022 at 500 episodes vs.\ 0.405 at 750 episodes for the best-observed rainbow seed pair at s2) and more stable at lower stochasticity levels, consistent with the information requirements of zone preference formation under noisy reward signals.
-
-\subsection{Validity threats and limitations}
-\label{sec:validity}
-
-Several validity threats apply across the three phases of this investigation.
-
-\textbf{La Source structural dominance.} La Source's difficulty of 0.2 gives a base success probability of 0.8, which is high enough that consistent La Source attempts produce a reliable win margin over a five-lap race regardless of other zone decisions. The win rate metric in Phase 2 therefore conflates genuine strategy learning with exploitation of a single near-certain zone. The honest diagnostic is zone discrimination: does the agent learn which other zones are worth attempting? Phase 1 evidence suggests not at 25 training episodes; Phase 2's 500-episode runs show somewhat more selective zone behaviour, but La Source remains dominant. In Phase 3, La Source is the most contested zone in all non-degenerate trials, with both agents typically achieving high attempt rates there. The zone differentiation index partially measures La Source-exclusion rather than genuine secondary zone specialisation.
-
-\textbf{Short race and sparse decisions.} Five laps over Spa-Francorchamps produce at most 45 zone-passing events per race (9 zones $\times$ 5 laps), of which only a subset result in actual decisions (both drivers must be within 0.1\,km). This produces a sparse training signal relative to the number of episodes required for reliable Q-value estimation across all zones, which is part of why zone specialisation requires 750 episodes rather than 500 at s2. This is an inherent limitation of the low-complexity simulator scope.
-
-\textbf{Evaluation protocol positional bias (Phase 3).} The crossplay analysis described in Section~\ref{sec:phase3-bias} reveals an approximately 11\,pp structural disadvantage against the A1 evaluation label, caused by fixed starting position assignment at evaluation initialisation. All raw Phase 3 A1 win rates are subject to this confounder. Claims about relative policy quality within non-degenerate Phase 3 trials should reference the self-play baseline (mean 0.387) rather than treating 0.500 as the parity floor. The collapse classification is unaffected by this bias. A code-level fix --- applying the same round-robin start position cycle during evaluation as during training --- would resolve this in future work.
-
-\textbf{Single opponent type in Phase 2.} Phase 2 uses only the gap-aware heuristic Base Agent as the fixed opponent. Conclusions about DQN-family single-agent robustness generalise only to this opponent type. Phase 3 removes this limitation by making both competitors concurrent DQN learners.
-
-\textbf{Two-agent symmetric constraint in Phase 3.} All Phase 3 trials use two agents of the same DQN-family variant. Real competitive environments involve more agents, agent heterogeneity, and asymmetric action spaces. The hawk-dove and zone-partitioning behaviours observed are properties of the two-agent symmetric game and may not generalise to larger fields.
-
-\textbf{Evaluation budget.} Phase 1's 20-race evaluation budget produces CI95 margins of $\pm 0.18$, which are too wide for ranking. Phase 2's 150-race budget is calibrated to approximately $\pm 0.08$, which is sufficient for CI-gated decisions. Phase 2 uses 3 seeds per cell rather than the planned 5, which widens between-seed confidence intervals; this is noted throughout the reporting and does not affect the ranking conclusions at s0, where CI95 intervals are non-overlapping for the top two variants.
-
-\subsection{Comparison with related work}
-
-This investigation occupies a distinct position relative to prior motorsport reinforcement learning work. \citet{heilmeier2018racesim} and \citet{heilmeier2020virtual} address strategy decision support and neural approximation for race strategy but do not provide DQN-family benchmarking with explicit seed variance reporting. \citet{liu2024formulae} demonstrates multi-car RL strategy in Formula E but does not conduct a controlled comparison across value-based algorithm variants under matched statistical budgets. \citet{fieni2026learning} is the closest in framing, reporting Formula 1 multi-agent strategies, but without the fairness-audit and CI-gated ranking structure used here.
-
-The evaluation protocol in this project is explicitly designed to meet the standards identified in \citet{henderson2018deep} and \citet{agarwal2021statistical}: matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics. The La Source confound, the AGGRESSIVE flip, the degenerate collapse mechanism, and the evaluation protocol positional bias are all findings that would not be visible from win rates alone, which justifies the investment in detailed telemetry, crossplay validation, and ablation analysis across the DQN-family hierarchy. The combination of single-agent baseline (Phase 2) and IL-MARL evaluation (Phase 3) provides a two-level assessment of algorithm reliability that existing motorsport RL literature does not offer.
-
-\section{Future work}
-
-Several natural extensions follow from the current findings and limitations.
-
-\textbf{Medium complexity tier.} The simulator is designed for staged complexity. Medium complexity would introduce multiple concurrent competitors, creating a richer multi-agent setting where position dynamics depend on a field of opponents rather than a single rival. The observation contract for medium complexity is already defined in \texttt{config.json} and \texttt{feedback.py}; implementation requires the competitor selection profile and state dispatch updates described in Chapter~\ref{chapter3}.
-
-\textbf{High complexity tier and tyre dynamics.} High complexity introduces tyre degradation, pit stop decisions, and weather context. This tier is where the strategic richness of Formula 1 is most concentrated and would test whether the value-based MARL framework remains tractable when the state space grows to 17 features and decisions carry a much longer time horizon.
-
-\textbf{CTDE value factorisation.} Independent learner MARL (Phase 3) is the minimal valid MARL baseline. The natural next step is centralised-training/decentralised-execution methods such as VDN \citep{sunehag2018vdn} and QMIX \citep{rashid2018qmix}, which exploit global state information during training while maintaining decentralised execution. In the racing context, a centralised value function could learn to weight combined race outcomes rather than local position changes, which may produce more stable policies under non-stationarity.
-
-\textbf{Richer training diagnostics.} The current telemetry captures per-decision rewards and risk distributions but does not record Q-value trajectories, loss curves, or per-episode epsilon values. Adding these diagnostics would make the AGGRESSIVE flip interpretable in real time during training rather than only in post-hoc analysis, and would allow early stopping criteria based on Q-value stability rather than episode count alone.
-
-\textbf{Real-world telemetry integration.} The overtaking zone difficulty values are derived from 2023 Belgian Grand Prix positional data via FastF1. A natural extension is to use lap-time data and sector-by-sector position changes to calibrate more fine-grained probability models, or to use a different Grand Prix entirely to test whether learned policies are specific to Spa or transfer to other circuits.
+Concurrent training produces interpretable strategic structure when the algorithm prevents collapse. Rainbow-lite generates hawk-dove risk equilibria and zone specialisation in all nine trials. These behaviours emerge from iterated best-response dynamics without any coordination mechanism. Zone specialisation is a training-budget effect at high stochasticity rather than a threshold phenomenon. H1 is confirmed with the qualification that the specialisation signal requires sufficient training budget to stabilise.
