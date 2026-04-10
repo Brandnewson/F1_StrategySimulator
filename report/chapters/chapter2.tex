@@ -238,3 +238,68 @@ Git is used as the version control system throughout the project. Commits follow
 \subsection{Good coding practice}
 
 Python is the primary language throughout. Code follows snake\_case naming conventions. Docstrings are required on all functions. The test suite in \texttt{tests/test\_phase0\_integrity.py} is executed as part of any change that touches the simulator engine, reward contract, or telemetry schema, ensuring that the validated properties described in Section~\ref{chapter3} remain intact across development iterations.
+
+\section{MARL reward modes and multi-phase experimental scope}
+\label{sec:marl-reward-modes}
+
+Phases~4 to~10 introduce systematic variation in how agents are rewarded for their actions. This section describes the six reward and game-structure configurations used across these phases. All configurations are controlled through \texttt{config.json} and require no changes to agent learning code.
+
+\subsection{Alpha reward mixing}
+\label{sec:alpha-mixing}
+
+The alpha reward mixing mechanism modifies the reward received by each agent as follows.
+
+\[
+R_{\text{mixed}} = (1 - \alpha) \cdot R_{\text{own}} + \alpha \cdot R_{\text{teammate}}
+\]
+
+At alpha of zero each agent receives only its own reward. At alpha of one each agent receives only its teammate's reward. Intermediate values produce partial alignment between the two agents' incentives.
+
+Five alpha values are tested: 0.0, 0.25, 0.50, 0.75, and 1.0. This span allows threshold identification rather than a binary comparison. The alpha value is set via \texttt{reward.alpha} in \texttt{config.json} and applied uniformly to both agents in each trial.
+
+\subsection{Non-zero-sum game design}
+\label{sec:nonzerosum}
+
+Phases~1 to~4 use a two-agent zero-sum race. The sum of position changes across both agents is structurally fixed, so one agent's gain always comes at the other's expense.
+
+Phase~5 changes the game structure by adding a fixed heuristic Base adversary as a third competitor. Both DQN agents can then improve their result simultaneously by outperforming the Base agent. This breaks the zero-sum constraint and allows genuine cooperative advantage to be measured.
+
+An ablation study within Phase~5 replaces each DQN agent with a Base agent in turn. This isolates whether game structure or policy quality causes any observed performance change.
+
+\subsection{Multi-team scaling}
+\label{sec:multiteam}
+
+Phase~6 extends the non-zero-sum setting to four DQN agents grouped as two teams of two, plus a single Base adversary. Phase~7 tests an intermediate configuration of three DQN agents and one Base adversary, and also applies a low-alpha sweep within the five-agent configuration to test whether reducing alpha resolves the scaling failure. This sequence of agent counts identifies whether cooperation failure is agent-count-dependent and whether any parameterisation of alpha recovers cooperative performance at scale.
+
+\subsection{Curriculum alpha scheduling}
+\label{sec:curriculum}
+
+Phase~8 applies a three-stage training schedule rather than a fixed alpha value throughout training. Agents train for 100 episodes at alpha of zero to establish individual policies. Alpha then increases linearly over 300 episodes to the target value. Agents train for a final 100 episodes at the target alpha.
+
+The motivation is to test whether the passivity failure observed at fixed alpha of 0.75 results from cooperative reward overwriting individual policies before they are established, rather than from a fundamental incompatibility between cooperative incentives and independent learning.
+
+\subsection{Difference rewards}
+\label{sec:difference-rewards}
+
+Phase~10 tests difference rewards as an alternative cooperative formulation. The original formulation by \citet{wolpert2002optimal} defines the reward for agent~$i$ as:
+
+\[
+D_i = G(\mathbf{z}) - G(\mathbf{z}_{-i})
+\]
+
+where $G(\mathbf{z})$ is the global performance under the full joint action vector and $G(\mathbf{z}_{-i})$ is the global performance when agent~$i$'s contribution is removed. This gives agent~$i$ credit only for its counterfactual contribution to collective performance.
+
+A mean-field approximation is used in this project because the true counterfactual $G(\mathbf{z}_{-i})$ requires simulating the race without agent~$i$, which is computationally costly. The approximation substitutes the team mean delta for the counterfactual term:
+
+\[
+R_{\text{diff},i} = \Delta_i + (\Delta_i - \bar{\Delta}_{\text{team}})
+\]
+
+where $\Delta_i$ is agent~$i$'s position delta and $\bar{\Delta}_{\text{team}}$ is the mean delta across all team members. Whether this approximation preserves the cooperative gradient property of the original formulation is the central question of Phase~10.
+
+\subsection{LLM semantic baseline}
+\label{sec:llm-baseline}
+
+Phase~9 introduces a zero-shot large language model as a non-learning comparator. The agent receives the current race state serialised as a natural language description. This includes zone difficulty, gap to the car ahead, current position, and laps remaining. The agent outputs a structured JSON action specifying whether to attempt an overtake and at which risk level. No training, replay buffer, or gradient update is used at any point.
+
+The purpose is to establish whether domain reasoning alone, without any trial-and-error learning, can match the performance of a trained DQN agent. A fallback to HOLD is applied if the JSON response cannot be parsed.
