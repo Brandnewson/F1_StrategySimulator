@@ -319,6 +319,10 @@ class RaceSimulator:
         self.reward_sharing_alpha = float(
             self.config.get("marl", {}).get("reward_sharing_alpha", 0.0)
         )
+        # Credit assignment mode: "alpha" (Phases 3-8), "difference" (Phase 10A-i), "qmix" (Phase 10A-ii)
+        self.reward_mode = str(
+            self.config.get("marl", {}).get("reward_mode", "alpha")
+        ).strip().lower()
 
         # Per-team alpha lookup for low_marl_teams profile
         self.team_alpha_map = {}
@@ -1141,18 +1145,40 @@ class RaceSimulator:
             return (1.0 - alpha) * own_delta + alpha * teammate_delta_avg
 
         # --- Flat reward sharing for low_marl / low_marl_vs_base / low_marl_3dqn_vs_base ---
-        alpha = self.reward_sharing_alpha
         if (
-            alpha <= 0.0
-            or self.active_complexity not in ("low_marl", "low_marl_vs_base", "low_marl_3dqn_vs_base")
+            self.active_complexity not in ("low_marl", "low_marl_vs_base", "low_marl_3dqn_vs_base")
             or not isinstance(driver.agent, DQNAgent)
         ):
             return own_delta
+
         other_dqn = [
             d for d in self.race_state.drivers
             if d is not driver and isinstance(d.agent, DQNAgent)
         ]
         if not other_dqn:
+            return own_delta
+
+        # --- Difference rewards (Phase 10A-i): marginal contribution ---
+        # Approximation of Wolpert & Tumer (2002) difference rewards.
+        # D_i = own_delta + beta * (own_delta - team_mean_delta)
+        # First term: individual performance signal (same as alpha=0).
+        # Second term: bonus/penalty for performing above/below team average.
+        # Unlike alpha-blending, this never dilutes own signal with partners'
+        # uncontrollable outcomes. The team-relative term isolates whether
+        # agent i contributed more or less than the team average.
+        # beta=1.0 gives equal weight to individual and relative components.
+        if self.reward_mode == "difference":
+            all_dqn = [driver] + other_dqn
+            all_deltas = [
+                float(int(d.starting_position) - int(d.position)) for d in all_dqn
+            ]
+            team_mean = sum(all_deltas) / len(all_deltas)
+            marginal = own_delta - team_mean  # positive if above average
+            return own_delta + marginal
+
+        # --- Alpha-blending (Phases 3-8 default) ---
+        alpha = self.reward_sharing_alpha
+        if alpha <= 0.0:
             return own_delta
         teammate_delta_avg = sum(
             float(int(t.starting_position) - int(t.position)) for t in other_dqn

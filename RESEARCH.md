@@ -2,21 +2,31 @@
 
 This document defines the current research workflow and experiment interface.
 
-Last updated: 2026-03-23
+Last updated: 2026-04-07
 
 ## 1) Research Scope
 
-Current dissertation execution target is low-complexity experiments first, with future-ready config scaffolding for medium/high complexity and higher stochasticity.
+The research investigates how shared incentive shapes emergent strategy in multi-agent reinforcement learning, using F1 racing as the domain. Ten experimental phases (Phases 1-10) are complete, spanning single-agent benchmarking, cooperative MARL, scaling analysis, curriculum learning, LLM baselines, and reward shaping for credit assignment.
 
-- Implemented now: `low`
-- Future-ready only: `medium`, `high` (runtime currently falls back to `low`)
+See `research_findings/full_research_journey.md` for the complete narrative and results.
 
-Low complexity setup:
+### Complexity
 
-- one `dqn` competitor
-- one `base` competitor
+- Implemented and used: `low` (all phases)
+- Future-ready only: `medium`, `high` (runtime falls back to `low`)
 
-The objective is finish-first race performance. Tactical overtakes are helper behavior, not the terminal objective.
+### Agent configurations used across phases
+
+| Phases | Setup |
+|--------|-------|
+| 1-2 | 1 DQN vs 1 Base (single-agent benchmark) |
+| 3-4 | 2 DQN head-to-head (zero-sum MARL) |
+| 5 | 2 DQN + 1 Base (non-zero-sum, common adversary) |
+| 6 | 4 DQN (2 teams) + 1 Base (multi-team scaling) |
+| 7-8, 10 | 3 DQN + 1 Base (boundary characterisation, curriculum, difference rewards) |
+| 9 | 1 LLM vs 1 Base (semantic baseline) |
+
+The objective is finish-first race performance. Tactical overtakes are helper behaviour, not the terminal objective.
 
 ## 2) Config Contracts (Single Source of Truth)
 
@@ -151,10 +161,34 @@ Primary endpoint remains finish-first outcomes (win rate / finish-position delta
 - `metrics/latest_candidate_metrics.json` (or chosen `--out`): evaluation summary including reward diagnostics
 - `metrics/benchmarks/.../summary.json` and `summary.md`: cross-algorithm comparison with fairness audit, reproducibility checks, robustness trends, and promotion gate result
 
-## 7) Newcomer Checklist
+## 7) MARL Reward Modes
+
+The `marl.reward_mode` config key controls credit assignment:
+
+| Mode | Formula | Phases | Outcome |
+|------|---------|:------:|---------|
+| `alpha` | `(1-a)*own + a*teammate` | 3-8 | Works at N=3 (+83%), cliff at N=4, fails at N=5 |
+| `difference` | `own + (own - team_mean)` | 10 | Worse than IQL (-16%) — competitive incentive |
+| `qmix` | Monotonic mixing network | Future | Architectural CTDE — not yet implemented |
+
+The MARL evaluation script supports all modes:
+
+```bash
+python scripts/evaluate_marl.py \
+  --complexity-profile low_marl_3dqn_vs_base \
+  --reward-mode difference \
+  --alpha 0.0 \
+  --stochasticity-level s0 \
+  --train-runs 500 --eval-runs 150 \
+  --eval-seeds "101" \
+  --out metrics/phase10a/example.json
+```
+
+## 8) Newcomer Checklist
 
 1. Confirm dependencies installed (`pip install -r requirements.txt`).
 2. Confirm `config.json` has `complexity.active_profile = low`.
 3. Run one candidate evaluation.
 4. Inspect reward diagnostics and finish-first metrics.
 5. Run one benchmark stage and check fairness audit is true.
+6. Read `research_findings/full_research_journey.md` for the complete experimental arc.

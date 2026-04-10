@@ -471,6 +471,9 @@ def main():
                         help="Per-team alpha for team_a (low_marl_teams profile).")
     parser.add_argument("--team-b-alpha", type=float, default=None,
                         help="Per-team alpha for team_b (low_marl_teams profile).")
+    parser.add_argument("--reward-mode", default=None,
+                        choices=["alpha", "difference", "qmix"],
+                        help="Credit assignment method: alpha (default), difference (Phase 10A-i), qmix (Phase 10A-ii)")
     parser.add_argument("--alpha-curriculum", action="store_true",
                         help="Enable curriculum alpha scheduling: ramp from 0 to target alpha over training.")
     parser.add_argument("--warmup-episodes", type=int, default=100,
@@ -485,6 +488,10 @@ def main():
 
     # Force low_marl complexity
     base_config.setdefault("complexity", {})["active_profile"] = args.complexity_profile
+
+    # Apply reward mode override (Phase 10).
+    if args.reward_mode is not None:
+        base_config.setdefault("marl", {})["reward_mode"] = args.reward_mode
 
     # Apply reward-sharing alpha override (Phase 4).  When --alpha is not supplied the
     # config value is used as-is, preserving numerical identity with Phase 3 runs.

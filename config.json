@@ -80,6 +80,8 @@
         }
     },
     "marl": {
+        "reward_mode": "alpha",
+        "reward_mode_description": "Credit assignment method: 'alpha' = flat reward sharing (Phases 3-8), 'difference' = difference rewards (Phase 10A-i), 'qmix' = QMIX centralised training (Phase 10A-ii)",
         "reward_sharing_alpha": 0.0,
         "description": "Reward-sharing coefficient for Phase 4 incentive-regime sweep. 0.0 = purely competitive (Phase 3 baseline), 1.0 = fully cooperative. Applied only in low_marl profile with exactly two DQN agents.",
         "teams": {
@@ -458,7 +460,7 @@
         }
     },
     "dqn_params": {
-        "algo": "vanilla",
+        "algo": "rainbow_lite",
         "algo_options": {
             "n_step": 3,
             "per_alpha": 0.6,
