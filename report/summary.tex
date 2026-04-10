@@ -1,9 +1,13 @@
-This dissertation investigates reinforcement learning for competitive race strategy in an F1 inspired simulator. The focus is reproducible comparison rather than a single best score.
+This dissertation investigates how the structure of agent incentives shapes the strategies that emerge when reinforcement learning agents compete and cooperate in a stochastic racing simulator.
 
-Low complexity experiments are run first. In this mode one DQN driver races one base driver.
+Two agents race across nine overtaking zones of a Spa-Francorchamps circuit over five laps. The core experimental variable is a reward sharing coefficient, alpha, which controls how much each agent values its teammate's outcome alongside its own.
 
-The comparison includes vanilla DQN and double DQN and dueling DQN and rainbow lite DQN under fixed budgets. Matched seeds keep each comparison fair.
+Four DQN-family algorithms are compared in single-agent and multi-agent settings across three stochasticity levels. Rainbow-lite eliminates training collapse in all nine independent learner trials. Vanilla DQN collapses in 44 per cent of trials through a replay buffer contamination mechanism that more training budget worsens rather than resolves.
 
-Confidence intervals and behaviour diagnostics are reported for overtaking decisions. These outputs explain performance differences with clear evidence.
+A reward sharing sweep from purely competitive to fully cooperative incentives reveals a sharp destabilisation threshold in zero-sum games above alpha of 0.5. Changing the game structure to include a common adversary eliminates this collapse entirely. At alpha of 0.75 in the three-agent non-zero-sum setting, joint performance against the adversary improves by 83 per cent over the competitive baseline.
 
-Medium complexity and high complexity are kept for future stages. This choice supports incremental development with reliable analysis.
+Scaling to five agents reverses this result completely. Cooperative incentive at any alpha value degrades joint performance by up to 31 per cent. Curriculum scheduling recovers 69 per cent of this loss by separating two previously conflated failure modes: a training-order problem that curriculum solves, and a credit assignment problem that requires architectural solutions.
+
+A zero-shot large language model baseline matches the best-trained RL agent within two per cent win rate using a qualitatively different strategy. Difference rewards, tested as an alternative cooperative formulation, produce competitive rather than cooperative incentives due to a mean-field approximation that inverts the cooperative gradient.
+
+The findings show that incentive structure is at least as important as algorithm choice in determining emergent strategy. Centralised training with decentralised execution methods such as QMIX are identified as the natural next step to address the credit assignment problem at scale.
