@@ -221,3 +221,132 @@ This finding separates two failure modes that prior literature conflated \citep{
 \subsection{RQ2 answer}
 
 The destabilisation threshold exists and is structural. In zero-sum games it appears between alpha of 0.5 and 0.75. In non-zero-sum games it appears at four total agents regardless of alpha value or training schedule. H2 is confirmed. The threshold is not a function of alpha parameterisation but of the relationship between agent count and the strength of individual credit signal in the reward formula.
+
+\section{RQ3: Does shared incentive produce genuine cooperative advantage?}
+\label{sec:rq3}
+
+RQ2 identified when and why cooperative incentive fails. RQ3 addresses the positive question: when cooperation works, is the advantage genuine? And what happens when a different cooperative reward formulation is used?
+
+\subsection{Phase 5: proving causality of the cooperative advantage}
+
+The Phase~5 ablation study, described in Section~\ref{sec:rq2}, establishes that the 83 per cent improvement at alpha of 0.75 is caused by the cooperative reward signal rather than by game structure alone. Replacing either DQN agent with a Base agent at the same alpha reduces joint performance substantially. Replacing both reduces it further. The alpha effect adds on top of the policy quality effect independently.
+
+The improvement is concentrated in the weaker agent. Agent~2's beat-base rate rises from 63 per cent at alpha of zero to 78 per cent at alpha of 0.75. This is not redistribution of a fixed outcome pool. Both agents improve. The total joint beat-base rate rises by 83 per cent relative to the competitive baseline. The non-zero-sum structure allows this, because the adversary provides a shared target that both agents can outperform simultaneously.
+
+This finding answers RQ3 affirmatively for the three-agent non-zero-sum setting. Genuine cooperative advantage exists. It requires non-zero-sum game structure, a collapse-resistant algorithm, and an alpha value that preserves sufficient individual incentive alongside the cooperative signal. H3 is confirmed.
+
+\subsection{Phase 9: LLM semantic baseline}
+
+Phase~9 introduces a zero-shot large language model agent to establish a non-learning performance bound. The agent receives the race state in natural language and outputs an action without any training, replay buffer, or gradient computation. Table~\ref{tab:phase9-results} shows win rates against the Base adversary across stochasticity levels.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 9 LLM baseline win rate versus trained rainbow-lite across stochasticity levels}
+\label{tab:phase9-results}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Agent} & \textbf{s0 win rate} & \textbf{s1 win rate} & \textbf{s2 win rate} \\
+\hline
+Rainbow-lite (trained) & 0.835 & 0.839 & 0.840 \\
+LLM zero-shot          & 0.817 & 0.822 & 0.801 \\
+\hline
+\end{tabular}
+\end{table}
+
+The LLM matches trained rainbow-lite within two per cent win rate across all three stochasticity levels. The gap is not statistically meaningful given three-seed evaluation budgets.
+
+The strategies are qualitatively different. The LLM prioritises conservative attempts at La Source and holds at hard zones consistently across all stochasticity levels. Rainbow-lite diversifies zone coverage and adjusts risk levels based on trained Q-value estimates. Two different routes to the same outcome performance suggest that the low-complexity environment has a near-optimal policy short enough to be described in natural language.
+
+This result does not indicate that trained RL is unnecessary. It indicates that in a sparse-decision five-lap race with one dominant zone of 80 per cent base success probability, the strategy space is narrow enough that domain reasoning and Q-value optimisation converge on similar outcomes. A richer environment with tyre degradation, pit-stop decisions, and a larger field of competitors would be expected to widen this gap substantially.
+
+\subsection{Phase 10: difference rewards as a cooperative formulation}
+
+Phase~10 tests difference rewards as an alternative to the alpha mixing mechanism. The formulation from \citet{wolpert2002optimal} gives each agent credit only for its counterfactual contribution to collective performance. The mean-field approximation used is:
+
+\[
+R_{\text{diff},i} = \Delta_i + (\Delta_i - \bar{\Delta}_{\text{team}})
+\]
+
+where $\Delta_i$ is agent~$i$'s position delta and $\bar{\Delta}_{\text{team}}$ is the mean delta across all team members.
+
+The cooperative gradient property of the original formulation requires that each agent's reward increases when a teammate performs better. We can check whether the approximation preserves this by differentiating $R_{\text{diff},i}$ with respect to teammate~$j$'s delta $\Delta_j$:
+
+\[
+\frac{\partial R_{\text{diff},i}}{\partial \Delta_j} = -\frac{1}{N}
+\]
+
+This gradient is negative for all values of $N$. When teammate $j$ overtakes successfully, agent~$i$'s reward decreases because the team mean rises. The approximation inverts the cooperative gradient. Rather than giving agent~$i$ credit for its contribution, it penalises agent~$i$ for its teammate's success. This is the opposite of what \citet{wolpert2002optimal} intended. The mean-field substitution loses the counterfactual property because it uses the observed team mean rather than the true counterfactual outcome $G(\mathbf{z}_{-i})$.
+
+Table~\ref{tab:phase10-results} shows the empirical result.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 10 joint beat-base rate under difference rewards versus IQL baseline}
+\label{tab:phase10-results}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Condition} & \textbf{Joint beat-base rate} & \textbf{Change from IQL} \\
+\hline
+IQL baseline (rainbow-lite, alpha 0)      & 0.158 & baseline \\
+Difference rewards (vanilla DQN)          & 0.087 & $-45\%$ \\
+Difference rewards (rainbow-lite)         & 0.133 & $-16\%$ \\
+\hline
+\end{tabular}
+\end{table}
+
+Difference rewards rank last among all tested reward formulations. Even the stronger algorithm (rainbow-lite) produces a 16 per cent regression from the IQL baseline. The algorithm effect (31 percentage points between vanilla and rainbow-lite) exceeds the formula effect (16 percentage points from IQL to rainbow-lite difference rewards), confirming that algorithm choice remains a determining factor even when the reward formula is changed.
+
+\citet{devlin2014potential} show that potential-based shaping of difference rewards can preserve the cooperative gradient when the approximation is carefully designed. The mean-field substitution used here does not meet this standard. Testing a potential-based formulation is identified as future work in Section~\ref{sec:futurework}. The Yang et al.\ (2018) mean field approximation \citep{yang2018meanfield} addresses a related problem (scaling to large populations) but does not resolve the counterfactual inversion problem identified here.
+
+\subsection{RQ3 answer}
+
+Genuine cooperative advantage exists and is confirmed empirically in Phase~5. It requires non-zero-sum game structure, a collapse-resistant algorithm, and a cooperative reward formula that preserves positive cooperative gradients. The mean-field difference rewards approximation fails the third condition and produces competitive rather than cooperative incentives. Incentive formula design matters as much as algorithm choice in determining whether cooperation can emerge.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Positioning relative to the literature}
+
+\citet{tan1993multiagent} established that independent learners in cooperative games can match or exceed a single centralised agent when the environment is complex, but identified communication and shared experience as critical facilitators. Phase~3 of this project extends this finding to a competitive setting. Independent learning produces viable strategies at two agents but cannot sustain cooperation at four or more without architectural support.
+
+\citet{wolpert2002optimal} designed difference rewards specifically to solve the credit assignment problem through counterfactual reasoning. Phase~10 shows that the mean-field approximation of this formulation loses the counterfactual property and inverts the cooperative gradient. This is consistent with the finding of \citet{devlin2014potential} that difference rewards require careful approximation design to preserve their theoretical properties in practice.
+
+\citet{matignon2012independent} survey the failure modes of independent learners in cooperative games and identify leniency, hysteresis, and reward shaping as mitigating strategies. The curriculum scheduling in Phase~8 is a form of reward shaping that addresses the training-order failure mode. The Phase~8 finding that curriculum solves the training-order problem but not the credit assignment problem is a refinement of Matignon et al.'s taxonomy. The two problems are separable experimentally and require different solutions.
+
+\citet{foerster2017stabilising} identify replay buffer non-stationarity as the primary failure mode for deep independent Q-learners in multi-agent settings. PER is confirmed here as the load-bearing anti-collapse mechanism across all nine rainbow-lite trials. The Phase~3 ablation hierarchy (vanilla 44 per cent, double 11 per cent, rainbow 0 per cent) isolates PER's contribution cleanly from the double-target correction contribution.
+
+\subsection{The three novel contributions}
+
+This project makes three contributions that are not present in the existing literature.
+
+The first is the empirical identification of a sharp agent-count scaling boundary at N of four in a non-zero-sum cooperative game. Prior work has documented cooperation failure at scale, but not characterised the precise agent count at which the transition occurs or confirmed through a low-alpha sweep that the failure is structural rather than parametric.
+
+The second is the decomposition of cooperative MARL failure into two separable problems using curriculum scheduling as a surgical tool. The training-order problem and the credit assignment problem have been discussed separately in the literature \citep{panait2005cooperative} but have not been isolated experimentally in a single controlled setting with a common evaluation metric.
+
+The third is the mathematical proof that the mean-field approximation of difference rewards inverts the cooperative gradient, accompanied by the empirical confirmation that this inversion produces a performance regression below the competitive baseline. This connects a theoretical observation to a measured outcome in a concrete experimental setting.
+
+\section{Validity threats and limitations}
+\label{sec:validity}
+
+\textbf{La Source structural dominance.} La Source's difficulty of 0.2 gives a base success probability of 0.8. Consistent attempts at La Source produce a reliable win margin over five laps regardless of decisions at other zones. The win rate metric in Phases~1 and~2 partly reflects exploitation of this single zone rather than genuine strategy learning. Zone discrimination metrics and the zone differentiation index are used throughout to mitigate this, but the La Source confound is an inherent limitation of the low-complexity simulator scope.
+
+\textbf{Evaluation protocol positional bias.} The crossplay analysis in Phase~3 reveals an approximately 11 percentage point structural disadvantage against the A1 evaluation label. All raw A1 win rates in Phase~3 are affected. The collapse classification is not affected. A code-level fix applying the same round-robin start position cycle during evaluation as during training would resolve this in future work.
+
+\textbf{Short race and sparse decisions.} Five laps across nine zones produce at most 45 zone-passing events per race. A subset of these produce actual decisions. This sparsity is part of why zone specialisation requires 750 episodes rather than 500 at s2. It is an inherent limitation of the low-complexity tier.
+
+\textbf{Single circuit.} All experiments use the Spa-Francorchamps zone configuration. Findings about La Source dominance and zone partitioning may not transfer to circuits with more balanced zone difficulty distributions.
+
+\textbf{Three seeds per cell.} Phase~2 and Phase~3 use three seeds per cell rather than the planned five. Between-seed confidence intervals are wider than they would be at five seeds. This does not affect the Phase~2 ranking at s0, where confidence intervals are non-overlapping, but increases uncertainty in Phase~3 comparative claims.
+
+\section{Future work}
+\label{sec:futurework}
+
+\textbf{QMIX and centralised training.} Phase~8 identified the credit assignment problem as the barrier to cooperation at N of four or more. QMIX \citep{rashid2018qmix} addresses this directly through a mixing network that enforces a monotonicity constraint on the relationship between individual Q-values and the joint Q-value. This preserves cooperative gradients at the individual action level regardless of agent count. QTRAN \citep{son2019qtran} relaxes the monotonicity constraint to allow exact factorisation. Both are natural next steps following the Phase~8 decomposition.
+
+\textbf{Potential-based difference rewards.} \citet{devlin2014potential} show that potential-based shaping of difference rewards can preserve the cooperative gradient when the approximation is designed to maintain the counterfactual property. Testing this formulation would complete the Phase~10 investigation and determine whether the problem is with difference rewards as a concept or with the specific mean-field approximation used here.
+
+\textbf{Medium and high complexity tiers.} The simulator is designed for staged complexity. Medium complexity would introduce multiple concurrent competitors in a larger field. High complexity would add tyre degradation, pit-stop decisions, and weather context. The observation contracts for both tiers are already defined in \texttt{config.json}. These tiers are where the strategic richness of Formula~1 is most concentrated.
+
+\textbf{Real telemetry integration.} Zone difficulty values are currently derived from position-change counts at timing loop locations in the 2023 Belgian Grand Prix data. A more precise calibration using sector-by-sector lap time deltas would produce difficulty values grounded in car performance rather than positional tracking artefacts.
