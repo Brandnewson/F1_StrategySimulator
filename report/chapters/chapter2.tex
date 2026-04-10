@@ -269,7 +269,7 @@ An ablation study within Phase~5 replaces each DQN agent with a Base agent in tu
 \subsection{Multi-team scaling}
 \label{sec:multiteam}
 
-Phase~6 extends the non-zero-sum setting to four DQN agents grouped as two teams of two, plus a single Base adversary. Phase~7 tests an intermediate configuration of three DQN agents and one Base adversary, and also applies a low-alpha sweep within the five-agent configuration to test whether reducing alpha resolves the scaling failure. This sequence of agent counts identifies whether cooperation failure is agent-count-dependent and whether any parameterisation of alpha recovers cooperative performance at scale.
+Phase~6 extends the non-zero-sum setting to four DQN agents grouped as two teams of two, plus a single Base adversary. Phase~7 tests an intermediate configuration of three DQN agents and one Base adversary. It applies a low-alpha sweep within the five-agent configuration to test whether reducing alpha resolves the scaling failure. This sequence of agent counts identifies whether cooperation failure is agent-count-dependent. A separate question is whether any parameterisation of alpha can recover cooperative performance at scale.
 
 \subsection{Curriculum alpha scheduling}
 \label{sec:curriculum}
