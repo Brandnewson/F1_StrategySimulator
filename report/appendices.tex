@@ -1,43 +1,78 @@
 \begin{appendices}
 
-\chapter{Self Appraisal}
+\chapter{Self-Appraisal}
+\label{appendix:selfappraisal}
 
-The project plan followed incremental delivery. Low complexity experiments were stabilised before new simulator systems were added.
+\section{Project process reflection}
 
-Research discipline improved through controlled benchmarking. Experiments now use fixed seeds with matched budgets from the start.
+The phased gate structure was the single most effective process decision in the project. Each phase's result determined the next phase's design rather than following a pre-specified plan. Phase~2's finding that rainbow-lite was the only collapse-resistant algorithm in single-agent evaluation meant that Phase~3 could attribute multi-agent collapse to MARL non-stationarity rather than to algorithm fragility. Without this gate, the Phase~3 collapse results would have been ambiguous. The same principle applied at each subsequent gate. Phase~4's zero-sum failure motivated Phase~5's game structure change. Phase~5's success motivated Phase~6's scaling test.
 
-\section{Critical self evaluation}
-Scope remained tight when implementation risk increased. This decision improved result reliability.
+The config-driven fairness control was also effective. Because all experimental parameters were externalised to \texttt{config.json} from the start, every comparison was provably identical in all conditions other than the variable under test. An external reviewer can reconstruct any trial from the config snapshot embedded in the metric output file. This discipline was not costly to implement but prevented a class of confounds that would have been difficult to detect and correct retrospectively.
 
-Early writing pace can improve in future projects. Too much time was spent in exploration before full chapter drafting.
+The decision to continue beyond Phase~3 rather than stopping at the first successful result produced the most original contributions. The 83 per cent cooperative improvement in Phase~5 would not have been found if the project had ended at the Phase~3 competitive equilibrium results. The scaling failure in Phase~6, the boundary characterisation in Phase~7, the curriculum decomposition in Phase~8, and the difference rewards analysis in Phase~10 all followed from the decision to keep asking the next question.
+
+The algorithm confound in Phase~10 was the main area that did not work well. The \texttt{config.json} file still contained \texttt{"algo": "vanilla"} when rainbow-lite was intended for Phase~10A. The first batch of trials therefore tested the wrong algorithm. The error was caught by reading the \texttt{"algorithm"} field embedded in the output metric JSON rather than by reviewing the config file before running. The lesson is that config inspection at the start of every experiment batch is a necessary check, not an optional one. Embedding config snapshots in telemetry output is an effective safeguard, but it should not be the only one.
+
+Writing pace was a second area for improvement. Chapters~1 to~3 were drafted while Phases~1 to~3 were active, which made them detailed and timely. Phases~4 to~10 were completed before the corresponding chapters were written, which made the retrospective write-up harder. Writing contemporaneously with experimentation is a better practice.
 
 \section{Personal reflection and lessons learned}
-Reproducibility emerged as a core engineering skill. Simple baselines also exposed design issues quickly.
 
-\section{Legal social ethical and professional issues}
-Public research sources were used with citation. No personal data was collected from participants.
+The most significant conceptual shift during the project was the recognition that negative results are contributions. Phase~10's failure to produce cooperative behaviour via difference rewards was frustrating initially. The mathematical analysis of the gradient inversion transformed it into a finding. The formula failed. The reason it failed can be stated precisely. This precision is what makes a negative result publishable rather than merely disappointing.
 
-Energy use was considered during long training runs. Waste was reduced by using short smoke checks before long runs.
+The N of four scaling cliff was not predicted. The project could have treated Phase~6's failure as a dead end and stopped. Designing Phase~7 to characterise the boundary precisely was the decision that produced a genuinely new empirical finding. The habit of asking "where exactly does this transition occur?" rather than "does this work?" produced more informative results throughout the project.
 
-\subsection{Legal issues}
-Open publication sources were followed and cited clearly.
+Reproducibility standards imposed discipline that paid dividends later. Because all prior phases used fixed seeds and matched budgets, the Phase~7 and Phase~8 ablations could attribute results to game structure and training schedule rather than to evaluation noise. The upfront cost of implementing this discipline was small. The downstream benefit of being able to make confident comparative claims was large.
 
-\subsection{Social issues}
-This project did not interact with human participants.
+\section{Legal, social, ethical and professional issues}
 
 \subsection{Ethical issues}
-Conclusions were not overstated in limited scope experiments.
+
+No human participants were involved at any stage of this project. No consent forms were required. The LLM baseline in Phase~9 uses the Anthropic Claude Haiku API. No personal data was transmitted to the API at any point. Race state information is synthetic and contains no identifying information.
+
+\subsection{Legal issues}
+
+All external libraries used in this project are open-source. FastF1 is released under the MIT licence. PyTorch is released under a BSD-style licence. NumPy and Pandas are released under BSD licences. The Anthropic Claude Haiku API was used under Anthropic's standard commercial terms of service. The FastF1 telemetry data is drawn from publicly available Formula~1 race data intended for non-commercial research use, consistent with the library's intended purpose and licence terms.
+
+\subsection{Social issues}
+
+This project does not interact with human participants and does not collect or process personal data. The research question concerns the behaviour of autonomous software agents in a simulated environment. There are no direct social impacts from the project itself.
+
+The broader research area has social relevance. Autonomous agents with configurable incentive structures are deployed in domains beyond motorsport simulation, including financial trading, logistics optimisation, and competitive resource allocation. The finding that incentive formula design shapes emergent agent behaviour as strongly as algorithm choice is relevant to anyone designing the reward contracts for multi-agent systems in these domains. The project provides controlled evidence that poorly designed cooperative incentives can produce competitive or even harmful agent behaviour, which is a meaningful contribution to the broader conversation about AI alignment in multi-agent settings.
 
 \subsection{Professional issues}
-Version control was used with traceable experiment settings.
 
-\chapter{External Material}
-Publicly available papers were used as academic background material.
+This project follows the reproducibility standards identified as necessary for trustworthy reinforcement learning comparisons by \citet{henderson2018deep} and \citet{agarwal2021statistical}. Matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics are treated as professional obligations rather than optional additions. The git repository provides a full audit trail of experimental code, configuration changes, and metric outputs. All claims in the main report are traceable to specific metric files or mathematical derivations.
 
-FastF1 based track data from public tooling was used in the workflow.
+\chapter{External Materials}
+\label{appendix:external}
 
-\section{Related Work Comparison}
-Table~\ref{tab:related-work-comparison} summarises key studies reviewed in Chapter 1 and highlights how this dissertation positions its contribution.
+All materials not developed by the student are listed below.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{External materials used in this project}
+\label{tab:external-materials}
+\begin{tabular}{|p{3.5cm}|p{2.5cm}|p{5cm}|p{2.5cm}|}
+\hline
+\textbf{Material} & \textbf{Version} & \textbf{Purpose} & \textbf{Licence} \\
+\hline
+FastF1 & v3.x & 2023 Belgian Grand Prix telemetry for overtaking zone difficulty calibration & MIT \\
+\hline
+PyTorch & v2.x & Neural network implementation for all DQN-family variants & BSD \\
+\hline
+NumPy & v1.x & Numerical computation in simulator and metrics scripts & BSD \\
+\hline
+Pandas & v2.x & Metrics aggregation and results table generation & BSD \\
+\hline
+Anthropic Claude Haiku & API (2024) & Zero-shot LLM agent for Phase~9 semantic baseline & Commercial API terms of service \\
+\hline
+\end{tabular}
+\end{table}
+
+All academic papers cited in this report were accessed through publicly available sources or the University of Leeds library. No software developed for this project relies on proprietary algorithms or datasets. The project codebase is available to the supervisor and assessor via the git repository linked in the project submission.
+
+The related work comparison table from the original report is reproduced in Table~\ref{tab:related-work-comparison} below for reference.
 
 \begin{table}[htbp]
 \centering
