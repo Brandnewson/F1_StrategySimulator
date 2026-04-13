@@ -107,6 +107,27 @@ This dissertation & F1-inspired competitive simulator with staged complexity & R
 \end{table}
 
 
+\section{Overtaking zone calibration figures}
+\label{sec:overtaking-figures}
+
+The following figures show the FastF1 telemetry analysis used to calibrate overtaking zone difficulty values in Section~2.1. Figure~\ref{fig:overtakes-spa} plots the absolute number of position changes against track distance at the 2023 Belgian Grand Prix. Figure~\ref{fig:overtaking-mapping} overlays overtake density on the Spa-Francorchamps circuit layout. Both are derived from publicly available race data accessed via the FastF1 library.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}[t]{0.47\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{NumberOfOvertakesSpa.png}
+        \caption{Absolute overtakes by track distance, 2023 Belgian Grand Prix.}
+        \label{fig:overtakes-spa}
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.47\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{overtakingMapping.png}
+        \caption{Overtake density mapped to the Spa-Francorchamps circuit.}
+        \label{fig:overtaking-mapping}
+    \end{minipage}
+\end{figure}
+
 \chapter{Phase 0 and Phase 1 Experimental Validation}
 \label{appendix:phase01}
 
