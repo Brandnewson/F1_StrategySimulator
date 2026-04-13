@@ -116,13 +116,13 @@ The following figures show the FastF1 telemetry analysis used to calibrate overt
     \centering
     \begin{minipage}[t]{0.47\textwidth}
         \centering
-        \includegraphics[width=\linewidth]{NumberOfOvertakesSpa.png}
+        \includegraphics[width=\linewidth]{diagrams/NumberOfOvertakesSpa.png}
         \caption{Absolute overtakes by track distance, 2023 Belgian Grand Prix.}
         \label{fig:overtakes-spa}
     \end{minipage}\hfill
     \begin{minipage}[t]{0.47\textwidth}
         \centering
-        \includegraphics[width=\linewidth]{overtakingMapping.png}
+        \includegraphics[width=\linewidth]{diagrams/overtakingMapping.png}
         \caption{Overtake density mapped to the Spa-Francorchamps circuit.}
         \label{fig:overtaking-mapping}
     \end{minipage}
@@ -326,5 +326,17 @@ s1 and s2 show interpretable degradation direction & Met (see note) \\
 \end{table}
 
 The degradation direction was interpretable but structurally attenuated. The headline win rate was flat at s1 due to La Source dominance, and only the s2 comparison showed a reduction. The behavioural degradation signal (AGGRESSIVE flip, zone discrimination collapse, rising tactical penalty, increased seed variance) was present and mechanistically consistent across s1 and s2. Gate~G1 was cleared and Phase~2 proceeded with this understanding recorded.
+
+\chapter{System Class Diagram}
+\label{appendix:classdiagram}
+
+The figure below shows the full UML class diagram for the simulator core. All DQN-family agent types inherit from the abstract \texttt{BaseAgent} interface. \texttt{RaceSimulator} owns runtime state through \texttt{RaceState} and delegates observation construction to \texttt{DriverFeedback}. The \texttt{DQNAgent} class is parameterised via \texttt{dqn\_params.algo} in \texttt{config.json}, selecting the active variant without changing any interface contract.
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.88\textheight,keepaspectratio]{diagrams/class_diagram.png}
+\caption{UML class diagram of the F1 simulator core.}
+\label{fig:class-diagram}
+\end{figure}
 
 \end{appendices}

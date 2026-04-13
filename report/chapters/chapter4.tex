@@ -1,7 +1,7 @@
 \chapter{Results, Evaluation and Discussion}
 \label{chapter4}
 
-This chapter presents results across all ten research phases and interprets them in the context of the three research questions. Section~\ref{sec:prelim} summarises the preliminary validation gates that confirmed experimental integrity before any multi-agent claims were made. Sections~\ref{sec:rq1} to~\ref{sec:rq3} address RQ1, RQ2, and RQ3 in turn, drawing on evidence from the relevant phases. Section~\ref{sec:discussion} compares findings against the existing literature. Section~\ref{sec:validity} identifies the main validity threats. Section~\ref{sec:futurework} sets out directions for future work.
+This chapter evaluates the comparative performance of DQN-family algorithms in the F1-inspired multi-agent race simulator, addressing the project aim of understanding how algorithm choice and incentive structure determine whether competitive equilibrium or genuine cooperative advantage emerges under uncertainty. Results are organised around the three research questions defined in Chapter~2 and cover Phases~2 to~10 of the experimental methodology.
 
 \section{Preliminary validation}
 \label{sec:prelim}
@@ -17,21 +17,21 @@ Three gate checks were completed before multi-agent experiments began. Table~\re
 \hline
 \textbf{Gate} & \textbf{Phase} & \textbf{Outcome} & \textbf{Key evidence} \\
 \hline
-G0 & Phase 0 system integrity & Pass & 12 of 12 tests pass; 3 defects found and corrected before any learning runs \\
+G0 & Phase 0 system integrity & Pass & 12 of 12 tests pass, 3 defects found and corrected before any learning runs \\
 \hline
-G1 & Phase 1 smoke validation & Pass & Win rate above 0.75 across three seeds; AGGRESSIVE flip identified as Q-value overestimation symptom \\
+G1 & Phase 1 smoke validation & Pass & Win rate above 0.75 across three seeds, AGGRESSIVE flip identified as Q-value overestimation symptom \\
 \hline
-G2 & Phase 2 DQN benchmark & Pass & Rainbow-lite wins 0.835 of races (CI95 0.817 to 0.852); zero collapse across nine trials \\
+G2 & Phase 2 DQN benchmark & Pass & Rainbow-lite wins 0.835 of races (CI95 0.817 to 0.852), zero collapse across nine trials \\
 \hline
 \end{tabular}
 \end{table}
 
-Phase~2 produced the DQN-family ranking used in all subsequent phases. Rainbow-lite ranked first at s0 (win rate 0.835, CI95 0.817 to 0.852), with a confidence interval that does not overlap vanilla DQN's interval (0.746, CI95 0.727 to 0.765). Rainbow-lite also showed near-zero robustness degradation across stochasticity levels (change of $+0.005$ from s0 to s2), confirming that its PER and double-target mechanisms prevent the Q-value instability documented in Phase~1. Dueling DQN ranked last at s0 (0.724), below vanilla, indicating that the value-advantage decomposition adds no benefit in the La Source-dominant two-agent environment. The s0 ranking was rainbow-lite, then double, then vanilla, then dueling. This order informed algorithm selection for all subsequent phases.
+Phase~2 produced the DQN-family ranking used in all later phases. Rainbow-lite ranked first at s0 with a win rate of 0.835 and CI95 from 0.817 to 0.852. Its interval does not overlap vanilla DQN, which achieved 0.746 with CI95 from 0.727 to 0.765. Rainbow-lite also showed near-zero degradation from s0 to s2, with a change of $+0.005$. The result is consistent with PER and double-target correction reducing value instability \citep{schaul2016prioritized,vanhasselt2016double}. Dueling DQN ranked last at s0 with 0.724. It ranked below vanilla, so value-advantage decomposition did not help in this two-agent setting. The s0 order was rainbow-lite, double, vanilla, then dueling. That order was used for algorithm selection in later phases.
 
 \section{RQ1: What strategic behaviours emerge and how robust are they?}
 \label{sec:rq1}
 
-Phase~3 is the first setting where emergent strategy from two concurrently learning agents can be observed. Two identical DQN-family agents train simultaneously, each maintaining independent replay buffers and network parameters with no shared weights or gradient updates at any point.
+Phase~3 is the first setting where emergent strategy can be observed during concurrent learning. Two identical DQN-family agents train at the same time. Each agent keeps an independent replay buffer and independent network parameters. No weights or gradients are shared.
 
 \subsection{Collapse rates and the algorithm hierarchy}
 
@@ -56,27 +56,36 @@ Rainbow-lite  & 0 of 3 & 0 of 3 & 0 of 3 & 0 of 9 (0\%)  & 100\% \\
 
 Rainbow-lite achieves zero collapses across all nine trials. Vanilla and dueling both show 44 per cent collapse rates with identical per-stochasticity profiles. Double DQN shows an 11 per cent rate. The ablation is unambiguous. Vanilla and dueling, which share neither PER nor double-target correction, achieve the same collapse rate. Adding double-target correction alone reduces the rate to 11 per cent. Adding PER alongside double-target correction eliminates collapse entirely.
 
-The collapse mechanism is replay buffer contamination under positional asymmetry. The trailing agent's early overtake attempts at high-difficulty zones yield predominantly negative rewards. These populate the replay buffer with \textsc{attempt, negative reward} transitions. Under uniform sampling, Q(\textsc{hold}) climbs above Q(\textsc{attempt}) across gradient updates. The shared epsilon decay schedule then locks in the passive strategy before recovery is possible. Extended vanilla trials at 750 episodes worsened collapse rather than resolving it, confirming that the feedback loop is irreversible within the training horizon once activated. This pattern is consistent with the instability pathology for independent Q-learners documented by \citet{foerster2017stabilising} and \citet{matignon2012independent}.
+The collapse mechanism is replay buffer contamination under positional asymmetry. Early overtake attempts by the trailing agent often fail in difficult zones. This produces many \textsc{attempt, negative reward} transitions. With uniform replay sampling, Q(\textsc{hold}) rises above Q(\textsc{attempt}) across updates. Shared epsilon decay then locks in passivity before recovery can happen. Extended vanilla training to 750 episodes made collapse worse, not better. This indicates an irreversible loop within the training horizon once collapse begins. The pattern is consistent with the instability reported by \citet{foerster2017stabilising} and \citet{matignon2012independent}.
 
-\citet{schroeaderdewitt2020ippo} show that independent learning with policy gradient methods achieves competitive performance on the StarCraft benchmark. The Phase~3 result is consistent with this finding. It is not independent learning per se that fails, but independent value-based learning with uniform replay under positional asymmetry. PER addresses the asymmetry by up-weighting high-TD-error transitions from both agents' early training windows.
+\citet{schroeaderdewitt2020ippo} show that independent learning with policy gradient methods can be competitive on StarCraft. Phase~3 is consistent with that result. The failure mode here is independent value learning with uniform replay under positional asymmetry. PER helps by up-weighting high TD-error transitions from both agents during early learning.
 
 \subsection{Emergent equilibrium classes}
 
 Two equilibrium classes emerge across Phase~3, determined by whether the algorithm prevents collapse.
 
-\textbf{Class 1: degenerate hierarchical resolution.} One agent converges to complete passivity while the other wins by default. This accounts for 44 per cent of vanilla and dueling trials. No strategic information is produced. This is the degenerate Nash equilibrium of non-cooperative two-agent Q-learning under positional asymmetry, as described by \citet{tan1993multiagent}.
+\textbf{Class 1. Degenerate hierarchical resolution.} One agent converges to complete passivity and the other wins by default. This accounts for 44 per cent of vanilla and dueling trials. No strategic information is produced. This matches the degenerate equilibrium predicted for non-cooperative two-agent Q-learning under positional asymmetry \citep{tan1993multiagent}.
 
-\textbf{Class 2: zone specialisation with hawk-dove risk equilibrium.} Agents develop differentiated zone coverage and opposing risk profiles without any shared coordination mechanism. This occurs in 100 per cent of rainbow-lite trials and 89 per cent of double DQN trials. The canonical example is the rainbow-lite s2, seed~202, 750-episode trial, which achieves a zone differentiation index of 0.405. Agent~1 concentrates on La Source, Les Combes, and Bruxelles with a predominantly conservative risk profile. Agent~2 takes a broader but thinner footprint across five zones with an aggressive risk bias. The two agents partition secondary overtaking territory while both contesting the highest-value zone.
+\textbf{Class 2. Zone specialisation with hawk-dove risk equilibrium.} Agents develop differentiated zone coverage and opposing risk profiles without shared coordination. This appears in 100 per cent of rainbow-lite trials and 89 per cent of double DQN trials. A representative case is rainbow-lite at s2 with seed~202 and 750 episodes. That trial reaches a zone differentiation index of 0.405. Agent~1 focuses on La Source, Les Combes, and Bruxelles with a conservative bias. Agent~2 covers five zones with a more aggressive bias. The agents partition secondary overtaking zones while still contesting the highest-value zone.
 
-This specialisation emerges from iterated best-response dynamics \citep{busoniu2008survey}. When one agent commits to aggressive attempts at a zone, the other's best response is to focus on lower-risk alternatives. Zone preferences strengthen over time as Q-values for each agent's territory become more reliable than Q-values for the contested territory. The hawk-dove risk profile is a mixed-strategy equilibrium of the risk-selection subgame, consistent with competitive two-agent MARL theory.
+Specialisation emerges from iterated best-response dynamics \citep{busoniu2008survey}. When one agent commits to aggressive attempts in one zone, the other agent responds by shifting to lower-risk alternatives. Preferences then strengthen as each agent accumulates more reliable values in its own territory. The hawk-dove risk split is consistent with mixed strategy equilibrium behaviour in competitive two-agent MARL.
 
 Zone specialisation is also a training-budget effect. At 500 episodes, the zone differentiation index for rainbow-lite at s2 is 0.022. At 750 episodes it rises to 0.405. PER requires sufficient zone-specific transitions to assign reliable relative priorities for secondary zones. At 500 episodes these priorities are unreliable for rarely-visited zones, causing both agents to default to La Source.
+Figure~\ref{fig:phase3-zone-specialisation-growth} shows the growth in the zone differentiation index across this training window.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.88\textwidth]{diagrams/phase3_zone_specialization_growth.png}
+\caption{Zone differentiation growth for rainbow-lite at s2. The index remains low at 500 episodes and rises by 750 episodes, showing that specialisation depends on training budget rather than a hard threshold.}
+\label{fig:phase3-zone-specialisation-growth}
+\end{figure}
 
 \subsection{Non-stationarity versus stochasticity}
+\label{sec:phase3-bias}
 
-A crossplay protocol applied to rainbow-lite at s2 reveals a structural evaluation bias. The A1 slot receives a less favourable starting position across evaluation races, producing an approximately 11 percentage point disadvantage relative to the expected parity floor of 0.500. All raw A1 win rates in Phase~3 are subject to this confounder. The collapse versus non-collapse classification is not affected, since a win rate of 0.960 is degenerate regardless of the offset. Bias-corrected results for rainbow-lite at s2 show four of five seeds at or above the parity floor.
+A crossplay protocol for rainbow-lite at s2 reveals structural evaluation bias. The A1 slot receives a weaker starting position across evaluation races. This produces about an 11 percentage point disadvantage relative to the parity floor of 0.500. All raw A1 win rates in Phase~3 are affected by this confounder. Collapse classification is not affected, since a win rate of 0.960 is degenerate regardless of offset. Bias-corrected results at s2 show four of five seeds at or above parity.
 
-The dominant challenge in Phase~3 is non-stationarity from a concurrently adapting opponent, not stochastic outcome noise. Vanilla and dueling collapse rates rise from one of three at s0 to two of three at s2, showing that stochasticity accelerates but does not cause collapse. Rainbow-lite maintains zero collapses at all stochasticity levels, with mean win rates of approximately 0.553 at s0, 0.552 at s1, and 0.400 at s2. This pattern is consistent with \citet{foerster2017stabilising}, who find that MARL non-stationarity is a more severe stability challenge than stochastic outcome variance for independent learners.
+The dominant challenge in Phase~3 is non-stationarity from a concurrently adapting opponent, not stochastic outcome noise. Vanilla and dueling collapse rates rise from one of three at s0 to two of three at s2, showing that stochasticity accelerates but does not cause collapse. Rainbow-lite maintains zero collapses at all stochasticity levels, with mean win rates of approximately 0.553 at s0, 0.552 at s1, and 0.400 at s2. That pattern is consistent with \citet{foerster2017stabilising}, who find that MARL non-stationarity is a more severe stability challenge than stochastic outcome variance for independent learners.
 
 \subsection{RQ1 answer}
 
@@ -85,7 +94,7 @@ Concurrent training produces interpretable strategic structure when the algorith
 \section{RQ2: How does incentive structure alter strategy, and is there a destabilisation threshold?}
 \label{sec:rq2}
 
-Phase~3 established what happens with purely competitive agents (alpha of 0). RQ2 asks what happens when the rules change. Five phases address this question by varying alpha, game structure, agent count, and training schedule.
+Phase~3 established behaviour under pure competition at alpha 0. RQ2 asks what changes when incentives change. Five phases address this by varying alpha, game structure, agent count, and training schedule.
 
 \subsection{Phase 4: zero-sum alpha sweep}
 
@@ -109,15 +118,22 @@ Phase~4 introduces the alpha reward mixing mechanism into the two-agent zero-sum
 \end{tabular}
 \end{table}
 
-The transition between alpha of 0.5 and 0.75 is sharp. Below this threshold, low collapse rates indicate that partial incentive alignment does not destabilise learning. Above it, agents converge to passivity in nearly every trial. At alpha of one, every trial collapses.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{diagrams/phase4_collapse_vs_alpha.png}
+\caption{Collapse rates by alpha across 9 trials per alpha value. Transition between $\alpha=0.5$ and $\alpha=0.75$ is sharp, not gradual. At $\alpha \ge 0.75$, agents fall into passive equilibrium in more than 80\% of trials.}
+\label{fig:phase4-collapse-vs-alpha}
+\end{figure}
 
-The mechanism is structural. In a two-agent zero-sum race, one agent's position gain comes at the other's expense. An agent receiving a large fraction of its teammate's reward is penalised when its own overtakes improve its position at the teammate's cost. Q-values for active strategies become negatively rewarded through the cooperative term. Agents learn that the safest strategy is to hold position and let the teammate act. Once both agents reach this conclusion, both collapse to passivity simultaneously. This is consistent with the cooperative game dynamics described by \citet{claus1998dynamics}.
+The transition between alpha of 0.5 and 0.75 is sharp. Figure~\ref{fig:phase4-collapse-vs-alpha} shows the step change in collapse rate. Below this threshold, low collapse rates indicate that partial incentive alignment does not destabilise learning. Above it, agents converge to passivity in nearly every trial. At alpha of one, every trial collapses.
 
-H2 predicted a sharp threshold. The Phase~4 data confirm this at the 0.5 to 0.75 boundary. The threshold is not a function of a particular alpha value but of the point at which the cooperative reward term begins to dominate the individual gradient.
+The mechanism is structural. In a two-agent zero-sum race, one agent's gain is the other agent's loss. When an agent receives a large share of teammate reward, successful overtakes can produce a net penalty through the cooperative term. This drives down values for active strategies. Both agents then learn that holding position is safer than acting. Once this policy is learned by both sides, both collapse into passivity. This behaviour is consistent with the cooperative dynamics described by \citet{claus1998dynamics}.
+
+H2 predicted a sharp threshold. The Phase~4 data confirm this at the 0.5 to 0.75 boundary. The threshold depends on the point at which the cooperative reward term begins to dominate the individual gradient, not on a particular alpha value.
 
 \subsection{Phase 5: non-zero-sum game and genuine cooperative advantage}
 
-Phase~4 raised a structural question. Is cooperation fundamentally incompatible with independent learning, or is the zero-sum game the problem? Phase~5 changes the game structure by adding a fixed Base adversary as a third competitor. Both DQN agents can now improve simultaneously by outperforming the adversary. Table~\ref{tab:phase5-results} shows the joint beat-base rate by alpha value across 45 trials.
+Phase~4 suggested that cooperative failure may stem from zero-sum game structure rather than from independent learning itself. Phase~5 tests this by changing the game structure and adding a fixed Base adversary as a third competitor. Both DQN agents can now improve simultaneously by outperforming the adversary. Table~\ref{tab:phase5-results} shows the joint beat-base rate by alpha value across 45 trials.
 
 \begin{table}[htbp]
 \centering
@@ -139,7 +155,7 @@ Phase~4 raised a structural question. Is cooperation fundamentally incompatible 
 
 Collapse disappears at all alpha values. The joint beat-base rate follows an inverted-U curve peaking at alpha of 0.75. Alpha of one produces less benefit than alpha of 0.75 because agents need a minimum of individual incentive to maintain coherent individual learning gradients. When the individual component is removed entirely, agents lose the signal that their own actions have consequences, weakening the overtaking strategy that generates joint performance.
 
-Hawk-dove risk roles re-emerge under cooperation. At alpha of 0.75 the two agents adopt complementary risk profiles directed against the Base adversary rather than against each other. The weaker agent at alpha of zero (Agent~2, 63 per cent beat-base rate) improves most at alpha of 0.75 (78 per cent beat-base rate). This is coordinated resource partitioning, not redistribution of a fixed outcome pool.
+Hawk-dove risk roles re-emerge under cooperation. At alpha of 0.75 the two agents adopt complementary risk profiles directed against the Base adversary rather than against each other. The weaker agent at alpha of zero (Agent~2, 63 per cent beat-base rate) improves most at alpha of 0.75 (78 per cent beat-base rate). The pattern indicates complementary resource partitioning between agents.
 
 An ablation study confirms causality. Replacing one DQN agent with a Base agent at alpha of 0.75 reduces joint beat-base from 0.567 to 0.421. Replacing both DQN agents with Base agents at alpha of 0.75 reduces it to 0.289. The alpha effect operates on top of the policy quality effect. Game structure alone does not explain the Phase~5 improvement \citep{hughes2018inequity}.
 
@@ -164,105 +180,63 @@ Team A alpha 0.75 vs Team B alpha 0.0 & 0.291 & $-17\%$ \\
 \end{tabular}
 \end{table}
 
-Every form of cooperation degrades performance. The cooperative team loses to the competitive team in the asymmetric condition (47.5 per cent win rate for the cooperative team). The 83 per cent improvement from Phase~5 becomes a 31 per cent degradation at five agents.
+Every tested form of cooperation degrades performance in Phase~6. In the asymmetric condition, the cooperative team loses to the competitive team. The cooperative team win rate is 47.5 per cent. The 83 per cent gain from Phase~5 becomes a 31 per cent degradation at five agents.
 
-The root cause is credit assignment dilution. In Phase~5 each agent's actions strongly influence one teammate. At alpha of 0.75 in a three-agent race, 75 per cent of reward comes from the teammate whose race the agent directly affects. In Phase~6, each agent's influence is diluted across three other agents sharing the track. Three-quarters of the reward signal comes from sources the agent can barely control. Q-value updates become noisy. Agents learn caution rather than coordination. This is the credit assignment problem identified by \citet{agogino2004unifying}: shared team reward becomes uninformative to individual agents when the team is large relative to any one agent's sphere of influence.
+The root cause is credit assignment dilution. In Phase~5, each agent strongly influences one teammate. At alpha 0.75 in a three-agent race, most cooperative signal comes from outcomes the agent can influence directly. In Phase~6, influence is diluted across three other agents on the track. Most reward signal then comes from sources the agent cannot control well. Updates become noisy, and agents learn caution instead of coordination. This matches the credit assignment problem described by \citet{agogino2004unifying}.
 
 \subsection{Phase 7: characterising the scaling boundary}
 
-Phase~7 identifies the agent count at which cooperation transitions from beneficial to neutral or harmful. Phase~7A tests three DQN agents plus one Base adversary. Phase~7B applies a low-alpha sweep within the five-agent configuration. Table~\ref{tab:phase7-boundary} shows the alpha of 0.75 effect across agent counts.
+Phase~7 identifies the agent count at which cooperation transitions from beneficial to neutral or harmful. Phase~7A tests three DQN agents plus one Base adversary. Phase~7B applies a low-alpha sweep within the five-agent configuration. The alpha of 0.75 effect moves from $+83\%$ at three agents (Phase~5), to $+5\%$ at four agents (Phase~7A, within noise), to $-31\%$ at five agents (Phase~6), as shown in Figure~\ref{fig:phase5to7-cooperative-cliff}.
 
-\begin{table}[htbp]
+\begin{figure}[htbp]
 \centering
-\small
-\caption{Phase 7 cooperative advantage by total agent count at alpha 0.75}
-\label{tab:phase7-boundary}
-\begin{tabular}{|l|c|c|}
-\hline
-\textbf{Configuration} & \textbf{Alpha 0.75 effect} & \textbf{Interpretation} \\
-\hline
-3 agents (Phase 5)  & $+83\%$ & Strong cooperative advantage \\
-4 agents (Phase 7A) & $+5\%$  & No meaningful effect (within noise) \\
-5 agents (Phase 6)  & $-31\%$ & Cooperative harm \\
-\hline
-\end{tabular}
-\end{table}
+\includegraphics[width=0.88\textwidth]{diagrams/phase5to7_cooperative_advantage_cliff.png}
+\caption{Cooperative advantage at $\alpha=0.75$ across agent counts. The transition from N=3 to N=4 removes the gain, and N=5 produces harm relative to the competitive baseline.}
+\label{fig:phase5to7-cooperative-cliff}
+\end{figure}
 
-Adding one agent to the successful Phase~5 setup eliminates the entire cooperative advantage. The boundary is at four agents and it is a cliff rather than a slope. Phase~7B confirms that this failure is not parametric. Testing alpha values of 0.10, 0.15, and 0.25 in the five-agent game produces no improvement over the competitive baseline (beat-base rates between 0.344 and 0.347, against a baseline of 0.350). There is no alpha value that recovers cooperative performance at this scale.
+Adding one agent to the successful Phase~5 setup removes the cooperative advantage. The boundary is at four agents, and the change is abrupt. Figure~\ref{fig:phase5to7-cooperative-cliff} captures this drop. Phase~7B confirms that no parameter tuning recovers cooperative performance at this scale. Alpha values of 0.10, 0.15, and 0.25 in the five-agent game show no improvement over the competitive baseline. Beat-base rates stay between 0.344 and 0.347 against a baseline of 0.350.
 
-Alpha of 0.75 increases zone differentiation by 63 per cent at four agents relative to alpha of zero. Agents do respond to the cooperative signal by specialising their zone coverage. But this specialisation does not translate into better joint outcomes. Instead, attempt rates drop 38 to 64 per cent across zones. Agents specialise by becoming cautious, not by becoming effective. The cooperative signal teaches them to avoid conflict rather than to exploit their respective strengths.
+Alpha of 0.75 increases zone differentiation by 63 per cent at four agents relative to alpha of zero. Agents do respond to the cooperative signal by specialising their zone coverage. But this specialisation does not translate into better joint outcomes. Instead, attempt rates drop 38 to 64 per cent across zones. Specialisation manifests as increased caution rather than effective zone coverage. The cooperative signal teaches them to avoid conflict rather than to improve individually.
 
 \subsection{Phase 8: curriculum alpha scheduling}
 
-Phase~8 tests whether the Phase~6 and Phase~7 failures are caused by the training order rather than by a fundamental incompatibility between cooperation and independent learning. The curriculum schedule trains agents at alpha of zero for 100 episodes before ramping to the target alpha over 300 episodes. Table~\ref{tab:phase8-results} shows results in both the four-agent and five-agent configurations.
-
-\begin{table}[htbp]
-\centering
-\small
-\caption{Phase 8 curriculum results versus fixed alpha and competitive baseline}
-\label{tab:phase8-results}
-\begin{tabular}{|l|c|c|c|}
-\hline
-\textbf{Condition} & \textbf{4-agent joint beat-base} & \textbf{5-agent both-beat-base} & \textbf{Recovery} \\
-\hline
-Competitive (alpha 0.0) & 0.159 & 0.350 & baseline \\
-Fixed alpha 0.75        & 0.167 & 0.243 & --- \\
-Curriculum (0 to 0.75)  & 0.184 & 0.318 & 4-agent: n/a; 5-agent: 69\% \\
-\hline
-\end{tabular}
-\end{table}
-
-At five agents, curriculum scheduling recovers 69 per cent of the Phase~6 performance loss. The caution pathology is 86 to 89 per cent eliminated. Agents that first learn individual policies retain aggressive behaviour when cooperative reward is introduced gradually. At four agents, curriculum produces the highest joint beat-base of any condition (0.184) but still falls short of demonstrating genuine cooperative advantage over a competitive baseline.
+Phase~8 tests whether the Phase~6 and Phase~7 failures are caused by the training order rather than by a fundamental incompatibility between cooperation and independent learning. The curriculum schedule trains agents at alpha of zero for 100 episodes before ramping to the target alpha over 300 episodes. At five agents, curriculum scheduling recovers 69 per cent of the Phase~6 performance loss (joint beat-base rises from 0.243 under fixed alpha to 0.318, against a competitive baseline of 0.350). The caution pathology is reduced by 86 to 89 per cent. Agents that first learn individual policies keep more aggressive behaviour when cooperative reward is introduced gradually. At four agents, curriculum gives the highest joint beat-base value at 0.184. This still does not exceed the competitive baseline by a meaningful margin.
 
 Despite the recovery, cooperation does not emerge. Intra-team action correlation remains negative ($-0.189$) in the five-agent curriculum condition. Both agents improve individually but do not coordinate actions. Curriculum scheduling prevents the damage from training order but cannot solve the underlying credit assignment problem.
 
-This finding separates two failure modes that prior literature conflated \citep{panait2005cooperative}. The training-order problem is solved by curriculum. Immediate cooperative reward overwrites individual policies with passivity. Gradual introduction prevents this. The credit assignment problem is not solved. At four or more agents, no scheduling of a shared team reward can produce cooperative gradients strong enough to align agent behaviour at the individual action level. Architectural solutions are required. Centralised training with decentralised execution methods such as QMIX \citep{rashid2018qmix} are specifically designed to address this, by giving agents access to global information during training even when executing from local observations alone.
+Recent work on multi-level advantage credit assignment reports a similar scaling problem, where overlapping agent contributions must be separated explicitly to preserve useful gradients \citep{zhao2025maca}.
+
+Curriculum separates two failure modes that earlier literature often discussed together \citep{panait2005cooperative}. It solves the training order failure mode. Immediate cooperative reward can overwrite individual policies with passivity, and gradual introduction prevents that collapse. Credit assignment failure remains unresolved. At four agents or more, scheduling a shared team reward does not produce gradients strong enough to align action level behaviour. Architectural changes are required. CTDE methods such as QMIX are designed for this setting \citep{rashid2018qmix,zhou2023ctde_enough}.
 
 \subsection{RQ2 answer}
 
-The destabilisation threshold exists and is structural. In zero-sum games it appears between alpha of 0.5 and 0.75. In non-zero-sum games it appears at four total agents regardless of alpha value or training schedule. H2 is confirmed. The threshold is not a function of alpha parameterisation but of the relationship between agent count and the strength of individual credit signal in the reward formula.
+The destabilisation threshold exists and is structural. In zero-sum games it appears between alpha of 0.5 and 0.75. In non-zero-sum games it appears at four total agents regardless of alpha value or training schedule. H2 is confirmed. The threshold depends on the relationship between agent count and the strength of individual credit signal in the reward formula, not on the particular alpha value chosen.
 
 \section{RQ3: Does shared incentive produce genuine cooperative advantage?}
 \label{sec:rq3}
 
-RQ2 identified when and why cooperative incentive fails. RQ3 addresses the positive question: when cooperation works, is the advantage genuine? And what happens when a different cooperative reward formulation is used?
+RQ2 identified when and why cooperative incentive fails. RQ3 examines whether the advantage is genuine when cooperation works, and whether this conclusion holds across reward formulations.
 
 \subsection{Phase 5: proving causality of the cooperative advantage}
 
-The Phase~5 ablation study, described in Section~\ref{sec:rq2}, establishes that the 83 per cent improvement at alpha of 0.75 is caused by the cooperative reward signal rather than by game structure alone. Replacing either DQN agent with a Base agent at the same alpha reduces joint performance substantially. Replacing both reduces it further. The alpha effect adds on top of the policy quality effect independently.
-
-The improvement is concentrated in the weaker agent. Agent~2's beat-base rate rises from 63 per cent at alpha of zero to 78 per cent at alpha of 0.75. This is not redistribution of a fixed outcome pool. Both agents improve. The total joint beat-base rate rises by 83 per cent relative to the competitive baseline. The non-zero-sum structure allows this, because the adversary provides a shared target that both agents can outperform simultaneously.
+The Phase~5 ablation study, reported in Section~\ref{sec:rq2}, establishes that the 83 per cent improvement at alpha of 0.75 is caused by the cooperative reward signal rather than by game structure alone. Crucially, both agents improve. Agent~2's beat-base rate rises from 63 per cent at alpha of zero to 78 per cent at alpha of 0.75. The non-zero-sum structure allows this because the adversary provides a shared target that both agents can outperform simultaneously, meaning the improvement is additive rather than redistributive.
 
 This finding answers RQ3 affirmatively for the three-agent non-zero-sum setting. Genuine cooperative advantage exists. It requires non-zero-sum game structure, a collapse-resistant algorithm, and an alpha value that preserves sufficient individual incentive alongside the cooperative signal. H3 is confirmed.
 
 \subsection{Phase 9: LLM semantic baseline}
 
-Phase~9 introduces a zero-shot large language model agent to establish a non-learning performance bound. The agent receives the race state in natural language and outputs an action without any training, replay buffer, or gradient computation. Table~\ref{tab:phase9-results} shows win rates against the Base adversary across stochasticity levels.
+Phase~9 introduces a zero-shot large language model agent to establish a non-learning performance bound. The agent receives the race state in natural language and outputs an action without any training, replay buffer, or gradient computation. Across all three stochasticity levels the LLM matches trained rainbow-lite within two per cent win rate: rainbow-lite achieves 0.835/0.839/0.840 at s0/s1/s2 against the LLM's 0.817/0.822/0.801. The gap is not statistically meaningful given three-seed evaluation budgets.
 
-\begin{table}[htbp]
-\centering
-\small
-\caption{Phase 9 LLM baseline win rate versus trained rainbow-lite across stochasticity levels}
-\label{tab:phase9-results}
-\begin{tabular}{|l|c|c|c|}
-\hline
-\textbf{Agent} & \textbf{s0 win rate} & \textbf{s1 win rate} & \textbf{s2 win rate} \\
-\hline
-Rainbow-lite (trained) & 0.835 & 0.839 & 0.840 \\
-LLM zero-shot          & 0.817 & 0.822 & 0.801 \\
-\hline
-\end{tabular}
-\end{table}
+The strategies are qualitatively different. The LLM prioritises conservative attempts at La Source and holds at difficult zones across stochasticity levels. Rainbow-lite spreads coverage across zones and adjusts risk using trained Q-values. Two different strategy types reach similar outcomes. This suggests that the low complexity environment has a short near-optimal policy that can be expressed in natural language.
 
-The LLM matches trained rainbow-lite within two per cent win rate across all three stochasticity levels. The gap is not statistically meaningful given three-seed evaluation budgets.
+This interpretation is consistent with recent evidence that LLM critics can provide per-agent credit explanations while preserving strong cooperative learning signals in MARL benchmarks \citep{nagpal2025llm_mca}.
 
-The strategies are qualitatively different. The LLM prioritises conservative attempts at La Source and holds at hard zones consistently across all stochasticity levels. Rainbow-lite diversifies zone coverage and adjusts risk levels based on trained Q-value estimates. Two different routes to the same outcome performance suggest that the low-complexity environment has a near-optimal policy short enough to be described in natural language.
-
-This result does not indicate that trained RL is unnecessary. It indicates that in a sparse-decision five-lap race with one dominant zone of 80 per cent base success probability, the strategy space is narrow enough that domain reasoning and Q-value optimisation converge on similar outcomes. A richer environment with tyre degradation, pit-stop decisions, and a larger field of competitors would be expected to widen this gap substantially.
+The strategy space is narrow in a sparse-decision race over five laps with one dominant zone at 80 per cent base success probability. In this setting, domain reasoning and Q-value optimisation converge to similar outcomes. A richer environment with tyre degradation and pit-stop decisions should widen the gap between the two approaches.
 
 \subsection{Phase 10: difference rewards as a cooperative formulation}
 
-Phase~10 tests difference rewards as an alternative to the alpha mixing mechanism. The formulation from \citet{wolpert2002optimal} gives each agent credit only for its counterfactual contribution to collective performance. The mean-field approximation used is:
+The mean-field difference reward approximation used in Phase~10 is:
 
 \[
 R_{\text{diff},i} = \Delta_i + (\Delta_i - \bar{\Delta}_{\text{team}})
@@ -270,13 +244,13 @@ R_{\text{diff},i} = \Delta_i + (\Delta_i - \bar{\Delta}_{\text{team}})
 
 where $\Delta_i$ is agent~$i$'s position delta and $\bar{\Delta}_{\text{team}}$ is the mean delta across all team members.
 
-The cooperative gradient property of the original formulation requires that each agent's reward increases when a teammate performs better. We can check whether the approximation preserves this by differentiating $R_{\text{diff},i}$ with respect to teammate~$j$'s delta $\Delta_j$:
+The cooperative gradient property of the original formulation requires that each agent's reward increases when a teammate performs better. This can be confirmed by differentiating $R_{\text{diff},i}$ with respect to teammate~$j$'s delta $\Delta_j$:
 
 \[
 \frac{\partial R_{\text{diff},i}}{\partial \Delta_j} = -\frac{1}{N}
 \]
 
-This gradient is negative for all values of $N$. When teammate $j$ overtakes successfully, agent~$i$'s reward decreases because the team mean rises. The approximation inverts the cooperative gradient. Rather than giving agent~$i$ credit for its contribution, it penalises agent~$i$ for its teammate's success. This is the opposite of what \citet{wolpert2002optimal} intended. The mean-field substitution loses the counterfactual property because it uses the observed team mean rather than the true counterfactual outcome $G(\mathbf{z}_{-i})$.
+This gradient is negative for all values of $N$. When teammate $j$ overtakes successfully, agent~$i$'s reward decreases because the team mean rises. The approximation therefore penalises agent~$i$ for its teammate's success rather than crediting its own contribution, inverting what \citet{wolpert2002optimal} intended. The mean-field substitution loses the counterfactual property because it uses the observed team mean rather than the true counterfactual outcome $G(\mathbf{z}_{-i})$.
 
 Table~\ref{tab:phase10-results} shows the empirical result.
 
@@ -298,39 +272,31 @@ Difference rewards (rainbow-lite)         & 0.133 & $-16\%$ \\
 
 Difference rewards rank last among all tested reward formulations. Even the stronger algorithm (rainbow-lite) produces a 16 per cent regression from the IQL baseline. The algorithm effect (31 percentage points between vanilla and rainbow-lite) exceeds the formula effect (16 percentage points from IQL to rainbow-lite difference rewards), confirming that algorithm choice remains a determining factor even when the reward formula is changed.
 
-\citet{devlin2014potential} show that potential-based shaping of difference rewards can preserve the cooperative gradient when the approximation is carefully designed. The mean-field substitution used here does not meet this standard. Testing a potential-based formulation is identified as future work in Section~\ref{sec:futurework}. The Yang et al.\ (2018) mean field approximation \citep{yang2018meanfield} addresses a related problem (scaling to large populations) but does not resolve the counterfactual inversion problem identified here.
+\citet{devlin2014potential} show that potential-based shaping can preserve the cooperative gradient when approximation is designed carefully. The mean-field substitution used here does not satisfy that condition. Testing a potential-based formulation is therefore included in future work. \citet{yang2018meanfield} address scaling to large populations, but that method does not resolve the counterfactual inversion identified here.
 
 \subsection{RQ3 answer}
 
-Genuine cooperative advantage exists and is confirmed empirically in Phase~5. It requires non-zero-sum game structure, a collapse-resistant algorithm, and a cooperative reward formula that preserves positive cooperative gradients. The mean-field difference rewards approximation fails the third condition and produces competitive rather than cooperative incentives. Incentive formula design matters as much as algorithm choice in determining whether cooperation can emerge.
+Genuine cooperative advantage exists and is confirmed empirically in Phase~5. It requires non-zero-sum game structure, a collapse-resistant algorithm, and a cooperative reward formula that preserves positive cooperative gradients. The mean-field difference rewards approximation fails the third condition and produces competitive rather than cooperative incentives. Figure~\ref{fig:phase5to7-cooperative-cliff} summarises the boundary once the team size increases. Incentive formula design matters as much as algorithm choice in determining whether cooperation can emerge.
 
 \section{Discussion}
 \label{sec:discussion}
 
 \subsection{Positioning relative to the literature}
 
-\citet{tan1993multiagent} established that independent learners in cooperative games can match or exceed a single centralised agent when the environment is complex, but identified communication and shared experience as critical facilitators. Phase~3 of this project extends this finding to a competitive setting. Independent learning produces viable strategies at two agents but cannot sustain cooperation at four or more without architectural support.
+Phase~3 extends \citet{tan1993multiagent} to a competitive setting. Independent learning remains viable at two agents, but cooperation does not persist at four agents or more without architectural support. Phase~10 confirms the finding of \citet{devlin2014potential}: the mean-field approximation loses the counterfactual property and inverts the cooperative gradient, showing that difference rewards require careful approximation design to preserve their theoretical properties. Phase~8 refines the taxonomy of \citet{matignon2012independent} by showing that the two independent-learner failure modes they identify — training-order collapse and credit assignment failure — are separable. Curriculum resolves the first; the second requires architectural changes that CTDE methods such as QMIX are designed to provide \citep{rashid2018qmix,amato2024ctde_intro}. PER is confirmed as the primary anti-collapse mechanism: the Phase~3 ablation hierarchy (vanilla 44 per cent, double 11 per cent, rainbow 0 per cent) cleanly isolates its contribution from double-target correction, consistent with \citet{foerster2017stabilising}.
 
-\citet{wolpert2002optimal} designed difference rewards specifically to solve the credit assignment problem through counterfactual reasoning. Phase~10 shows that the mean-field approximation of this formulation loses the counterfactual property and inverts the cooperative gradient. This is consistent with the finding of \citet{devlin2014potential} that difference rewards require careful approximation design to preserve their theoretical properties in practice.
+\subsection{Key findings}
 
-\citet{matignon2012independent} survey the failure modes of independent learners in cooperative games and identify leniency, hysteresis, and reward shaping as mitigating strategies. The curriculum scheduling in Phase~8 is a form of reward shaping that addresses the training-order failure mode. The Phase~8 finding that curriculum solves the training-order problem but not the credit assignment problem is a refinement of Matignon et al.'s taxonomy. The two problems are separable experimentally and require different solutions.
+A sharp agent-count boundary appears at N=4 in the non-zero-sum cooperative game. Cooperation is strongly beneficial at N=3, but the effect disappears at N=4 and becomes harmful at N=5. A low-alpha sweep confirms that this transition is structural rather than parametric.
 
-\citet{foerster2017stabilising} identify replay buffer non-stationarity as the primary failure mode for deep independent Q-learners in multi-agent settings. PER is confirmed here as the load-bearing anti-collapse mechanism across all nine rainbow-lite trials. The Phase~3 ablation hierarchy (vanilla 44 per cent, double 11 per cent, rainbow 0 per cent) isolates PER's contribution cleanly from the double-target correction contribution.
+Cooperative MARL failure separates into two distinct mechanisms under controlled testing. Curriculum scheduling addresses the training-order failure mode, but does not resolve credit assignment failure at larger agent counts. This experimental separation extends prior discussions that treated these issues together \citep{panait2005cooperative}.
 
-\subsection{The three novel contributions}
-
-This project makes three contributions that are not present in the existing literature.
-
-The first is the empirical identification of a sharp agent-count scaling boundary at N of four in a non-zero-sum cooperative game. Prior work has documented cooperation failure at scale, but not characterised the precise agent count at which the transition occurs or confirmed through a low-alpha sweep that the failure is structural rather than parametric.
-
-The second is the decomposition of cooperative MARL failure into two separable problems using curriculum scheduling as a surgical tool. The training-order problem and the credit assignment problem have been discussed separately in the literature \citep{panait2005cooperative} but have not been isolated experimentally in a single controlled setting with a common evaluation metric.
-
-The third is the mathematical proof that the mean-field approximation of difference rewards inverts the cooperative gradient, accompanied by the empirical confirmation that this inversion produces a performance regression below the competitive baseline. This connects a theoretical observation to a measured outcome in a concrete experimental setting.
+The mean-field approximation of difference rewards inverts the cooperative gradient in theory and underperforms in practice. The derivation predicts a negative teammate gradient, and Phase~10 results regress below the competitive baseline accordingly.
 
 \section{Validity threats and limitations}
 \label{sec:validity}
 
-\textbf{La Source structural dominance.} La Source's difficulty of 0.2 gives a base success probability of 0.8. Consistent attempts at La Source produce a reliable win margin over five laps regardless of decisions at other zones. The win rate metric in Phases~1 and~2 partly reflects exploitation of this single zone rather than genuine strategy learning. Zone discrimination metrics and the zone differentiation index are used throughout to mitigate this, but the La Source confound is an inherent limitation of the low-complexity simulator scope.
+\textbf{La Source structural dominance.} La Source has difficulty 0.2, which gives base success probability 0.8. Repeated attempts there can produce a reliable margin over five laps regardless of choices elsewhere. Win rate in Phases~1 and~2 therefore partly reflects exploitation of one zone. Zone discrimination metrics and the zone differentiation index reduce this bias, but the confound remains a limitation of the low-complexity simulator scope.
 
 \textbf{Evaluation protocol positional bias.} The crossplay analysis in Phase~3 reveals an approximately 11 percentage point structural disadvantage against the A1 evaluation label. All raw A1 win rates in Phase~3 are affected. The collapse classification is not affected. A code-level fix applying the same round-robin start position cycle during evaluation as during training would resolve this in future work.
 
@@ -343,7 +309,7 @@ The third is the mathematical proof that the mean-field approximation of differe
 \section{Future work}
 \label{sec:futurework}
 
-\textbf{QMIX and centralised training.} Phase~8 identified the credit assignment problem as the barrier to cooperation at N of four or more. QMIX \citep{rashid2018qmix} addresses this directly through a mixing network that enforces a monotonicity constraint on the relationship between individual Q-values and the joint Q-value. This preserves cooperative gradients at the individual action level regardless of agent count. QTRAN \citep{son2019qtran} relaxes the monotonicity constraint to allow exact factorisation. Both are natural next steps following the Phase~8 decomposition.
+\textbf{QMIX and centralised training.} Phase~8 identified credit assignment as the main barrier to cooperation at N of four or more. QMIX \citep{rashid2018qmix} addresses this with a mixing network under a monotonicity constraint between individual Q-values and the joint Q-value. This preserves cooperative gradients at the individual action level. QTRAN \citep{son2019qtran} relaxes the monotonicity constraint and allows exact factorisation. Recent CTDE surveys and CADP-style variants provide a broader design space for follow-on experiments \citep{amato2024ctde_intro,zhou2023ctde_enough}.
 
 \textbf{Potential-based difference rewards.} \citet{devlin2014potential} show that potential-based shaping of difference rewards can preserve the cooperative gradient when the approximation is designed to maintain the counterfactual property. Testing this formulation would complete the Phase~10 investigation and determine whether the problem is with difference rewards as a concept or with the specific mean-field approximation used here.
 

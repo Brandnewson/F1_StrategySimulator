@@ -120,15 +120,7 @@ This project uses a stochastic F1-inspired racing simulator to study how sharing
 
 \subsection{Objectives}
 
-\begin{enumerate}
-    \item Design and validate a stochastic racing simulator suitable for controlled multi-agent reinforcement learning experiments, with configurable complexity, reproducible seeding, and structured behavioural telemetry.
-    \item Evaluate DQN-family algorithms in single-agent and multi-agent settings to identify which variant provides a stable learning substrate for the incentive regime comparison.
-    \item Characterise the emergent strategic behaviour of two competing agents under purely competitive conditions, establishing a behavioural baseline against which cooperative incentive effects can be measured.
-    \item Systematically vary the reward sharing coefficient between agents and measure its effect on strategic differentiation, competitive balance, and learning stability across multiple levels of environmental uncertainty.
-    \item Assess whether shared incentive produces genuine cooperative advantage in the form of improved joint performance against a common adversary, or whether it merely redistributes outcomes within a fixed interaction.
-    \item Characterise the agent-count boundary at which cooperative incentive transitions from beneficial to harmful, and determine whether this boundary is parametric or structural.
-    \item Evaluate difference rewards as an alternative cooperative formulation and establish whether a mean-field approximation preserves the cooperative gradient property of the original formulation \citep{wolpert2002optimal}.
-\end{enumerate}
+The project has four objectives. The first is to design and validate a stochastic racing simulator with configurable complexity, reproducible seeding, and structured behavioural telemetry. The second is to identify which DQN-family variant provides a stable learning substrate for the incentive regime comparison. The third is to characterise how varying the reward sharing coefficient affects emergent strategy, learning stability, and cooperative performance across multiple stochasticity levels and agent counts. The fourth is to evaluate difference rewards as an alternative cooperative formulation and establish whether a mean-field approximation preserves the cooperative gradient property \citep{wolpert2002optimal}.
 
 \subsection{Research questions and hypotheses}
 

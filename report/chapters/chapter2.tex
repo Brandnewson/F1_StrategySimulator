@@ -6,39 +6,10 @@ Most F1 simulators discretise the race lap-by-lap, providing a base lap time and
 
 All configuration for the simulator is externalised to \texttt{config.json}. Reward semantics, observation features, stochasticity presets, and experiment budgets are all controlled without touching agent code. This keeps every algorithm comparison methodologically clean, since only the learning internals differ between runs.
 
-\begin{figure}[htbp]
-\centering
-\begin{minipage}[c]{0.62\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{diagrams/system_component_design.png}
-\end{minipage}
-\hfill
-\begin{minipage}[c]{0.30\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{diagrams/system_component_design_legend.png}
-\end{minipage}
-\caption{System architecture overview. Configuration and track settings flow downward through experiment orchestration and runtime setup to the simulation core. The simulation core exchanges action requests and decisions with the policy layer and writes run artefacts to the output layer.}
-\label{fig:system-architecture}
-\end{figure}
-
 \subsection{Modelling overtaking likelihood}
 The track contains various overtaking zones at which agents decide whether to attempt an overtake or hold position. This is the fundamental mechanism through which race position changes in the simulator. The FastF1 library provides historical race telemetry for the 2023 Belgian Grand Prix, from which each overtaking zone's difficulty is gauged using real on-track data. Plotting the number of position changes against track distance reveals where overtakes cluster naturally and how contested each zone tends to be. Position changes are recorded at timing loop locations rather than the true on-track position of each car, so only the rough area of high overtaking probability can be inferred rather than an exact point. This is sufficient for assigning a relative difficulty value to each zone.
 
-Nine overtaking zones are defined across the Spa-Francorchamps circuit, with difficulty values derived from the observed overtake density (see Figures~\ref{fig:overtakes-spa} and~\ref{fig:overtaking-mapping}). La Source, the first braking zone, receives a low difficulty of 0.2 because overtakes are frequent there in practice. The remaining zones, including Raidillon, Les Combes, and Blanchimont, receive higher difficulty values of 0.7 to 0.9, as position changes rarely occur there in practice.
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.5\linewidth]{diagrams/NumberOfOvertakesSpa.png}
-	\caption{Absolute overtakes based on distance on track at the 2023 Belgian Grand Prix}
-	\label{fig:overtakes-spa}
-\end{figure}
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.5\linewidth]{diagrams/overtakingMapping.png}
-	\caption{Overtake density plotted over the Spa-Francorchamps circuit}
-	\label{fig:overtaking-mapping}
-\end{figure}
+Nine overtaking zones are defined across the Spa-Francorchamps circuit, with difficulty values derived from the observed overtake density (see Figures~\ref{fig:overtakes-spa} and~\ref{fig:overtaking-mapping} in Appendix~\ref{sec:overtaking-figures}). La Source, the first braking zone, receives a low difficulty of 0.2 because overtakes are frequent there in practice. The remaining zones, including Raidillon, Les Combes, and Blanchimont, receive higher difficulty values of 0.7 to 0.9, as position changes rarely occur there in practice.
 
 \subsection{Overtake success probability}
 \label{sec:overtake-prob}
@@ -135,37 +106,7 @@ The simulator exposes a controlled stochasticity pathway through three levels (s
 
 The stochasticity mechanism operates directly on the overtake success probability described in Section~\ref{sec:overtake-prob}. At each level, a noise standard deviation $\sigma$ is applied to the Gaussian noise term $\epsilon$. The remaining scaling factors (\texttt{base\_probability\_scale}, \texttt{risk\_modifier\_scale}, \texttt{gap\_modifier\_scale}) are held at 1.0 across all three levels so that only the outcome variance changes, not the underlying structure of the probability function.
 
-\begin{table}[htbp]
-\centering
-\small
-\caption{Stochasticity level definitions}
-\label{tab:stoch-levels}
-\begin{tabular}{|l|c|p{9cm}|}
-\hline
-\textbf{Level} & \textbf{Noise std $\sigma$} & \textbf{Interpretation} \\
-\hline
-s0 & 0.00 & Fully deterministic given the same state. The same action at the same zone with the same gap always produces the same outcome. Used as the primary ranking track. \\
-\hline
-s1 & 0.02 & Small Gaussian perturbation on success probability. Introduces modest outcome variance while preserving the rough ordering of zone difficulty. Used to measure initial robustness degradation. \\
-\hline
-s2 & 0.05 & Moderate perturbation. Sufficient to flip borderline outcomes and introduce meaningful uncertainty into difficult zones. Used to stress-test policy stability and seed variance. \\
-\hline
-\end{tabular}
-\end{table}
-
-The choice of s0 as the primary ranking track follows the reproducibility argument in \cite{henderson2018deep}. Ranking decisions made under high variance require larger sample budgets to be statistically reliable. By separating the ranking track (s0) from the robustness tracks (s1, s2), the benchmark can use a controlled budget and still produce interpretable degradation evidence.
-
-The noise is additive rather than multiplicative, which means the difficulty ordering of zones is preserved in expectation even under s2. This enables measurement of \textit{robustness of learned ordering} rather than simply whether the agent can still win when outcomes are randomised wholesale.
-
-\section{Algorithm comparison protocol}
-All comparison controls are externalised to \texttt{config.json}, including seed sets, training and evaluation budgets, the DQN-family lineup, Track A and Track B definitions, and promotion gate criteria. Fairness is enforced by keeping the environment contract identical across vanilla, double, dueling, and rainbow-lite. The state vector, reward schema, stochasticity level, opponent type, and starting position cycle are all identical across algorithm cells. Only the learning internals vary. This matters directly to the investigation because any performance difference observed in later multi-agent phases must be attributable to interaction dynamics rather than inconsistent evaluation conditions between algorithm variants. Without a controlled single-agent baseline, separating algorithm quality from phase effects is not possible.
-
-\section{Evaluation and test protocol}
-Testing covers five categories. Protocol correctness tests validate the config contract before execution and confirm that Track A and Track B run with the expected seeds, budgets, and stochasticity settings. Fairness tests assert that all algorithms receive identical non-learning conditions and that the fairness audit passes with zero violations. Statistical tests report confidence intervals and across-seed variance for all algorithms, using CI-gated ranking decisions rather than mean-only comparisons. Reproducibility tests rerun Track A with the same locked config and seeds to confirm ranking class consistency. Robustness tests report the s0$\rightarrow$s1$\rightarrow$s2 degradation trend alongside variance, reward-component stability, and starting-position exposure parity.
-
-The five test categories map directly to the threats to validity in this investigation. Protocol correctness guards against configuration drift between phases. Fairness tests ensure that performance differences reflect learning behaviour rather than unequal conditions. Statistical and reproducibility tests address the sample-efficiency concerns raised by \citet{henderson2018deep} for RL evaluations. Robustness tests produce the s0$\rightarrow$s1$\rightarrow$s2 degradation evidence that directly informs RQ1 and RQ2.
-
-Three run cadences are defined (smoke at 3 seeds, candidate at 5 seeds, and benchmark at 5 seeds with larger budgets per comparison cell), with benchmark applied for all results reported in this project. Progression to multi-agent phases requires a fairness pass, a CI-stable Track A ranking, reproducibility consistency, and robustness evidence from Track B.
+Three levels are tested. s0 uses $\sigma = 0$, making outcomes fully deterministic given the same state, and serves as the primary ranking track. s1 uses $\sigma = 0.02$, introducing modest outcome variance while preserving the zone difficulty ordering. s2 uses $\sigma = 0.05$, a moderate perturbation sufficient to flip borderline outcomes and stress-test policy stability. The noise is additive, so the zone difficulty ordering is preserved in expectation even under s2, enabling measurement of robustness of learned ordering rather than just win rate under randomised outcomes. Using s0 as the ranking track follows \citet{henderson2018deep}: ranking decisions under high variance require larger sample budgets, and separating the ranking and robustness tracks keeps both interpretable at a controlled evaluation budget.
 
 \section{Experimental methodology}
 \label{sec:marl-methodology}
@@ -239,7 +180,6 @@ At alpha of zero each agent receives only its own reward. At alpha of one each a
 
 The alpha mechanism introduced here carries forward through Phase~10.
 
-\newpage
 \subsection{Phase 5: Non-zero-sum game design}
 \label{sec:nonzerosum}
 
