@@ -84,7 +84,7 @@ $o_6$ & Laps remaining (normalised) \\
 \end{tabular}
 \end{table}
 
-The three overtake styles create a genuine risk-reward trade-off for the agent to resolve. A conservative attempt reduces the success probability by 0.08 relative to normal, while an aggressive attempt raises it by 0.12. However, failure penalties in the reward signal scale in the opposite direction. A failed conservative attempt costs $-0.5$, a normal failure $-1.0$, and an aggressive failure $-1.5$. The optimal risk level therefore depends on zone difficulty, current gap, and positional context.
+A conservative attempt reduces the success probability by 0.08 relative to normal, while an aggressive attempt raises it by 0.12. However, failure penalties in the reward signal scale in the opposite direction. A failed conservative attempt costs $-0.5$, a normal failure $-1.0$, and an aggressive failure $-1.5$. The optimal risk level therefore depends on zone difficulty, current gap, and positional context.
 
 \subsection{Finish-first reward contract}
 The reward signal combines six components.
@@ -106,7 +106,7 @@ The simulator exposes a controlled stochasticity pathway through three levels (s
 
 The stochasticity mechanism operates directly on the overtake success probability described in Section~\ref{sec:overtake-prob}. At each level, a noise standard deviation $\sigma$ is applied to the Gaussian noise term $\epsilon$. The remaining scaling factors (\texttt{base\_probability\_scale}, \texttt{risk\_modifier\_scale}, \texttt{gap\_modifier\_scale}) are held at 1.0 across all three levels so that only the outcome variance changes, not the underlying structure of the probability function.
 
-Three levels are tested. s0 uses $\sigma = 0$, making outcomes fully deterministic given the same state, and serves as the primary ranking track. s1 uses $\sigma = 0.02$, introducing modest outcome variance while preserving the zone difficulty ordering. s2 uses $\sigma = 0.05$, a moderate perturbation sufficient to flip borderline outcomes and stress-test policy stability. The noise is additive, so the zone difficulty ordering is preserved in expectation even under s2, enabling measurement of robustness of learned ordering rather than just win rate under randomised outcomes. Using s0 as the ranking track follows \citet{henderson2018deep}: ranking decisions under high variance require larger sample budgets, and separating the ranking and robustness tracks keeps both interpretable at a controlled evaluation budget.
+Three levels are tested. s0 uses $\sigma = 0$, making outcomes fully deterministic given the same state, and serves as the primary ranking track. s1 uses $\sigma = 0.02$, introducing modest outcome variance while preserving the zone difficulty ordering. s2 uses $\sigma = 0.05$, a moderate perturbation sufficient to flip borderline outcomes and stress-test policy stability. The noise is additive, so the zone difficulty ordering is preserved in expectation even under s2, enabling measurement of robustness of learned ordering rather than just win rate under randomised outcomes. Using s0 as the ranking track follows established guidance that ranking decisions under high variance require larger sample budgets \citep{henderson2018deep}. Separating the ranking and robustness tracks keeps both interpretable at a controlled evaluation budget.
 
 \section{Experimental methodology}
 \label{sec:marl-methodology}
@@ -138,7 +138,7 @@ The investigation proceeds through phases~0 to~10, each gated by defined promoti
 \subsection{Phase 0: System integrity validation}
 \label{sec:phase0-design}
 
-Phase~0 validates the simulator, reward accounting, stochasticity implementation, and telemetry contract before any learning claims are made. Test Group~A checks simulator correctness, including position tracking, lap counting, and zone sequencing. Group~B validates stochastic probability distributions using repeated sampling to confirm the noise term produces the expected spread at each level. Group~C verifies the telemetry schema and reward component accounting. Phase~0 must pass before Phase~1 begins.
+Phase~0 validates the simulator, reward accounting, stochasticity implementation, and telemetry contract before any learning claims are made. Test Group~A checks simulator correctness, including position tracking, lap counting, and zone sequencing. Group~B validates stochastic probability distributions using repeated sampling to confirm the noise term produces the expected spread at each level. Group~C verifies the telemetry schema and reward component accounting.
 
 \subsection{Phase 1: Single-agent smoke validation}
 \label{sec:phase1-design}
@@ -147,7 +147,7 @@ Phase~1 runs vanilla DQN under a minimal budget of 25 training episodes and 20 e
 
 \subsection{Phase 2: single-agent DQN-family baseline}
 
-Phase 2 establishes the DQN-family reliability baseline under a controlled single-agent contract. Each variant (vanilla, double, dueling, rainbow-lite) is trained and evaluated independently against the fixed Base Agent, with identical reward schema, observation contract, stochasticity level, episode budgets, and seeds across all variants. The purpose is to measure each variant's raw strategy quality and stochasticity robustness before multi-agent interaction is introduced, following the recommendation in \citet{henderson2018deep} to isolate algorithm-level effects before attributing differences to interaction dynamics. Phase 2 produces the per-algorithm stochasticity profiles that inform algorithm selection for all subsequent phases.
+Phase 2 establishes the DQN-family reliability baseline under a controlled single-agent contract. Each variant (vanilla, double, dueling, rainbow-lite) is trained and evaluated independently against the fixed Base Agent, with identical reward schema, observation contract, stochasticity level, episode budgets, and seeds across all variants. The purpose is to measure each variant's raw strategy quality and stochasticity robustness before multi-agent interaction is introduced, following the recommendation to isolate algorithm-level effects before attributing differences to interaction dynamics \citep{henderson2018deep}. Phase 2 produces the per-algorithm stochasticity profiles that inform algorithm selection for all subsequent phases.
 
 The shared training configuration was determined prior to Phase 2 using Autoresearch \citep{karpathy2024autoresearch}, an AI-driven tool that iteratively proposes and evaluates single hyperparameter changes over 30 automated iterations, each scored across 3 seeds with 50 training runs. This ensures the episode budget, learning rate, network width, and exploration schedule are empirically grounded rather than an arbitrary choice that could favour one variant.
 
@@ -156,9 +156,7 @@ The shared training configuration was determined prior to Phase 2 using Autorese
 
 Phase 3 introduces genuine MARL by replacing the fixed Base Agent with a second concurrent DQN-family learner. Both agents train simultaneously, each maintaining its own independent replay buffer and updating its own network parameters each episode. This is the independent learner (IL) formulation, the standard baseline in the MARL literature for operationalising non-stationarity in value-based multi-agent settings \citep{foerster2017stabilising,hernandezleal2019survey}.
 
-IL is chosen as the first MARL baseline because it preserves genuine non-stationarity. Each agent's effective environment shifts as the opponent adapts, which is the core dynamic under investigation in RQ1 and RQ2. It also provides a clean anchor from which future centralised-training with decentralised-execution methods such as QMIX can be measured \citep{rashid2018qmix}, and its integration required only a runtime profile change rather than any redesign of the simulator engine.
-
-Phase 3 is gated on Phase 2 passing all promotion-gate criteria.
+IL is chosen as the first MARL baseline because it preserves genuine non-stationarity. It also provides a clean anchor from which future centralised-training with decentralised-execution methods such as QMIX can be measured \citep{rashid2018qmix}, and its integration required only a runtime profile change rather than any redesign of the simulator engine. Phase~3 is gated on Phase~2 passing all promotion-gate criteria.
 
 \subsection{Phase 4: Alpha reward mixing}
 \label{sec:alpha-mixing}
@@ -221,10 +219,14 @@ where $\Delta_i$ is agent~$i$'s position delta and $\bar{\Delta}_{\text{team}}$ 
 
 \section{Project management}
 
-Development proceeds in research sprints aligned to the experimental phases. The codebase is version-controlled with Git and hosted on GitHub, with one branch per experimental phase.
+Development proceeds in research sprints aligned to the experimental phases, version-controlled with Git. Each sprint covers one phase. Design precedes implementation, the gate criteria act as the acceptance condition, and a branch is merged to the main line only once the gate passes. The main branch therefore always reflects a gate-passed simulator state.
 
-Each branch covers the implementation and validation of a single phase. A branch is merged to the main line only after the gate criteria are met. The main branch therefore always reflects a gate-passed state of the simulator.
+Each run embeds a configuration snapshot in its output metrics, so any experiment is reproducible from the repository state at the time it ran. Commit messages document phase-level findings at meaningful checkpoints, including zone behaviour observations and collapse events.
 
-Within each sprint, phase design precedes implementation. The gate criteria act as the acceptance condition, evaluated through automated tests and evaluation runs. A sprint closes when the corresponding gate passes and the phase is promoted.
+The original project plan prioritised a minimal viable product before any MARL complexity was introduced. Phases~0 to~2 fulfil that objective directly. A working single-agent simulator with validated metrics was in place before a second learning agent was added. That order mattered when Phase~3 produced its first unexpected collapses. The diagnostic infrastructure was already trusted, so attributing collapse to replay buffer contamination rather than a simulator defect was possible without ambiguity. Having the gate requirement formalised removed the option to defer this step under time pressure.
 
-Commit messages document phase-level findings at meaningful checkpoints, including zone behaviour observations and test outcomes. All experimental parameters are externalised to \texttt{config.json}. Each run embeds a config snapshot in its output metrics, so any experiment is reproducible from the repository state at the time it ran.
+Development was iterative throughout. Each phase was designed to produce a usable result independently, so the project had real stopping points at every gate rather than a single binary pass or fail at submission. It also meant that bugs introduced in one phase could be attributed to that phase's changes rather than to a compounding stack of untested code. The three defects caught in Phase~0 illustrate this. All three would have been substantially harder to isolate had they surfaced during a Phase~3 collapse.
+
+The plan adapted when the central research question changed. The original aim was to study agent responses to stochasticity. That became a precursor question once the stochasticity baseline was established. The phase-gated structure made this pivot possible without losing continuity. The infrastructure remained intact and the interpretation shifted. The buffer period at the semester transition provided the space to reframe the research question without pressure on the experimental timeline.
+
+The original project deliverables map directly to the phase structure. Deliverable~3 (minimal viable product with basic metrics) corresponds to Phases~0 and~1. Deliverable~4 (expanded state space, varied parameters, and algorithm comparison) corresponds to Phases~2 through~10. Deliverable~5 (final report with comparative analysis) is the present document. The gate structure meant each deliverable was verifiable at its checkpoint rather than assessed only at final submission.

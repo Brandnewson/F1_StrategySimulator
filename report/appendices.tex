@@ -3,7 +3,7 @@
 \chapter{Self-Appraisal}
 \label{appendix:selfappraisal}
 
-\section{Project process reflection}
+\section{Critical self-evaluation}
 
 The phased gate structure was the single most effective process decision in the project. Each phase's result determined the next phase's design rather than following a pre-specified plan. Phase~2's finding that rainbow-lite was the only collapse-resistant algorithm in single-agent evaluation meant that Phase~3 could attribute multi-agent collapse to MARL non-stationarity rather than to algorithm fragility. Without this gate, the Phase~3 collapse results would have been ambiguous. The same principle applied at each subsequent gate. Phase~4's zero-sum failure motivated Phase~5's game structure change. Phase~5's success motivated Phase~6's scaling test.
 
@@ -17,17 +17,23 @@ Writing pace was a second area for improvement. Chapters~1 to~3 were drafted whi
 
 \section{Personal reflection and lessons learned}
 
-The most significant conceptual shift during the project was the recognition that negative results are contributions. Phase~10's failure to produce cooperative behaviour via difference rewards was frustrating initially. The mathematical analysis of the gradient inversion transformed it into a finding. The formula failed. The reason it failed can be stated precisely. This precision is what makes a negative result publishable rather than merely disappointing.
+Motorsport has always been an interest of mine, but I came into this project with a limited formal background in race strategy and simulation. The subject sits at an intersection of AI, game theory, and domain knowledge I had not studied systematically. That gap made the project harder, and ultimately more worthwhile.
 
-The N of four scaling cliff was not predicted. The project could have treated Phase~6's failure as a dead end and stopped. Designing Phase~7 to characterise the boundary precisely was the decision that produced a genuinely new empirical finding. The habit of asking "where exactly does this transition occur?" rather than "does this work?" produced more informative results throughout the project.
+I proposed my own project rather than selecting a pre-defined one. That gave me creative freedom, but it also removed the guardrails that a well-scoped brief would have provided. At several points during Phase development, the natural next question pulled me further from the original aim. Staying grounded within the scope I had committed to required a discipline that does not always come naturally when curiosity takes over.
 
-Reproducibility standards imposed discipline that paid dividends later. Because all prior phases used fixed seeds and matched budgets, the Phase~7 and Phase~8 ablations could attribute results to game structure and training schedule rather than to evaluation noise. The upfront cost of implementing this discipline was small. The downstream benefit of being able to make confident comparative claims was large.
+The project I submitted is not the project I originally proposed. My initial aim was to study how MARL agents respond to different levels of stochasticity and environmental complexity. That turned out to be a precursor question rather than the central one. Once the stochasticity baseline was established in Phases~0 to~2, the more interesting question emerged. What happens when the incentive structure between agents shifts? The cooperative thinking metric became the actual investigation. Recognising that mid-project and pivoting without losing coherence was the right call, even if it added pressure.
+
+One thread that runs through the project is game theory, a field I had an existing interest in before connecting it explicitly to MARL. The connection became clearer as the experimentation progressed. The alpha sweep in Phase~4 is essentially a parameterisation of the cooperate/defect trade-off from a prisoner's dilemma. Phase~5's non-zero-sum structure breaks the zero-sum constraint in exactly the way game theory predicts cooperation becomes possible. The hawk-dove risk equilibria observed in Phase~3 are a direct empirical instance of a mixed-strategy Nash equilibrium. The Phase~10 difference rewards analysis is a formal question about incentive compatibility, a concept from mechanism design that predates reinforcement learning entirely. Seeing these connections emerge through experimental results rather than being designed in from the start was one of the more satisfying parts of the project.
+
+The most significant conceptual shift was the recognition that negative results are contributions. Phase~10's failure to produce cooperative behaviour via difference rewards was frustrating at first. The mathematical analysis of the gradient inversion transformed it into a precise finding. The formula failed for a stated reason. That precision is what separates a negative result from a dead end. The N=4 scaling cliff carried the same lesson. Phase~6's failure could have been treated as a dead end. Designing Phase~7 to locate the boundary precisely was the decision that produced a genuinely new empirical finding.
+
+The decision that paid off most in practice was building the telemetry pipeline before any results existed. Writing the benchmark orchestrator and the zone-level logging in Phase~0 felt like overhead when I was trying to get to the MARL experiments. It became necessary the moment Phase~3 started producing collapsing agents. The telemetry was already in place to distinguish collapse from instability and to attribute it specifically to replay buffer contamination. Without that infrastructure, the Phase~3 collapse rate table would have been a qualitative observation rather than a quantified finding with a mechanistic explanation.
+
+If I were starting again I would maintain five seeds per cell throughout rather than reducing to three. The reduction widened confidence intervals and was a trade against time that I would not make again. I would also build the Phase~5 non-zero-sum structure into the design from the start rather than arriving at it through Phase~4. That is easy to say in retrospect. Phase~4 produced a standalone result I would not discard. But Phase~5 is where the question the project was actually asking finally became testable. Reaching it through Phase~4's negative result added an experimental phase that could instead have been a design decision.
+
+I came into this trying to combine interests I had not previously brought together. I think, on balance, it worked.
 
 \section{Legal, social, ethical and professional issues}
-
-\subsection{Ethical issues}
-
-No human participants were involved at any stage of this project. No consent forms were required. The LLM baseline in Phase~9 uses the Anthropic Claude Haiku API. No personal data was transmitted to the API at any point. Race state information is synthetic and contains no identifying information.
 
 \subsection{Legal issues}
 
@@ -39,11 +45,23 @@ This project does not interact with human participants and does not collect or p
 
 The broader research area has social relevance. Autonomous agents with configurable incentive structures are deployed in domains beyond motorsport simulation, including financial trading, logistics optimisation, and competitive resource allocation. The finding that incentive formula design shapes emergent agent behaviour as strongly as algorithm choice is relevant to anyone designing the reward contracts for multi-agent systems in these domains. The project provides controlled evidence that poorly designed cooperative incentives can produce competitive or even harmful agent behaviour, which is a meaningful contribution to the broader conversation about AI alignment in multi-agent settings.
 
+\subsection{Ethical issues}
+
+No human participants were involved at any stage of this project. No consent forms were required. All data generated and used was produced by me and does not involve external parties, which limits the risk of data mishandling or unintended data linkage.
+
+The LLM baseline in Phase~9 uses the Anthropic Claude Haiku API. No personal data was transmitted to the API at any point. All race state information is synthetic and contains no identifying information.
+
+External literature is used as reference material throughout the report. I have been careful to cite sources accurately, to check that referenced works are openly available for academic use, and to confirm that each source is a legitimate published work. One citation was found to be unverifiable during the final review process and was removed.
+
+Running simulations and training agents over extended periods carries a non-trivial energy cost. I was mindful of this throughout and avoided running experiments whose outputs I had no intention of using. The phase-gated structure supported this by requiring a gate to pass before the next phase's compute was committed.
+
+The most direct ethical concern for this type of project is the reliability of the policies it produces. This simulator abstracts away substantial physical complexity. There is no tyre degradation, no pit stop timing, no weather variation, and no driver fatigue. A policy that performs well in this environment may behave very differently under real race conditions, where these factors interact with overtaking decisions in ways the simulator does not capture. If a real driver or team adopted strategies derived from this system without understanding those limitations, they could make overtaking attempts that the simulator rates as favourable but that carry materially higher real-world risk. The Phase~9 result is instructive. A zero-shot language model with no training matched rainbow-lite within two per cent win rate, which suggests the learned strategy may be less general than win rates alone imply. The La Source dominance artefact is a concrete example of a simulator-specific bias that would not transfer to circuits without a structurally straightforward first braking zone. Any real-world application of this system would require explicit validation against the circuits, conditions, and risk tolerances it was not designed to cover.
+
 \subsection{Professional issues}
 
-This project follows the reproducibility standards identified as necessary for trustworthy reinforcement learning comparisons by \citet{henderson2018deep} and \citet{agarwal2021statistical}. Matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics are treated as professional obligations rather than optional additions. The git repository provides a full audit trail of experimental code, configuration changes, and metric outputs. All claims in the main report are traceable to specific metric files or mathematical derivations.
+This project follows the reproducibility standards identified as necessary for trustworthy reinforcement learning comparisons \citep{henderson2018deep,agarwal2021statistical}. Matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics are treated as professional obligations rather than optional additions. The git repository provides a full audit trail of experimental code, configuration changes, and metric outputs. All claims in the main report are traceable to specific metric files or mathematical derivations.
 
-\chapter{External Materials}
+\chapter{External Material}
 \label{appendix:external}
 
 All materials not developed by the student are listed below.
@@ -326,6 +344,26 @@ s1 and s2 show interpretable degradation direction & Met (see note) \\
 \end{table}
 
 The degradation direction was interpretable but structurally attenuated. The headline win rate was flat at s1 due to La Source dominance, and only the s2 comparison showed a reduction. The behavioural degradation signal (AGGRESSIVE flip, zone discrimination collapse, rising tactical penalty, increased seed variance) was present and mechanistically consistent across s1 and s2. Gate~G1 was cleared and Phase~2 proceeded with this understanding recorded.
+
+\chapter{DQN Training Loop}
+\label{appendix:dqnloop}
+
+The figure below shows the training loop shared across all four DQN-family variants. Each episode the agent selects an action via epsilon-greedy policy, stores the transition in the replay buffer, samples a minibatch, computes the TD target, and updates network weights. The variant-specific logic is confined entirely to the TD target computation step. All other steps are identical across vanilla, double, dueling, and rainbow-lite.
+
+\begin{figure}[p]
+\centering
+\begin{minipage}[c]{0.56\textwidth}
+    \centering
+    \includegraphics[width=\textwidth,height=0.80\textheight,keepaspectratio]{diagrams/DQN-loop.png}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.40\textwidth}
+    \centering
+    \includegraphics[width=\textwidth,height=0.80\textheight,keepaspectratio]{diagrams/DQN_loop_legend.png}
+\end{minipage}
+\caption{DQN training loop shared across all four variants. Variant-specific logic is confined to the TD target computation step.}
+\label{fig:dqn-loop}
+\end{figure}
 
 \chapter{System Class Diagram}
 \label{appendix:classdiagram}
