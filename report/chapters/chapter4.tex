@@ -248,7 +248,7 @@ The cooperative gradient property of the original formulation requires that each
 \frac{\partial R_{\text{diff},i}}{\partial \Delta_j} = -\frac{1}{N}
 \]
 
-This gradient is negative for all values of $N$. When teammate $j$ overtakes successfully, agent~$i$'s reward decreases because the team mean rises. The approximation therefore penalises agent~$i$ for its teammate's success rather than crediting its own contribution, inverting the original intention of difference rewards \citep{wolpert2002optimal}. The mean-field substitution loses the counterfactual property because it uses the observed team mean rather than the true counterfactual outcome $G(\mathbf{z}_{-i})$.
+This gradient is negative for all values of $N$. When teammate $j$ overtakes successfully, agent~$i$'s reward decreases because the team mean rises. The approximation therefore penalises agent~$i$ for its teammate's success rather than crediting its own contribution, inverting the original intention of difference rewards \citep{wolpert2001optimal}. The mean-field substitution loses the counterfactual property because it uses the observed team mean rather than the true counterfactual outcome $G(\mathbf{z}_{-i})$.
 
 Table~\ref{tab:phase10-results} shows the empirical result.
 
