@@ -513,44 +513,6 @@ def main() -> None:
     if not isinstance(algo_options, dict):
         algo_options = {}
 
-    # Rename DQN competitors so telemetry clearly identifies the algorithm variant being trained.
-    # e.g. config "DQN Agent" becomes "DQN[vanilla]" or "DQN[double]" in all logs and metrics.
-    for c in competitors:
-        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn":
-            c["name"] = f"DQN[{algo_name}]"
-
-    dqn_driver_names = [
-        c.get("name")
-        for c in competitors
-        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn"
-    ]
-    baseline_driver_names = [
-        c.get("name")
-        for c in competitors
-        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "base"
-    ]
-    random_driver_names = [
-        c.get("name")
-        for c in competitors
-        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "random"
-    ]
-
-    if not dqn_driver_names:
-        raise ValueError("No DQN competitors found in config. Add at least one competitor with agent='dqn'.")
-
-    if not baseline_driver_names:
-        baseline_driver_names = random_driver_names.copy()
-
-    if not baseline_driver_names:
-        baseline_driver_names = [
-            c.get("name")
-            for c in competitors
-            if isinstance(c, dict) and str(c.get("agent", "")).lower() != "dqn"
-        ]
-
-    if not baseline_driver_names:
-        raise ValueError("No baseline opponents found. Add at least one non-DQN competitor (base or random).")
-
     if args.total_laps is not None:
         base_config.setdefault("race_settings", {})["total_laps"] = int(args.total_laps)
 
@@ -598,6 +560,48 @@ def main() -> None:
     else:
         active_stochasticity_level = str(base_config.get("stochasticity", {}).get("active_level", "s0")).strip() or "s0"
     base_config.setdefault("stochasticity", {})["active_level"] = active_stochasticity_level
+
+    # Preserve the fully resolved comparison contract before applying runtime-only
+    # cosmetic renames used to make telemetry/log inspection easier.
+    config_snapshot = copy.deepcopy(base_config)
+
+    # Rename DQN competitors so telemetry clearly identifies the algorithm variant being trained.
+    # e.g. config "DQN Agent" becomes "DQN[vanilla]" or "DQN[double]" in all logs and metrics.
+    for c in competitors:
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn":
+            c["name"] = f"DQN[{algo_name}]"
+
+    dqn_driver_names = [
+        c.get("name")
+        for c in competitors
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "dqn"
+    ]
+    baseline_driver_names = [
+        c.get("name")
+        for c in competitors
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "base"
+    ]
+    random_driver_names = [
+        c.get("name")
+        for c in competitors
+        if isinstance(c, dict) and str(c.get("agent", "")).lower() == "random"
+    ]
+
+    if not dqn_driver_names:
+        raise ValueError("No DQN competitors found in config. Add at least one competitor with agent='dqn'.")
+
+    if not baseline_driver_names:
+        baseline_driver_names = random_driver_names.copy()
+
+    if not baseline_driver_names:
+        baseline_driver_names = [
+            c.get("name")
+            for c in competitors
+            if isinstance(c, dict) and str(c.get("agent", "")).lower() != "dqn"
+        ]
+
+    if not baseline_driver_names:
+        raise ValueError("No baseline opponents found. Add at least one non-DQN competitor (base or random).")
 
     total_laps = int(base_config.get("race_settings", {}).get("total_laps", 0) or 0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -718,6 +722,8 @@ def main() -> None:
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
+        "config_snapshot": config_snapshot,
+        "runtime_config_snapshot": base_config,
         "protocol": protocol_contract,
         "reward_contract": base_config.get("reward", {}),
         "feedback_contract": base_config.get("feedback", {}),

@@ -516,6 +516,13 @@ def main():
     dqn_cfg = base_config.get("dqn_params", {})
     algo_name = str(dqn_cfg.get("algo", "vanilla")).strip().lower() or "vanilla"
 
+    stoch = args.stochasticity_level.strip() or "s0"
+    base_config.setdefault("stochasticity", {})["active_level"] = stoch
+
+    # Preserve the fully resolved experimental contract before applying runtime-only
+    # DQN display-name rewrites used for telemetry disambiguation.
+    config_snapshot = copy.deepcopy(base_config)
+
     # Rename DQN competitors with distinct, stable names (supports 2, 3 or 4 DQN agents)
     dqn_competitors_seen = 0
     agent1_name = None
@@ -538,9 +545,6 @@ def main():
 
     if not agent1_name or not agent2_name:
         raise ValueError("MARL evaluation requires at least two competitors with agent='dqn' in config.")
-
-    stoch = args.stochasticity_level.strip() or "s0"
-    base_config.setdefault("stochasticity", {})["active_level"] = stoch
 
     total_laps = int(base_config.get("race_settings", {}).get("total_laps", 5) or 5)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -648,6 +652,12 @@ def main():
     out_payload = {
         "created_at": datetime.now().isoformat(),
         "config_path": str((ROOT / args.config).resolve()),
+        "config_snapshot": config_snapshot,
+        "runtime_config_snapshot": base_config,
+        "protocol": base_config.get("protocol", {}),
+        "reward_contract": base_config.get("reward", {}),
+        "feedback_contract": base_config.get("feedback", {}),
+        "stochasticity_contract": base_config.get("stochasticity", {}),
         "phase": phase_label,
         "reward_sharing_alpha": alpha_val,
         "alpha_curriculum": base_config.get("marl", {}).get("alpha_curriculum") or None,

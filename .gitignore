@@ -218,6 +218,7 @@ logs
 # Autoresearch artifacts
 results.tsv
 metrics/
+models/
 .autoresearch_cache/
 *.lock
 

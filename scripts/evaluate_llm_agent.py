@@ -333,6 +333,8 @@ def main() -> None:
     output = {
         "created_at": datetime.now().isoformat(),
         "config_path": str(Path(args.config).resolve()),
+        "config_snapshot": base_config,
+        "runtime_config_snapshot": base_config,
         "protocol": protocol,
         "reward_contract": base_config.get("reward", {}),
         "feedback_contract": base_config.get("feedback", {}),
