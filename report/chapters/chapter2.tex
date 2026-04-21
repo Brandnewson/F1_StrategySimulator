@@ -1,15 +1,19 @@
 \chapter{Methodology}
 \label{chapter2}
 
-\section{Designing the simulator}
-Most F1 simulators discretise the race lap-by-lap, providing a base lap time and representing a faster car by subtracting from that time. A quasi-static approach using coordinate-space points and a vehicle model is also used, producing lap-time simulators of varying fidelity. Discretising lap-by-lap is computationally cheap but does not capture the stochastic nature of race outcomes under investigation. Modelling the physical properties of the car, as lap-time simulators do, is outside the scope of this project. This project discretises the race lap-by-lap while making overtaking a function of zone-specific difficulty values derived from real race telemetry, with a controlled stochasticity mechanism to test how robustly learned policies hold up as the environment becomes less predictable.
+\section{Methodology overview}
+\label{sec:methodology-overview}
 
-All configuration for the simulator is externalised to \texttt{config.json}. Reward semantics, observation features, stochasticity presets, and experiment budgets are all controlled without touching agent code. This keeps every algorithm comparison methodologically clean, since only the learning internals differ between runs.
+The methodology must deliver three things. First, a controlled apparatus that can vary incentive alignment, agent count, and reward formulation within a single simulator, so the three axes can be studied jointly. Second, a measurement substrate that isolates incentive structure from algorithmic variance, so strategy differences can be attributed to what changed. Third, a phased experimental programme with promotion gates, so claims at later phases rest on verified foundations.
 
-\subsection{Modelling overtaking likelihood}
-The track contains various overtaking zones at which agents decide whether to attempt an overtake or hold position. This is the fundamental mechanism through which race position changes in the simulator. The FastF1 library provides historical race telemetry for the 2023 Belgian Grand Prix, from which each overtaking zone's difficulty is gauged using real on-track data. Plotting the number of position changes against track distance reveals where overtakes cluster naturally and how contested each zone tends to be. Position changes are recorded at timing loop locations rather than the true on-track position of each car, so only the rough area of high overtaking probability can be inferred rather than an exact point. This is sufficient for assigning a relative difficulty value to each zone.
+\section{Simulator design}
+\label{sec:simulator-design}
 
-Nine overtaking zones are defined across the Spa-Francorchamps circuit, with difficulty values derived from the observed overtake density (see Figures~\ref{fig:overtakes-spa} and~\ref{fig:overtaking-mapping} in Appendix~\ref{sec:overtaking-figures}). La Source, the first braking zone, receives a low difficulty of 0.2 because overtakes are frequent there in practice. The remaining zones, including Raidillon, Les Combes, and Blanchimont, receive higher difficulty values of 0.7 to 0.9, as position changes rarely occur there in practice.
+The simulator discretises a race into laps rather than modelling the physical properties of the car as lap-time simulators do \citep{heilmeier2018racesim}. Lap-wise discretisation is cheap enough to support multi-seed experimental sweeps, which is ideal because the project needs thousands of training runs across $\alpha$, game structure, and agent count. All experimental parameters are externalised to a single configuration file, so any run can be reproduced from its config snapshot alone.
+
+Zone difficulties are grounded in real race data rather than invented. Using the FastF1 library, per-driver position changes from the 2023 Belgian Grand Prix were plotted against track distance. Position changes cluster strongly at specific points on the circuit, which indicates where overtaking actually happens in practice (Appendix~\ref{fig:overtakes-spa}). Because position changes are recorded at timing loops rather than at exact on-track position, these values capture relative difficulty across zones rather than precise overtake points.
+
+The analysis gives nine zones at Spa-Francorchamps. La Source (the hairpin at the start of the lap) has a difficulty of 0.2, reflecting how frequently overtakes happen there. The remaining zones sit between 0.7 and 0.9, which is consistent with how rare overtakes are at those locations in real racing. The full mapping from track location to zone is in Appendix~\ref{fig:overtaking-mapping}.
 
 \subsection{Overtake success probability}
 \label{sec:overtake-prob}
@@ -99,14 +103,20 @@ The objective hierarchy prioritises the finishing position. \texttt{outcome} is 
 
 Each experiment in this project runs as a two-car race over five laps at Spa-Francorchamps. In single-agent phases, one DQN-family agent races against a fixed heuristic Base agent that does not learn. In multi-agent phases, a second concurrent DQN-family learner replaces or supplements the Base agent depending on the game structure under test.
 
-\section{Stochasticity levels}
+\subsection{Stochasticity as a robustness dimension}
 \label{sec:stochasticity}
 
 The simulator exposes a controlled stochasticity pathway through three levels (s0, s1, and s2) that test how robustly learned policies hold up as the environment becomes less predictable. The active level is set via \texttt{stochasticity.active\_level}.
 
+Core point: RL evaluation results are unreliable without multiple seeds and varied conditions — rankings can reverse based on budget and reporting choices alone.
+References to keep: Henderson et al. (2018), Agarwal et al. (2021), Sankary and Ostfeld (2018).
+Draft to drop into 2.2:
+"Algorithm rankings in RL are sensitive to seeds, budgets, and reporting conventions \citep{henderson2018deep}. Confidence intervals across seeds are necessary for reliable comparisons \citep{agarwal2021statistical}, and evaluating under varied conditions distinguishes generalisable findings from narrow artefacts \citep{sankary2018stochastic}. Three stochasticity levels are therefore tested throughout rather than one."
+
 The stochasticity mechanism operates directly on the overtake success probability described in Section~\ref{sec:overtake-prob}. At each level, a noise standard deviation $\sigma$ is applied to the Gaussian noise term $\epsilon$. The remaining scaling factors (\texttt{base\_probability\_scale}, \texttt{risk\_modifier\_scale}, \texttt{gap\_modifier\_scale}) are held at 1.0 across all three levels so that only the outcome variance changes, not the underlying structure of the probability function.
 
-Three levels are tested. s0 uses $\sigma = 0$, making outcomes fully deterministic given the same state, and serves as the primary ranking track. s1 uses $\sigma = 0.02$, introducing modest outcome variance while preserving the zone difficulty ordering. s2 uses $\sigma = 0.05$, a moderate perturbation sufficient to flip borderline outcomes and stress-test policy stability. The noise is additive, so the zone difficulty ordering is preserved in expectation even under s2, enabling measurement of robustness of learned ordering rather than just win rate under randomised outcomes. Using s0 as the ranking track follows established guidance that ranking decisions under high variance require larger sample budgets \citep{henderson2018deep}. Separating the ranking and robustness tracks keeps both interpretable at a controlled evaluation budget.
+Three levels are tested. s0 uses $\sigma = 0$, which gives us a base probability and serves as the primary ranking track. s1 uses $\sigma = 0.02$, introducing modest outcome variance while preserving the zone difficulty ordering. s2 uses $\sigma = 0.05$, a moderate perturbation sufficient to flip borderline outcomes and stress-test policy stability. The noise is additive, so the zone difficulty ordering is preserved in expectation even under s2, enabling measurement of robustness of learned ordering rather than just win rate under randomised outcomes. Using s0 as the ranking track follows established guidance that ranking decisions under high variance require larger sample budgets \citep{henderson2018deep}. Separating the ranking and robustness tracks keeps both interpretable at a controlled evaluation budget.
+
 
 \section{Experimental methodology}
 \label{sec:marl-methodology}
@@ -203,7 +213,7 @@ Phase~9 introduces a zero-shot large language model as a non-learning comparator
 \subsection{Phase 10: Difference rewards}
 \label{sec:difference-rewards}
 
-Phase~10 tests difference rewards as an alternative cooperative formulation. Alpha mixing is a heuristic that aligns incentives without formally separating individual contributions, and the passivity failure it can produce is fundamentally a credit assignment problem. Difference rewards address this directly by giving each agent credit only for its counterfactual contribution to collective performance \citep{wolpert2001optimal}.
+Phase~10 tests difference rewards as an alternative cooperative formulation. Alpha mixing is a heuristic that aligns incentives without formally separating individual contributions, and the passivity failure it can produce is fundamentally a credit assignment problem. Difference rewards address this directly by giving each agent credit only for its counterfactual contribution to collective performance \citep{wolpert2002optimal}.
 
 \[
 D_i = G(\mathbf{z}) - G(\mathbf{z}_{-i})
@@ -230,3 +240,59 @@ Development was iterative throughout. Each phase was designed to produce a usabl
 The plan adapted when the central research question changed. The original aim was to study agent responses to stochasticity. That became a precursor question once the stochasticity baseline was established. The phase-gated structure made this pivot possible without losing continuity. The infrastructure remained intact and the interpretation shifted. The buffer period at the semester transition provided the space to reframe the research question without pressure on the experimental timeline.
 
 The original project deliverables map directly to the phase structure. Deliverable~3 (minimal viable product with basic metrics) corresponds to Phases~0 and~1. Deliverable~4 (expanded state space, varied parameters, and algorithm comparison) corresponds to Phases~2 through~10. Deliverable~5 (final report with comparative analysis) is the present document. The gate structure meant each deliverable was verifiable at its checkpoint rather than assessed only at final submission.
+
+\section{Experimental programme}
+\label{sec:marl-methodology}
+
+\subsection{Phase-to-RQ mapping}
+
+\subsection{Promotion gates}
+
+\subsection{Measurement plan}
+
+\subsection{Phase 0: System integrity validation}
+\label{sec:phase0-design}
+
+\subsection{Phase 1: Single-agent smoke validation}
+\label{sec:phase1-design}
+
+\subsection{Phase 2: Single-agent DQN-family baseline}
+\label{sec:phase2-methodology}
+
+\subsection{Phase 3: Independent learner MARL}
+\label{sec:phase3-methodology}
+
+\subsection{Phase 4: Alpha reward mixing in zero-sum}
+\label{sec:alpha-mixing}
+
+\subsection{Phase 5: Non-zero-sum game structure}
+\label{sec:nonzerosum}
+
+\subsection{Phases 6 and 7: Scaling the cooperative regime}
+\label{sec:multiteam}
+
+\subsection{Phase 8: Curriculum alpha scheduling}
+\label{sec:curriculum}
+
+\subsection{Phase 9: LLM semantic baseline}
+\label{sec:llm-baseline}
+
+\subsection{Phase 10: Difference rewards}
+\label{sec:difference-rewards}
+
+\section{Project management}
+\label{sec:project-management}
+
+\section{Designing the simulator}
+Most F1 simulators discretise the race lap-by-lap, providing a base lap time and representing a faster car by subtracting from that time. A quasi-static approach using coordinate-space points and a vehicle model is also used, producing lap-time simulators of varying fidelity. Discretising lap-by-lap is computationally cheap but does not capture the stochastic nature of race outcomes under investigation. Modelling the physical properties of the car, as lap-time simulators do, is outside the scope of this project. This project discretises the race lap-by-lap while making overtaking a function of zone-specific difficulty values derived from real race telemetry, with a controlled stochasticity mechanism to test how robustly learned policies hold up as the environment becomes less predictable.
+
+All configuration for the simulator is externalised to \texttt{config.json}. Reward semantics, observation features, stochasticity presets, and experiment budgets are all controlled without touching agent code. This keeps every algorithm comparison methodologically clean, since only the learning internals differ between runs.
+
+\subsection{Modelling overtaking likelihood}
+The track contains various overtaking zones at which agents decide whether to attempt an overtake or hold position. This is the fundamental mechanism through which race position changes in the simulator. The FastF1 library provides historical race telemetry for the 2023 Belgian Grand Prix, from which each overtaking zone's difficulty is gauged using real on-track data. Plotting the number of position changes against track distance reveals where overtakes cluster naturally and how contested each zone tends to be. Position changes are recorded at timing loop locations rather than the true on-track position of each car, so only the rough area of high overtaking probability can be inferred rather than an exact point. This is sufficient for assigning a relative difficulty value to each zone.
+
+Nine overtaking zones are defined across the Spa-Francorchamps circuit, with difficulty values derived from the observed overtake density (see Figures~\ref{fig:overtakes-spa} and~\ref{fig:overtaking-mapping} in Appendix~\ref{sec:overtaking-figures}). La Source, the first braking zone, receives a low difficulty of 0.2 because overtakes are frequent there in practice. The remaining zones, including Raidillon, Les Combes, and Blanchimont, receive higher difficulty values of 0.7 to 0.9, as position changes rarely occur there in practice.
+
+\section{Stochasticity levels}
+\label{sec:stochasticity}
+
