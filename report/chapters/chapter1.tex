@@ -22,7 +22,7 @@ The earliest motorsport strategy research treats the simulator as infrastructure
 
 The Formula E literature narrows the gap. Multi-car extensions of RL-based race strategy showed that multiple concurrently learning agents can produce competitive results in motorsport \citep{liu2024formulae}, though how incentive structure between agents shapes the strategies that emerge remains open. Learning-based multi-agent race strategies in Formula 1 have also been reported \citep{fieni2026learning}.
 
-Across this body of work, abstracted simulators produce meaningful tactical insight without full physical fidelity, and reinforcement learning is an established framework for racing strategy. No existing motorsport study has systematically varied the incentive structure between concurrent learning agents, or tested how reward alignment between agents changes the strategies that emerge.
+Across this body of work, abstracted simulators produce meaningful tactical insight without full physical fidelity, and reinforcement learning is an established framework for racing strategy. Within the motorsport literature reviewed here, no study has systematically varied the incentive structure between concurrent learning agents, or tested how reward alignment between agents changes the strategies that emerge.
 
 \subsection{Reinforcement learning in competitive environments}
 
@@ -58,7 +58,7 @@ Each of the fields surveyed earlier engages with part of this regime. Competitiv
 
 Studies of the partially aligned regime typically isolate one of these factors at a time. What is less well understood is their joint behaviour when all three are varied together on the same learning substrate, with diagnostics that distinguish genuine cooperative advantage from redistribution of competitive outcomes.
 
-This project builds the apparatus that can answer that joint question. The simulator is an F1-inspired race where game structure is switched by the presence or absence of a common adversary, and agent count is configurable from two to five learning agents. A DQN-family substrate is selected to give stable single-agent learning before any multi-agent phase begins, so that algorithm-level differences do not confound the incentive-structure comparisons. The experimental programme sweeps the reward-sharing coefficient $\alpha$ across both game structures and the agent-count range, and evaluates alternative cooperative reward formulations against the $\alpha$-mixed baseline. What the project produces is an empirical characterisation of how reward sharing, game structure, and agent count jointly shape emergent strategy and learning stability.
+This project builds the apparatus that can answer that joint question. The simulator is an F1-inspired race where game structure is switched by the presence or absence of a common adversary, and agent count is configurable from two to four DQN learners. A DQN-family substrate is selected to give stable single-agent learning before any multi-agent phase begins, so that algorithm-level differences do not confound the incentive-structure comparisons. The experimental programme sweeps the reward-sharing coefficient $\alpha$ across both game structures and the agent-count range, and evaluates alternative cooperative reward formulations against the $\alpha$-mixed baseline. What the project produces is an empirical characterisation of how reward sharing, game structure, and agent count jointly shape emergent strategy and learning stability.
 
 \section{DQN substrate as the measurement apparatus}
 \label{sec:dqn-foundations}
@@ -67,20 +67,19 @@ The project's central measurement is whether changes in emergent strategy can be
 
 The DQN family has this structure by design. Each variant in the lineage was introduced to correct a named failure mode of the previous one. Double DQN targets Q-value overestimation under noisy rewards \citep{vanhasselt2016double}. Dueling DQN separates state value from action advantage to stabilise learning where the choice of action has little effect on the outcome \citep{wang2016dueling}. Prioritised experience replay addresses uniform sampling when informative transitions are rare \citep{schaul2016prioritized}. Rainbow combines these into a single algorithm \citep{hessel2018rainbow}. Because each mechanism has a clear target, differences between variants map onto specific known biases rather than unrelated implementation choices. Independent Q-learning, the standard value-based MARL baseline \citep{rashid2018qmix}, places the family within the multi-agent literature this project draws on.
 
-The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rainbow-style variant combining the three with prioritised replay. Chapter~\ref{chapter2} sets out the experimental methodology for these comparisons, and Chapter~\ref{chapter3} covers their implementation.
-
+The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rainbow-style variant (rainbow-lite) combining the three with prioritised replay.
+Chapter~\ref{chapter2} sets out the experimental methodology for these comparisons, and Chapter~\ref{chapter3} covers their implementation.
 
 \section{Aim, objectives, and research questions}
 
 \subsection{Aim}
 
-Multi-agent learning has been studied extensively in fully cooperative and fully competitive settings. The space between, where self-interested agents are only partially aligned, is recognised in the literature but remains less mature in its benchmarks, evaluation metrics, and realistic testbeds. The aim of this project is to characterise how cooperation between self-interested learning agents changes as incentive alignment and agent count are varied, and to identify the mechanisms by which cooperation succeeds, fails, or breaks down.
+The aim of this project is to characterise how cooperation between self-interested learning agents changes as incentive alignment, agent count, and reward formulation are varied within a single controlled simulator. Where cooperation fails or breaks down, the project identifies the underlying mechanism, distinguishing between training-order effects, credit-assignment limits at scale, and formulation-specific failures.
 
 \newpage
 \subsection{Research questions and hypotheses}
 \label{sec:research-questions}
-\begin{description}
-    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition?
+\begin{description}[leftmargin=3em, labelindent=0em, style=sameline]    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition?
     \item[H1.] Concurrent training produces differentiated zone coverage and opposing risk profiles through iterated best-response dynamics. No explicit coordination mechanism is required.
 
     \item[RQ2.] How does varying the reward-sharing coefficient $\alpha$ alter emergent strategy and learning stability in two-agent zero-sum and non-zero-sum settings, and can curriculum scheduling recover cooperative performance when fixed $\alpha$ fails?
@@ -99,5 +98,5 @@ Multi-agent learning has been studied extensively in fully cooperative and fully
     \item Pick a DQN variant that trains stably in the single-agent setting to act as a controlled substrate for the comparisons that follow.
     \item Measure how the reward-sharing coefficient $\alpha$ affects emergent strategy and learning stability across zero-sum and non-zero-sum game structures.
     \item Test whether cooperative performance breaks down as agent count grows, and whether curriculum scheduling can recover it.
-    \item Evaluate alternative cooperative reward formulations, and check whether a zero-shot language model with domain reasoning can match trained agents.
+    \item Evaluate alternative cooperative reward formulations, and check whether a zero-shot language model with structured domain priors can match trained agents in the simulator's scope.
 \end{itemize}
