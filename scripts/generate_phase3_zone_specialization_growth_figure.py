@@ -50,6 +50,23 @@ DATA_FILES = {
     },
 }
 
+# Fallback values from research_findings/phase3_full_analysis.md for repo states
+# where the original metrics/phase3 JSONs are not checked in.
+FALLBACK_ZONE_DIFF = {
+    500: {
+        101: 0.022,
+        202: 0.188,
+        303: 0.063,
+        404: 0.043,
+        505: 0.520,
+    },
+    750: {
+        101: 0.163,
+        202: 0.405,
+        303: 0.048,
+    },
+}
+
 SEED_COLORS = {
     101: "#4C78A8",
     202: "#8B1E3F",
@@ -59,10 +76,13 @@ SEED_COLORS = {
 }
 
 
-def load_zone_diff(path: Path) -> float:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    return float(payload["metrics"]["strategy_differentiation"]["zone_differentiation_index"])
+def load_zone_diff(path: Path, episodes: int, seed: int) -> float:
+    if path.exists():
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return float(payload["metrics"]["strategy_differentiation"]["zone_differentiation_index"])
+
+    return float(FALLBACK_ZONE_DIFF[episodes][seed])
 
 
 def collect_data() -> dict[int, dict[int, float]]:
@@ -70,7 +90,7 @@ def collect_data() -> dict[int, dict[int, float]]:
     for episodes, mapping in DATA_FILES.items():
         values[episodes] = {}
         for seed, filename in mapping.items():
-            values[episodes][seed] = load_zone_diff(PHASE3_DIR / filename)
+            values[episodes][seed] = load_zone_diff(PHASE3_DIR / filename, episodes, seed)
     return values
 
 
@@ -154,7 +174,7 @@ def build_figure(values: dict[int, dict[int, float]]) -> None:
         capsize=4,
         marker="s",
         markersize=5.5,
-        label="Mean ± SD (paired seeds)",
+        label="Mean +/- SD (paired seeds)",
         zorder=2,
     )
 
@@ -200,7 +220,7 @@ def build_figure(values: dict[int, dict[int, float]]) -> None:
         bbox={"facecolor": "white", "edgecolor": "#d1d5db", "alpha": 0.96, "pad": 2.5},
     )
 
-    ax.set_title("Phase 3: Zone specialization emerges over training duration", pad=14)
+    ax.set_title("Phase 3: Zone specialisation emerges over training duration", pad=14)
     ax.set_xlabel("Training episodes")
     ax.set_ylabel("Zone differentiation index")
 

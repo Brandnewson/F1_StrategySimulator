@@ -122,6 +122,8 @@ Each phase in the experimental programme either answers a research question from
 
 Phase~0 and Phase~1 are validation gates that confirm the simulator is correct and a learning signal exists before any experimental claim is made. Phase~2 selects the DQN substrate that all subsequent phases use, so that algorithm differences do not confound incentive-structure comparisons. Phase~3 onwards carry the research-question load.
 
+Several phases use an ablation design to isolate which specific mechanism drives a given effect. An ablation holds everything constant across conditions except the mechanism under test, so that any outcome difference is attributable to that mechanism rather than to confounds. Phase~3 ablates across the DQN family (vanilla, double, dueling, rainbow-lite) to isolate which algorithmic property drives MARL stability. Phase~5 ablates agent composition (replacing DQN agents with Base agents) to isolate whether game structure or policy quality drives the cooperative advantage. Phase~7B ablates the $\alpha$ value at fixed five-agent configuration to isolate whether cooperation failure at that scale is parametric or structural. The ablation pattern is a common feature of the experimental design and is referenced where phases use it.
+
 Phase~9 sits outside the RQ structure because its question is not about cooperation dynamics but about whether the learning problem genuinely requires adaptive strategy. If a zero-shot Large-Language Model (LLM) matches a trained DQN agent, the basis for the MARL investigation is weakened, so Phase~9 is a validity check on the project as a whole.
 
 \begin{table}[htbp]
@@ -159,10 +161,12 @@ Three formal gates govern the early phases. Gate~G0 is a hard automated integrit
 
 Phase~3 and later phases carry phase-specific validation rather than uniform gates. Each phase has documented pass criteria tied to its experimental role, with the pass decision recorded alongside the phase analysis. A failed validation does not proceed. The phase is corrected and re-run under the same protocol.
 
+Some of this phase-specific validation is pre-committed, with documented pass criteria defined before a phase runs. Some is investigation-driven, meaning additional robustness checks, diagnostic extensions, or bias controls added in response to what the phase data shows. Both are reported alongside the phase results in Chapter~\ref{chapter4} rather than treated as separate validation infrastructure, because the investigation-driven checks are part of what the experimental work actually involves.
+
 \subsection{Measurement plan}
 \label{sec:measurement-plan}
 
-Each phase is evaluated at three stochasticity levels. s0 is the primary comparison track with noise removed; s1 and s2 are robustness tracks testing whether the s0 ranking survives under increasing outcome uncertainty. The same structure is reused across all phases for comparability.
+Each phase is evaluated at three stochasticity levels. s0 is the primary comparison track with noise removed; s1 and s2 are robustness tracks testing whether the s0 ranking survives under increasing outcome uncertainty. The same structure is reused across all phases for comparability. Within each stochasticity level, multiple seeds are run to estimate the variance of the learning process itself. A seed fixes the pseudo-random streams driving network initialisation, exploration, and replay sampling. Two runs at the same seed and the same configuration produce identical results, which supports reproducibility. Running with different seeds produces different learning trajectories because reinforcement learning is path-dependent, and a single training run can be lucky or unlucky in its initialisation or exploration. Multiple seeds therefore give a distribution of outcomes for the same algorithm and environment, and are the basis for confidence intervals across trials \citep{henderson2018deep}. Three seeds per evaluation cell is the design baseline for this project, which is on the low end of current RL practice and widens confidence intervals relative to five- or ten-seed designs.
 
 The core performance metrics are win rate, joint beat-base rate, per-agent beat-base rate, and positional advantage. Win rate is the proportion of evaluation races won by the relevant DQN agent, with 95\% confidence intervals over evaluation races. Joint beat-base rate is the proportion of races in which every active DQN agent finishes ahead of the Base adversary, and becomes the central cooperative advantage metric from Phase~5 onwards. Per-agent beat-base rate applies the same test individually, distinguishing joint improvement from one agent carrying the result. Positional advantage is the mean finishing-position gap between two DQN agents.
 
@@ -185,7 +189,7 @@ Phase~2 establishes the DQN-family reliability baseline under a controlled singl
 \subsection{Phase 3: Independent learner MARL}
 \label{sec:phase3-methodology}
 
-Phase~3 replaces the fixed Base Agent with a second concurrent DQN learner. Both agents train at the same time, each with its own replay buffer and network parameters. This is the independent learner (IL) formulation, the standard value-based MARL baseline \citep{foerster2017stabilising, hernandezleal2019survey}. Phase~3 is gated on Phase~2 passing all promotion criteria.
+Phase~3 replaces the fixed Base Agent with a second concurrent DQN learner. Both agents train at the same time, each with its own replay buffer and network parameters. This is the independent Q-learning (IQL) formulation, the standard value-based MARL baseline where each agent treats other agents as part of a non-stationary environment \citep{foerster2017stabilising, hernandezleal2019survey}. Phase~3 is gated on Phase~2 passing all promotion criteria.
 
 \subsection{Phase 4: Alpha ($\alpha$) reward mixing}
 \label{sec:alpha-mixing}
@@ -196,7 +200,7 @@ Phase~4 groups the two DQN agents into a single team and introduces a reward-sha
 R_{\text{mixed}} = (1 - \alpha) \cdot R_{\text{own}} + \alpha \cdot R_{\text{teammate}}
 \]
 
-At $\alpha = 0$ each agent receives only its own reward, reproducing the Phase~3 independent learner setup. At $\alpha = 1$ each agent receives only its teammate's reward. Intermediate values produce partial alignment. The team structure carries through every subsequent phase.
+At $\alpha = 0$ each agent receives only its own reward, reproducing the Phase~3 IQL setup. At $\alpha = 1$ each agent receives only its teammate's reward. Intermediate values produce partial alignment. The team structure carries through every subsequent phase.
 
 Five $\alpha$ values are tested in Phase~4 (0.0, 0.25, 0.50, 0.75, and 1.0) to identify whether there is a threshold beyond which cooperative incentive causes learning to collapse rather than cooperate. This sweep distinguishes a gradual performance degradation at high $\alpha$ from a structural passivity failure, which is the core empirical question of RQ2.
 
