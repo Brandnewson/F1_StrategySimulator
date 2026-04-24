@@ -1,18 +1,25 @@
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 import matplotlib.pyplot as plt
 import textwrap
 from matplotlib.lines import Line2D
+from pathlib import Path
+import torch
+
+from runtime_profiles import resolve_complexity_profile, select_low_complexity_competitors, select_low_marl_competitors, select_low_marl_vs_base_competitors, select_low_marl_3dqn_vs_base_competitors, select_low_marl_teams_competitors, select_low_llm_vs_base_competitors
 
 # Agents
-from agents import BaseAgent, make_param_agent, make_random_agent
+from base_agents import BaseAgent, RandomAgent
+from agents.DQN import DQNAgent
+from feedback import DriverFeedback
 
 class DriverState:
     """Represents the state of a single driver during the race."""
     
     def __init__(self, name: str, starting_position: int, track_distance: float):
         self.name = name
-        # default start at 0.0 — actual grid offsets are assigned in init_race_state
+        self.team_id = None  # Set from competitor config for team-based MARL
+        # default start at 0.0 - actual grid offsets are assigned in init_race_state
         self.current_distance = 0.0
         self.current_lap = 0
         self.current_lap_time = 0.0  # Time spent on current lap in seconds
@@ -21,8 +28,8 @@ class DriverState:
         self.completed_laps = 0
         
         # Car state
-        self.tyre_compound = "medium"  # Can be soft, medium, hard
-        self.tyre_age = 0  # Laps on current tyres
+        self.tyre_compound = "medium"  # Reserved for future high complexity mode
+        self.tyre_age = 0  # Reserved for future high complexity mode
         self.fuel_load = 100.0  # Fuel percentage
         
         # Track position
@@ -31,10 +38,33 @@ class DriverState:
         
         # Overtaking state
         self.in_overtaking_zone = False
-        self.attempting_overtake = False
+        self.pending_overtake_decisions: Dict[str, Dict] = {}
+        self.resolved_overtake_decision_keys: Set[str] = set()
+        self.decision_events: List[Dict] = []
+        self.terminal_bonus_awarded: bool = False
         # Agent assigned to this driver (set in init_simulator)
         self.agent: Optional[BaseAgent] = None
-        
+
+        # persistent vars
+        self.starting_position = starting_position
+
+        # Per-tick metric histories (appended every simulation tick)
+        self.position_history: List[int] = []
+        self.gap_to_ahead_history: List[float] = []
+        self.gap_to_behind_history: List[float] = []
+        self.lap_progress_history: List[float] = []
+
+        # Cross-run career statistics (persist across race_reset; updated at race end)
+        self.cumulative_positions_gained: float = 0.0
+        self.runs_completed: int = 0
+
+        # Per-race overtake tracking (reset each run via race_reset)
+        self.overtakes_attempted: int = 0
+        self.overtakes_succeeded: int = 0
+        self.total_absolute_position_changes: int = 0
+        self.total_in_race_position_gains: int = 0
+        self.total_in_race_position_losses: int = 0
+        self._last_recorded_position: int = starting_position
 
 class RaceState:
     """Represents the overall state of the race.
@@ -296,12 +326,12 @@ def attempt_overtake(overtaking_driver: DriverState, target_driver: DriverState,
     success = np.random.random() < base_success_rate
     
     if success:
-        print(f"  🏁 {overtaking_driver.name} successfully overtook {target_driver.name} at {overtaking_zone.get('name')}!")
+        print(f"  SUCCESS {overtaking_driver.name} successfully overtook {target_driver.name} at {overtaking_zone.get('name')}!")
         # Swap positions slightly
         overtaking_driver.current_distance = target_driver.current_distance + 0.01
         return True
     else:
-        print(f"  ❌ {overtaking_driver.name} failed to overtake {target_driver.name} at {overtaking_zone.get('name')}")
+        print(f"  FAIL {overtaking_driver.name} failed to overtake {target_driver.name} at {overtaking_zone.get('name')}")
         return False
 
 
@@ -324,7 +354,33 @@ def init_race_state(config, track):
     Initialise the simulator with the given configuration and track data.
     This gives us our race state, and driver state.
     """
-    competitors = config.get("competitors", [])
+    competitors = list(config.get("competitors", []))
+    active_complexity, _, _ = resolve_complexity_profile(config)
+
+    requested_complexity = str(
+        config.get("complexity", {}).get("active_profile", "low")
+    ).strip().lower()
+    if requested_complexity != active_complexity:
+        print(
+            f"Requested complexity '{requested_complexity}' is not implemented. "
+            f"Falling back to '{active_complexity}'."
+        )
+    config.setdefault("complexity", {})["active_profile"] = active_complexity
+
+    if active_complexity == "low":
+        competitors = select_low_complexity_competitors(competitors)
+    elif active_complexity == "low_marl":
+        competitors = select_low_marl_competitors(competitors)
+    elif active_complexity == "low_marl_vs_base":
+        competitors = select_low_marl_vs_base_competitors(competitors)
+    elif active_complexity == "low_marl_3dqn_vs_base":
+        competitors = select_low_marl_3dqn_vs_base_competitors(competitors)
+    elif active_complexity == "low_marl_teams":
+        competitors = select_low_marl_teams_competitors(competitors)
+    elif active_complexity == "low_llm_vs_base":
+        competitors = select_low_llm_vs_base_competitors(competitors)
+    else:
+        raise ValueError(f"Complexity '{active_complexity}' is currently not supported.")
 
     # Initialize driver states
     drivers = []
@@ -343,7 +399,7 @@ def init_race_state(config, track):
             comp_colour = competitor.get("colour") or competitor.get("color")
         if isinstance(comp_colour, str):
             cc = comp_colour.strip()
-            # preserve hex codes and tuples — only collapse simple names with spaces
+            # preserve hex codes and tuples - only collapse simple names with spaces
             if cc.startswith("#"):
                 driver.colour = cc
                 driver.color = cc
@@ -356,6 +412,10 @@ def init_race_state(config, track):
         else:
             driver.colour = None
             driver.color = None
+
+        driver.team_id = competitor.get("team_id") if isinstance(competitor, dict) else None
+        driver.tyre_compound = "medium"
+        driver.tyre_age = 0
         drivers.append(driver)
     
     # Assign realistic starting grid offsets:
@@ -375,25 +435,133 @@ def init_race_state(config, track):
         config=config,
         track_data=track
     )
-    # Wire agents to drivers. If competitor config contains an 'agent' entry, use it.
+    # Wire agents to drivers. If competitor config contains an 'agent' entry, use it.        
+
+    models_dir = Path("models")
+
+    dqn_agents = []
     for idx, (driver, competitor) in enumerate(zip(drivers, competitors)):
         agent_spec = (competitor.get("agent") or "base").lower() if isinstance(competitor, dict) else "base"
         if agent_spec == "random":
-            driver.agent = make_random_agent(name=f"{driver.name}_rand")
-        elif agent_spec.startswith("param:"):
-            # format: param:cons,norm,aggr  e.g. param:0.2,0.6,0.2
-            try:
-                parts = agent_spec.split(":", 1)[1].split(",")
-                c, n, a = [float(x) for x in parts]
-                driver.agent = make_param_agent(name=f"{driver.name}_param", cons_weight=c, norm_weight=n, aggr_weight=a)
-            except Exception:
-                driver.agent = BaseAgent(name=f"{driver.name}_base")
-        elif agent_spec in ("aggressive", "aggr"):
-            driver.agent = make_param_agent(name=f"{driver.name}_aggr", cons_weight=0.05, norm_weight=0.25, aggr_weight=0.7)
-        elif agent_spec in ("conservative", "cons"):
-            driver.agent = make_param_agent(name=f"{driver.name}_cons", cons_weight=0.7, norm_weight=0.25, aggr_weight=0.05)
-        else:
+            # an agent that picks absolutely random choices of the action space
+            driver.agent = RandomAgent(name=f"{driver.name}_random")
+        elif agent_spec == "ppo":
+            # Placeholder for PPO agent (to be implemented)
+            print(f"Warning: PPO agent not yet implemented, using BaseAgent for {driver.name}")
             driver.agent = BaseAgent(name=f"{driver.name}_base")
+        elif agent_spec == "maddpg":
+            maddpg_cfg = config.get("maddpg", {}) if isinstance(config, dict) else {}
+            maddpg_enabled = bool(maddpg_cfg.get("enabled", False))
+            if maddpg_enabled:
+                print(
+                    f"Warning: MADDPG mode was requested for {driver.name}, "
+                    "but the implementation is not available yet. Falling back to BaseAgent."
+                )
+            else:
+                print(
+                    f"Note: MADDPG is configured as optional stretch work and is currently disabled. "
+                    f"Using BaseAgent for {driver.name}."
+                )
+            driver.agent = BaseAgent(name=f"{driver.name}_base")
+        elif agent_spec == "llm":
+            from agents.LLM import LLMAgent
+            llm_params = config.get("llm_params", {})
+            alpha_mode = str(llm_params.get("alpha_mode", "competitive"))
+            driver.agent = LLMAgent(
+                config=config,
+                name=f"{driver.name}_LLM",
+                alpha_mode=alpha_mode,
+            )
+        elif agent_spec == "dqn":
+            # Initialize DQN agent with correct state dimension
+            state_dim = DriverFeedback.get_state_dim(config=config, complexity=active_complexity)
+            agent_name = f"{driver.name}_DQN"
+            model_path = models_dir / f"{agent_name}_trained.pth"
+            simulator_cfg = config.get("simulator", {})
+            is_evaluation_mode = simulator_cfg.get("agent_mode") == "evaluation"
+            if "dqn_params" not in config:
+                raise KeyError(
+                    "config.json is missing required 'dqn_params' block. "
+                    "Add it with keys: hidden_size, learning_rate, gamma, "
+                    "epsilon_start, epsilon_min, epsilon_decay, buffer_capacity, target_update_freq"
+                )
+            dqn_params = config["dqn_params"]
+            required_keys = [
+                "hidden_size", "learning_rate", "gamma",
+                "epsilon_start", "epsilon_min", "epsilon_decay",
+                "buffer_capacity", "target_update_freq",
+            ]
+            missing = [k for k in required_keys if k not in dqn_params]
+            if missing:
+                raise KeyError(f"config.json 'dqn_params' is missing required keys: {missing}")
+            algo = str(dqn_params.get("algo", "vanilla")).strip().lower()
+            algo_options = dqn_params.get("algo_options", {})
+            if not isinstance(algo_options, dict):
+                raise TypeError("config.json 'dqn_params.algo_options' must be an object/dict when provided")
+
+            # Checks what the size of the loaded parameter is, and use that
+            resolved_hidden_size = int(dqn_params["hidden_size"])
+            if is_evaluation_mode and model_path.exists():
+                try:
+                    checkpoint = torch.load(str(model_path), map_location="cpu")
+                    model_state = checkpoint.get("model_state_dict", {}) if isinstance(checkpoint, dict) else {}
+                    first_layer = model_state.get("net.0.weight")
+                    if first_layer is not None and hasattr(first_layer, "shape") and len(first_layer.shape) == 2:
+                        checkpoint_hidden_size = int(first_layer.shape[0])
+                        checkpoint_state_dim = int(first_layer.shape[1])
+                        if checkpoint_state_dim != state_dim:
+                            raise ValueError(
+                                f"Checkpoint at {model_path} expects state_dim={checkpoint_state_dim}, "
+                                f"but current feedback state_dim={state_dim}. "
+                                "Retrain this agent with the current observation contract."
+                            )
+                        if checkpoint_hidden_size != resolved_hidden_size:
+                            print(
+                                f"Warning: dqn_params.hidden_size={resolved_hidden_size} differs from checkpoint "
+                                f"hidden_size={checkpoint_hidden_size} for {driver.name}. "
+                                f"Using checkpoint hidden_size for evaluation load."
+                            )
+                            resolved_hidden_size = checkpoint_hidden_size
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Could not validate checkpoint architecture for {driver.name} at {model_path}. "
+                        f"Retrain required. Error: {e}"
+                    ) from e
+
+            driver.agent = DQNAgent(
+                config=config,
+                state_dim=state_dim,
+                name=agent_name,
+                hidden_size=resolved_hidden_size,
+                learning_rate=float(dqn_params["learning_rate"]),
+                gamma=float(dqn_params["gamma"]),
+                epsilon_start=float(dqn_params["epsilon_start"]),
+                epsilon_min=float(dqn_params["epsilon_min"]),
+                epsilon_decay=float(dqn_params["epsilon_decay"]),
+                buffer_capacity=int(dqn_params["buffer_capacity"]),
+                target_update_freq=int(dqn_params["target_update_freq"]),
+                algo=algo,
+                algo_options=algo_options,
+            )
+            if model_path.exists() and is_evaluation_mode:
+                print(f"Loading trained model for {driver.name} from {model_path}")
+                try:
+                    driver.agent.load(str(model_path))
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to load checkpoint for {driver.name} at {model_path}. "
+                        "Retrain required for the current observation/action contract. "
+                        f"Error: {e}"
+                    ) from e
+            else:
+                print(f"No trained model found for {driver.name}, initializing new agent.")
+            dqn_agents.append(driver.agent)
+        elif agent_spec == 'base':
+            driver.agent = BaseAgent(name=f"{driver.name}_base")
+
+    # inform user of active algorithms
+    if dqn_agents == []:
+        print("Note that we have no DQN agents this simulation!")
 
     print(f"\nInitialized {len(drivers)} drivers:")
     for driver in drivers:

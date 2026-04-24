@@ -59,7 +59,7 @@ def load_track(config):
 
 def plot_miniloops(config):
     """Plot the mini loops on the track based on the coordinate file."""
-    track_config = config.get("track", {})
+    track_config = config.get("track")
     coordinate_file = track_config.get("coordinate_file")
     total_distance = track_config.get("distance", 0)  # Total track distance in km
     mini_loops = track_config.get("mini_loops", {})

@@ -165,4 +165,4 @@ def run_visualisation(simulator: Any) -> None:
         print("Animation interrupted by user (KeyboardInterrupt). Closing.")
 
     # Print final results
-    self._print_results()
+    self._print_results(0)

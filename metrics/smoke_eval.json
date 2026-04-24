@@ -1,0 +1,70 @@
+{
+  "created_at": "2026-03-10T21:16:48.809027",
+  "config_path": "C:\\Code\\F1_StrategySimulator\\config.json",
+  "dqn_driver_names": [
+    "Jackson Storm 500 runs 10 laps new graphs v4"
+  ],
+  "phases": {
+    "training": {
+      "skipped": true,
+      "runs": 200,
+      "seed": 1337,
+      "num_train_runs": 0,
+      "train_log_path": null
+    },
+    "evaluation": {
+      "runs": 1,
+      "seed": 7331,
+      "eval_log_path": "logs\\cand_eval_eval_20260310_211638\\race_results.jsonl"
+    }
+  },
+  "metrics": {
+    "score": 0.009300000000027928,
+    "win_rate_dqn_best_finisher": {
+      "mean": 0.0,
+      "std": 0.0,
+      "n": 1,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    },
+    "avg_position_dqn": {
+      "mean": 2.0,
+      "std": 0.0,
+      "n": 1,
+      "ci95_low": 2.0,
+      "ci95_high": 2.0
+    },
+    "avg_position_non_dqn": {
+      "mean": 2.0,
+      "std": 0.0,
+      "n": 1,
+      "ci95_low": 2.0,
+      "ci95_high": 2.0
+    },
+    "avg_position_delta_non_dqn_minus_dqn": {
+      "mean": 0.0,
+      "std": 0.0,
+      "n": 1,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    },
+    "avg_finish_time_delta_vs_non_dqn_seconds": {
+      "mean": -3.069999999997208,
+      "std": 0.0,
+      "n": 1,
+      "ci95_low": -3.069999999997208,
+      "ci95_high": -3.069999999997208
+    },
+    "overtake_success_rate_dqn": {
+      "attempted": 5,
+      "succeeded": 1,
+      "rate": 0.2
+    },
+    "dnf_rate_dqn": {
+      "dnf_count": 0,
+      "driver_runs": 1,
+      "rate": 0.0
+    },
+    "num_eval_runs": 1
+  }
+}

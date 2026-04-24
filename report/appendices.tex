@@ -1,0 +1,581 @@
+\begin{appendices}
+
+\chapter{Self-Appraisal}
+\label{appendix:selfappraisal}
+
+\section{Critical self-evaluation}
+
+The phased gate structure was the single most effective process decision in the project. Each phase's result determined the next phase's design rather than following a pre-specified plan. Phase~2's finding that rainbow-lite was the only collapse-resistant algorithm in single-agent evaluation meant that Phase~3 could attribute multi-agent collapse to MARL non-stationarity rather than to algorithm fragility. Without this gate, the Phase~3 collapse results would have been ambiguous. The same principle applied at each subsequent gate. Phase~4's zero-sum failure motivated Phase~5's game structure change. Phase~5's success motivated Phase~6's scaling test.
+
+The config-driven fairness control was also effective. Because all experimental parameters were externalised to \texttt{config.json} from the start, every comparison was provably identical in all conditions other than the variable under test. An external reviewer can reconstruct any trial from the config snapshot embedded in the metric output file. This discipline was not costly to implement but prevented a class of confounds that would have been difficult to detect and correct retrospectively.
+
+The decision to continue beyond Phase~3 rather than stopping at the first successful result produced the most original contributions. The 83 per cent cooperative improvement in Phase~5 would not have been found if the project had ended at the Phase~3 competitive equilibrium results. The scaling failure in Phase~6, the boundary characterisation in Phase~7, the curriculum decomposition in Phase~8, and the difference rewards analysis in Phase~10 all followed from the decision to keep asking the next question.
+
+The algorithm confound in Phase~10 was the main area that did not work well. The \texttt{config.json} file still contained \texttt{"algo": "vanilla"} when rainbow-lite was intended for Phase~10A. The first batch of trials therefore tested the wrong algorithm. The error was caught by reading the \texttt{"algorithm"} field embedded in the output metric JSON rather than by reviewing the config file before running. The lesson is that config inspection at the start of every experiment batch is a necessary check, not an optional one. Embedding config snapshots in telemetry output is an effective safeguard, but it should not be the only one.
+
+Writing pace was a second area for improvement. Chapters~1 to~3 were drafted while Phases~1 to~3 were active, which made them detailed and timely. Phases~4 to~10 were completed before the corresponding chapters were written, which made the retrospective write-up harder. Writing contemporaneously with experimentation is a better practice.
+
+\section{Personal reflection and lessons learned}
+
+Motorsport has always been an interest of mine, but I came into this project with a limited formal background in race strategy and simulation. The subject sits at an intersection of AI, game theory, and domain knowledge I had not studied systematically. That gap made the project harder, and ultimately more worthwhile.
+
+I proposed my own project rather than selecting a pre-defined one. That gave me creative freedom, but it also removed the guardrails that a well-scoped brief would have provided. At several points during Phase development, the natural next question pulled me further from the original aim. Staying grounded within the scope I had committed to required a discipline that does not always come naturally when curiosity takes over.
+
+The project I submitted is not the project I originally proposed. My initial aim was to study how MARL agents respond to different levels of stochasticity and environmental complexity. That turned out to be a precursor question rather than the central one. Once the stochasticity baseline was established in Phases~0 to~2, the more interesting question emerged. What happens when the incentive structure between agents shifts? The cooperative thinking metric became the actual investigation. Recognising that mid-project and pivoting without losing coherence was the right call, even if it added pressure.
+
+One thread that runs through the project is game theory, a field I had an existing interest in before connecting it explicitly to MARL. The connection became clearer as the experimentation progressed. The alpha sweep in Phase~4 is essentially a parameterisation of the cooperate/defect trade-off from a prisoner's dilemma. Phase~5's non-zero-sum structure breaks the zero-sum constraint in exactly the way game theory predicts cooperation becomes possible. The hawk-dove risk equilibria observed in Phase~3 are a direct empirical instance of a mixed-strategy Nash equilibrium. The Phase~10 difference rewards analysis is a formal question about incentive compatibility, a concept from mechanism design that predates reinforcement learning entirely. Seeing these connections emerge through experimental results rather than being designed in from the start was one of the more satisfying parts of the project.
+
+The most significant conceptual shift was the recognition that negative results are contributions. Phase~10's failure to produce cooperative behaviour via difference rewards was frustrating at first. The mathematical analysis of the gradient inversion transformed it into a precise finding. The formula failed for a stated reason. That precision is what separates a negative result from a dead end. The N=4 scaling cliff carried the same lesson. Phase~6's failure could have been treated as a dead end. Designing Phase~7 to locate the boundary precisely was the decision that produced a genuinely new empirical finding.
+
+The decision that paid off most in practice was building the telemetry pipeline before any results existed. Writing the benchmark orchestrator and the zone-level logging in Phase~0 felt like overhead when I was trying to get to the MARL experiments. It became necessary the moment Phase~3 started producing collapsing agents. The telemetry was already in place to distinguish collapse from instability and to attribute it specifically to replay buffer contamination. Without that infrastructure, the Phase~3 collapse rate table would have been a qualitative observation rather than a quantified finding with a mechanistic explanation.
+
+If I were starting again I would maintain five seeds per cell throughout rather than reducing to three. The reduction widened confidence intervals and was a trade against time that I would not make again. I would also build the Phase~5 non-zero-sum structure into the design from the start rather than arriving at it through Phase~4. That is easy to say in retrospect. Phase~4 produced a standalone result I would not discard. But Phase~5 is where the question the project was actually asking finally became testable. Reaching it through Phase~4's negative result added an experimental phase that could instead have been a design decision.
+
+I came into this trying to combine interests I had not previously brought together. I think, on balance, it worked.
+
+\section{Legal, social, ethical and professional issues}
+
+\subsection{Legal issues}
+
+All external libraries used in this project are open-source. FastF1 is released under the MIT licence. PyTorch is released under a BSD-style licence. NumPy and Pandas are released under BSD licences. The Anthropic Claude Haiku API was used under Anthropic's standard commercial terms of service. The FastF1 telemetry data is drawn from publicly available Formula~1 race data intended for non-commercial research use, consistent with the library's intended purpose and licence terms.
+
+\subsection{Social issues}
+
+This project does not interact with human participants and does not collect or process personal data. The research question concerns the behaviour of autonomous software agents in a simulated environment. There are no direct social impacts from the project itself.
+
+The broader research area has social relevance. Autonomous agents with configurable incentive structures are deployed in domains beyond motorsport simulation, including financial trading, logistics optimisation, and competitive resource allocation. The finding that incentive formula design shapes emergent agent behaviour as strongly as algorithm choice is relevant to anyone designing the reward contracts for multi-agent systems in these domains. The project provides controlled evidence that poorly designed cooperative incentives can produce competitive or even harmful agent behaviour, which is a meaningful contribution to the broader conversation about AI alignment in multi-agent settings.
+
+\subsection{Ethical issues}
+
+No human participants were involved at any stage of this project. No consent forms were required. All data generated and used was produced by me and does not involve external parties, which limits the risk of data mishandling or unintended data linkage.
+
+The LLM baseline in Phase~9 uses the Anthropic Claude Haiku API. No personal data was transmitted to the API at any point. All race state information is synthetic and contains no identifying information.
+
+External literature is used as reference material throughout the report. I have been careful to cite sources accurately, to check that referenced works are openly available for academic use, and to confirm that each source is a legitimate published work. One citation was found to be unverifiable during the final review process and was removed.
+
+Running simulations and training agents over extended periods carries a non-trivial energy cost. I was mindful of this throughout and avoided running experiments whose outputs I had no intention of using. The phase-gated structure supported this by requiring a gate to pass before the next phase's compute was committed.
+
+The most direct ethical concern for this type of project is the reliability of the policies it produces. This simulator abstracts away substantial physical complexity. There is no tyre degradation, no pit stop timing, no weather variation, and no driver fatigue. A policy that performs well in this environment may behave very differently under real race conditions, where these factors interact with overtaking decisions in ways the simulator does not capture. If a real driver or team adopted strategies derived from this system without understanding those limitations, they could make overtaking attempts that the simulator rates as favourable but that carry materially higher real-world risk. The Phase~9 result is instructive. A zero-shot language model with no training matched rainbow-lite within two per cent win rate, which suggests the learned strategy may be less general than win rates alone imply. The La Source dominance artefact is a concrete example of a simulator-specific bias that would not transfer to circuits without a structurally straightforward first braking zone. Any real-world application of this system would require explicit validation against the circuits, conditions, and risk tolerances it was not designed to cover.
+
+\subsection{Professional issues}
+
+This project follows the reproducibility standards identified as necessary for trustworthy reinforcement learning comparisons \citep{henderson2018deep,agarwal2021statistical}. Matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics are treated as professional obligations rather than optional additions. The git repository provides a full audit trail of experimental code, configuration changes, and metric outputs. All claims in the main report are traceable to specific metric files or mathematical derivations.
+
+\chapter{External Material}
+\label{appendix:external}
+
+All materials not developed by the student are listed below.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{External materials used in this project}
+\label{tab:external-materials}
+\begin{tabular}{|p{3.5cm}|p{2.5cm}|p{5cm}|p{2.5cm}|}
+\hline
+\textbf{Material} & \textbf{Version} & \textbf{Purpose} & \textbf{Licence} \\
+\hline
+FastF1 & v3.x & 2023 Belgian Grand Prix telemetry for overtaking zone difficulty calibration & MIT \\
+\hline
+PyTorch & v2.x & Neural network implementation for all DQN-family variants & BSD \\
+\hline
+NumPy & v1.x & Numerical computation in simulator and metrics scripts & BSD \\
+\hline
+Pandas & v2.x & Metrics aggregation and results table generation & BSD \\
+\hline
+Anthropic Claude Haiku & API (2024) & Zero-shot LLM agent for Phase~9 semantic baseline & Commercial API terms of service \\
+\hline
+\end{tabular}
+\end{table}
+
+All academic papers cited in this report were accessed through publicly available sources or the University of Leeds library. No software developed for this project relies on proprietary algorithms or datasets. The project codebase is available to the supervisor and assessor via the git repository linked in the project submission.
+
+Table~\ref{tab:related-work-comparison} groups the related work by the role it plays in the dissertation: motorsport strategy and simulation, machine-learning and reinforcement-learning foundations, and multi-agent reinforcement learning.
+
+\begingroup
+\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|p{2.0cm}|p{2.1cm}|p{2.0cm}|p{2.0cm}|p{2.0cm}|p{2.2cm}|p{2.4cm}|}
+\caption{Comparison of related work and relevance to this dissertation}
+\label{tab:related-work-comparison}\\
+\hline
+\textbf{Study} & \textbf{Domain and simulator fidelity} & \textbf{Decision method} & \textbf{Uncertainty treatment} & \textbf{Evaluation rigour} & \textbf{Limitations} & \textbf{Direct relevance to thesis} \\
+\hline
+\endfirsthead
+\hline
+\multicolumn{7}{|c|}{\textit{Table~\thetable{} continued}}\\
+\hline
+\textbf{Study} & \textbf{Domain and simulator fidelity} & \textbf{Decision method} & \textbf{Uncertainty treatment} & \textbf{Evaluation rigour} & \textbf{Limitations} & \textbf{Direct relevance to thesis} \\
+\hline
+\endhead
+\hline
+\endfoot
+\hline
+\endlastfoot
+\multicolumn{7}{|l|}{\textbf{Motorsport simulation and racing analytics}}\\
+\hline
+\citealp{heilmeier2018racesim} & Circuit motorsport race simulation with lap-wise tyre, fuel, pit stop and overtaking processes & Rule-based race simulation and strategy what-if analysis & Models race-process uncertainty through degradation, pit stops and overtaking & Validated against a historical race setting & Not an RL or MARL benchmark, and not seed-focused & Motivates the staged simulator abstraction and the need to separate race mechanics from learning effects \\
+\hline
+\citealp{heilmeier2020virtual} & Formula 1 strategy-support tool with race simulation and neural-network components & Surrogate modelling for pit-stop and tyre-compound decisions & Captures race-context variability through modelled race scenarios & Engineering-oriented validation and open-source race simulation & The neural networks imitate strategy choices rather than learn through interaction & Supports the thesis emphasis on interpretable strategy tools rather than opaque winner prediction \\
+\hline
+\citealp{piccinotti2021online} & Formula 1 race strategy identification in a planning setting & Online planning over race-strategy choices & Dynamic race context is handled inside the planning loop & Demonstrates the value of formal planning for strategy choice & Not a DQN-family comparison and not a multi-agent credit-assignment study & Clarifies why this dissertation studies learned tactical behaviour rather than only search or planning \\
+\hline
+\citealp{liu2020formulae} & Formula E race strategy with energy constraints & Artificial neural network plus Monte Carlo tree search & Considers race-condition and energy-management uncertainty & Domain-specific decision-quality evaluation & Does not provide a controlled RL reproducibility benchmark & Supports the framing of motorsport strategy as tactical decision-making under uncertainty \\
+\hline
+\citealp{liu2024formulae} & Formula E multi-car race-strategy setting & Reinforcement-learning strategy development & Competitive multi-car uncertainty is part of the strategy problem & Strong domain result emphasis & Less focused on seed-controlled algorithm isolation & Provides the closest peer-reviewed motorsport RL neighbour, but with a different research target \\
+\hline
+Recent F1 modelling \citep{cappello2025tires,fieni2026learning} & Tyre-degradation modelling and Formula 1 multi-agent race-strategy preprints & Bayesian state-space modelling; learning-based multi-agent strategy optimisation & Tyre uncertainty, opponent interaction and race-condition variation are explicit concerns & Recent open preprints with technical detail & Preprints, and not designed around this dissertation's DQN-family ablation protocol & Shows the domain is moving toward probabilistic tyre models and multi-agent strategy learning, which strengthens the timeliness of the staged simulator \\
+\hline
+F1 points forecasting \citep{bansal2025advanced} & Formula 1 championship-point prediction rather than in-race strategy & Supervised machine-learning forecasting & Treats uncertainty through predictive modelling of season outcomes & ResearchGate preprint only & Non-peer-reviewed and not a simulator, RL, or MARL contribution & Useful only as weak context for wider F1 analytics; it should not be used as evidence for strategy-learning claims \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Machine learning and reinforcement learning foundations}}\\
+\hline
+DQN family \citep{mnih2015human,vanhasselt2016double,wang2016dueling,schaul2016prioritized,hessel2018rainbow} & General deep RL benchmarks & DQN, Double DQN, dueling networks, prioritised replay and Rainbow-style combinations & Addresses overestimation, representation and replay-sampling issues in value learning & Benchmark-oriented algorithm studies & Not motorsport-specific and not designed for independent concurrent learners & Defines the algorithm families isolated in Phase 2 and the later rainbow-lite configuration \\
+\hline
+RL evaluation practice \citep{henderson2018deep,agarwal2021statistical} & Cross-domain deep RL evaluation methodology & Reproducibility, statistical reporting and aggregate comparison guidance & Focuses on stochastic variation, seed effects and unreliable point estimates & Strong critique of weak reporting practice & Does not prescribe a motorsport-specific protocol & Justifies fixed seeds, confidence intervals and the separation of primary and robustness tracks \\
+\hline
+Scenario robustness \citep{sankary2018stochastic} & Robust optimisation under uncertain operating scenarios & Evolutionary optimisation with stochastic scenario resampling & Explicitly varies scenario samples to reduce overfitting to one evaluation set & Robustness-focused comparison design & Different optimisation paradigm from RL & Supports the decision to evaluate learned policies across controlled stochasticity settings \\
+\hline
+Game-scale RL \citep{silver2017alphagozero,silver2018alphazero,brown2018superhuman,vinyals2019alphastar,berner2019dota2} & High-profile competitive games and self-play systems & Large-scale deep RL, search, self-play and population training & Uses extensive self-play or population variation rather than fixed small-budget comparisons & Demonstrates the ceiling of scaled RL systems & Far larger compute and much richer simulators than this project & Provides context for why this dissertation studies a deliberately small, auditable simulator rather than claiming general motorsport autonomy \\
+\hline
+Agent/action-space framing \citep{ribeiro2002rlagents,schulman2017ppo,zhu2021actionspaces} & General RL agent design and action-space choices & Classical RL-agent framing, policy-gradient baseline methods and action-space taxonomy & Treats stochastic policy optimisation and action design as modelling choices & Useful conceptual and algorithmic context & PPO and continuous-control methods are not evaluated in the implemented DQN benchmark & Helps justify the discrete overtake/hold/risk action abstraction and the decision to keep the project value-based \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Multi-agent reinforcement learning and incentive design}}\\
+\hline
+MARL surveys \citep{busoniu2008survey,hernandezleal2019survey,gronauer2022survey,ningxie2024marl,du2023cooperation} & General multi-agent reinforcement-learning theory and applications & Surveys of independent learning, cooperation, non-stationarity and applications & Identify non-stationarity, credit assignment and scalability as recurring challenges & Scholarly survey evidence rather than one-off benchmark results & Too broad to validate the F1 simulator directly & Grounds the dissertation's research gap in established MARL challenges rather than a motorsport-only motivation \\
+\hline
+Independent learners \citep{tan1993multiagent,claus1998dynamics,matignon2012independent,foerster2017stabilising,schroeaderdewitt2020ippo} & Multi-agent settings where learners update without centralised coordination & Independent Q-learning, policy dynamics and independent-policy baselines & Other learners make the perceived environment non-stationary & Includes classic theory and modern empirical comparisons & Many settings are simpler or very different from racing & Directly supports the Phase 3 and Phase 5 focus on independent concurrent DQN agents \\
+\hline
+Credit assignment and reward design \citep{wolpert2001optimal,agogino2004unifying,panait2005cooperative,devlin2014potential,wang2022irat,zhao2025maca,nagpal2025llm_mca} & Cooperative and mixed cooperative settings with shared outcomes & Difference rewards, potential-based shaping, individual-reward assistance and newer credit-assignment methods & Addresses ambiguity over which agent caused a team outcome & Strong conceptual basis for reward-signal design & Several methods require counterfactuals, centralised critics, or extra modelling not implemented here & Provides the first-principles basis for the \(\alpha\)-mixing and mean-counterfactual reward experiments \\
+\hline
+CTDE and value factorisation \citep{lowe2017maddpg,foerster2018coma,sunehag2018vdn,rashid2018qmix,son2019qtran,yu2022mappo,amato2024ctde_intro} & Cooperative MARL with centralised training or decomposed team value functions & MADDPG, COMA, VDN, QMIX, QTRAN, MAPPO and CTDE framing & Uses centralised critics or factorised value functions to manage inter-agent dependence & Widely used family of MARL baselines & Not implemented because the project tests independent DQN-family learners under matched budgets & Defines the important boundary of the dissertation: it studies independent learners, not full CTDE methods \\
+\hline
+Cooperation, social incentives and roles \citep{nowak2006five,leibo2017multiagent,hughes2018inequity,jaques2019social,wang2020roma,wang2022irat} & Evolutionary cooperation theory and mixed-motive games with emergent social behaviour & Cooperation mechanisms, social influence, inequity aversion, role-oriented learning and individual-reward assistance & Captures partial alignment, fairness pressure and role differentiation & Demonstrates that reward structure can change emergent behaviour & Often uses abstract social dilemmas or richer MARL architectures & Supports the interpretation of asymmetric zone/risk roles and the shared-incentive experiments \\
+\hline
+Mean-field, leniency and equilibrium learning \citep{hu2003nash,wei2016lenient,yang2018meanfield} & Multi-agent learning under many-agent or equilibrium pressures & Nash Q-learning, lenient learning and mean-field approximation & Reduces or reframes non-stationarity from other agents & Provides theoretical alternatives to direct independent learning & Assumptions differ from the small racing simulator and are not implemented & Helps explain why five-agent scaling is harder and why mean-based approximations are a pragmatic but imperfect counterfactual substitute \\
+\hline
+MARL benchmarks \citep{samvelyan2019smac,papoudakis2021benchmarking,christianos2020seac} & Standardised MARL benchmark environments and empirical protocols & StarCraft MARL challenge, empirical benchmark comparisons and shared-experience baselines & Exposes seed sensitivity, coordination difficulty and benchmark dependence & Stronger benchmark discipline than many one-off studies & Domains are not motorsport and require richer observation/action spaces & Reinforces the need for transparent simulator configuration, saved metrics and reproducible comparison gates \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Positioning of this dissertation}}\\
+\hline
+This dissertation & F1-inspired competitive simulator with staged complexity & Reproducible DQN-family and incentive-design benchmark with behavioural diagnostics & Controlled stochasticity levels, explicit reward variants and staged agent counts & Matched budgets, fixed seeds, confidence intervals, saved configuration snapshots and metric outputs & Simplified simulator abstraction and no full CTDE implementation & Tests the gap between motorsport strategy simulation and MARL incentive design in a compact, auditable setting \\
+\hline
+\end{longtable}
+\endgroup
+
+
+\section*{Overtaking zone calibration figures}
+\label{sec:overtaking-figures}
+\addcontentsline{toc}{section}{Overtaking zone calibration figures}
+
+The following figures show the FastF1 telemetry analysis used to calibrate overtaking zone difficulty values in Section~2.1. Figure~\ref{fig:overtakes-spa} plots the absolute number of position changes against track distance at the 2023 Belgian Grand Prix. Figure~\ref{fig:overtaking-mapping} overlays overtake density on the Spa-Francorchamps circuit layout. Both are derived from publicly available race data accessed via the FastF1 library.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{diagrams/NumberOfOvertakesSpa.png}
+    \caption{Absolute overtakes by track distance, 2023 Belgian Grand Prix.}
+    \label{fig:overtakes-spa}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{diagrams/overtakingMapping.png}
+    \caption{Relative overtake density mapped to the Spa-Francorchamps circuit.}
+    \label{fig:overtaking-mapping}
+\end{figure}
+
+\section*{Simulator reference figures}
+\label{sec:simulator-reference-figures}
+\addcontentsline{toc}{section}{Simulator reference figures}
+
+The following figures show the simulator's own track and visualisation views. Figure~\ref{fig:simulator-zone-map} gives the configured Spa-Francorchamps centreline with the nine overtaking zones used by the simulator. Figure~\ref{fig:simulator-realtime-snapshot} shows a representative real-time visualisation frame from an evaluation-mode \texttt{low\_marl\_teams} run with four trained DQN agents and one Base agent.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{diagrams/simulator_track_overtaking_zones.png}
+    \caption{Simulator-native Spa-Francorchamps track map with configured overtaking zones.}
+    \label{fig:simulator-zone-map}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{diagrams/simulator_realtime_snapshot.png}
+    \caption{Representative real-time simulator snapshot used during development to verify zone sequencing, agent ordering, and on-track state updates.}
+    \label{fig:simulator-realtime-snapshot}
+\end{figure}
+
+\chapter{Phase 0 and Phase 1 Experimental Validation}
+\label{appendix:phase01}
+
+This appendix documents the system integrity checks carried out in Phase~0 and the smoke evaluation results collected in Phase~1. Both phases are prerequisites to the Phase~2 DQN-family benchmark. Phase~0 verified that the simulator, reward accounting, stochasticity, and telemetry were correct before any learning claims were made. Phase~1 confirmed a learning signal at low compute cost and established the stochasticity sensitivity profile of the vanilla DQN baseline.
+
+% ---------------------------------------------------------------
+\section{Phase 0: System Integrity}
+% ---------------------------------------------------------------
+
+\subsection{Objective and scope}
+
+Phase~0 contained twelve white-box unit and integration tests grouped into three categories. Group~A checked simulator correctness. Group~B validated the stochastic probability calculations statistically. Group~C verified the telemetry contract. All tests were implemented in \texttt{tests/test\_phase0\_integrity.py} and executed under a fixed random seed with the Spa circuit at low complexity and stochasticity level s0.
+
+\subsection{Test inventory}
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Phase 0 integrity test inventory and outcomes}
+\label{tab:phase0-tests}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|p{0.6cm}|p{6.2cm}|p{9.0cm}|p{1.6cm}|}
+\hline
+\textbf{Grp} & \textbf{Test name} & \textbf{What it checks} & \textbf{Result} \\
+\hline
+A & \texttt{test\_one\_decision\_per\_zone\_per\_lap} & Each (driver, zone, lap) tuple appears at most once per run in the decision event log & Pass \\
+\hline
+A & \texttt{test\_cooldown\_enforcement} & Any two sequential attempt events for the same driver are separated by at least 5.0~s of simulated time & Pass \\
+\hline
+A & \texttt{test\_terminal\_reward\_correctness} & \texttt{outcome\_raw} equals starting position minus final position for every driver & Pass \\
+\hline
+A & \texttt{test\_reward\_sum\_identity} & \texttt{reward\_component\_sum\_error} is below $10^{-4}$ for every decision event & Pass \\
+\hline
+A & \texttt{test\_inactive\_components\_zero} & \texttt{pace} and \texttt{tyre\_pit} components are exactly 0.0 in every event at low complexity & Pass \\
+\hline
+B & \texttt{test\_aggression\_increases\_probability} & Mean success probability across 1000 samples satisfies AGGRESSIVE $>$ NORMAL $>$ CONSERVATIVE at fixed zone and gap & Pass \\
+\hline
+B & \texttt{test\_gap\_decreases\_probability} & Closer gap yields higher mean success probability at 1000 samples & Pass \\
+\hline
+B & \texttt{test\_zone\_difficulty\_scales\_probability} & Lower difficulty zone yields higher mean success probability at 1000 samples & Pass \\
+\hline
+C & \texttt{test\_jsonl\_schema} & Required top-level keys present in every race results JSONL record & Pass \\
+\hline
+C & \texttt{test\_decision\_event\_schema} & Required per-decision keys present including \texttt{reward\_component\_sum\_error} and \texttt{success\_probability} & Pass \\
+\hline
+C & \texttt{test\_component\_totals\_match\_events} & Per-driver \texttt{reward\_component\_totals} match the sum of individual decision events for decision-time components & Pass \\
+\hline
+\end{tabular}
+}
+\end{table}
+
+\subsection{Defects found and corrected}
+
+Two defects were identified during Phase~0 and corrected before any Phase~1 runs were executed.
+
+The first defect was in the base agent heuristic. The \texttt{default\_policy} function in \texttt{src/base\_agents.py} reads the gap to the car ahead via \texttt{getattr(driver, "gap\_to\_ahead", None)}. The \texttt{DriverState} class did not initialise this attribute, so the value was always \texttt{None}. This collapsed the base agent's overtake attempt probability to approximately 19\% at La Source instead of the intended 77\%, making the base agent effectively passive. The defect was corrected by setting \texttt{driver.gap\_to\_ahead = gap\_distance} in the simulator's \texttt{\_check\_overtakes} method before the agent action call. After correction the base agent attempted overtakes at a frequency consistent with its heuristic policy parameters.
+
+The second defect was a scoping error in \texttt{test\_one\_decision\_per\_zone\_per\_lap}. The deduplication set was initially keyed on driver name alone rather than on the (run number, driver name) pair, causing legitimate across-run repetitions to trigger false failures. The test was corrected to scope deduplication within each individual run.
+
+\subsection{Phase 0 gate outcome}
+
+All twelve tests passed. No \texttt{reward\_component\_sum\_error} exceeded $10^{-4}$. The stochastic calibration ordering assertions held across all 1000-sample replicates. The JSONL schema contained all required keys. Gate~G0 was cleared and Phase~1 proceeded.
+
+% ---------------------------------------------------------------
+\section{Phase 1: Single-Agent Smoke Evaluation}
+% ---------------------------------------------------------------
+
+\subsection{Objective and configuration}
+
+Phase~1 confirmed that a learning signal existed before the full Phase~2 benchmark matrix was run. All five smoke runs used a vanilla DQN agent trained for 200 episodes against a single heuristic base agent at low complexity on the Spa circuit. The epsilon decay was set to 0.995, producing $\varepsilon \approx 0.37$ by episode 200. Each run was evaluated over 20 races per seed across three evaluation seeds (101, 202, 303). The three s0 runs used independent training seeds (101, 202, 303). The s1 and s2 runs used training seed 101 only.
+
+The stochasticity levels used Gaussian noise on the overtake success probability. s0 used noise standard deviation 0.0 (deterministic). s1 used 0.02. s2 used 0.05.
+
+\subsection{s0 results: three training seeds}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 s0 smoke results across three training seeds (60 eval races per seed set)}
+\label{tab:phase1-s0}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{Train seed} & \textbf{Win rate} & \textbf{CI95 low} & \textbf{CI95 high} & \textbf{Position delta} & \textbf{Seed var.} & \textbf{DNF rate} \\
+\hline
+101 & 0.783 & 0.678 & 0.888 & 0.567 & 0.0033 & 0.0 \\
+202 & 0.767 & 0.659 & 0.875 & 0.533 & 0.0058 & 0.0 \\
+303 & 0.783 & 0.678 & 0.888 & 0.567 & 0.0033 & 0.0 \\
+\hline
+\end{tabular}
+\end{table}
+
+All three seeds exceeded the Gate~G1 criterion of win rate above 0.50 with CI95 lower bound above 0.50. Starting position exposure was perfectly balanced at 30 races from each of positions 1 and 2 in every run. No DNFs occurred. Gate~G1 was cleared.
+
+The three seeds produced closely grouped results, with seed variance between 0.003 and 0.006. This indicated convergence to a similar policy attractor across independent training runs.
+
+\subsection{Risk behaviour at s0}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Risk level counts and zone-level attempt rates at s0 (train seed 101, 60 eval races)}
+\label{tab:phase1-s0-risk}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Zone} & \textbf{Difficulty} & \textbf{Decisions} & \textbf{Attempt rate} & \textbf{Success rate} & \textbf{Avg reward} \\
+\hline
+La Source       & 0.2 & 30 & 1.00 & 0.867 & $+0.127$ \\
+Raidillon       & 0.9 & 28 & 1.00 & 0.143 & $-0.021$ \\
+Les Combes      & 0.7 & 46 & 0.870 & 0.300 & $+0.013$ \\
+Bruxelles       & 0.7 & 13 & 1.00 & 0.231 & $+0.015$ \\
+\hline
+\end{tabular}
+\end{table}
+
+Risk level counts at s0 were CONSERVATIVE~60, NORMAL~42, AGGRESSIVE~10. The agent showed a strong preference for cheaper-failure strategies at s0. Only four of nine configured zones appeared in any decision event. Zones at greater track distances from the start were not reached in sufficient proximity situations to trigger decisions within the two-car five-lap race format.
+
+The agent attempted at Raidillon (difficulty 0.9) 100\% of the time despite a 14\% success rate and a net-negative average reward. This indicated that the policy had not learned to discriminate HOLD decisions at high-difficulty zones within 200 training episodes.
+
+\subsection{Stochasticity degradation: s0, s1, and s2}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 stochasticity comparison (train seed 101, 60 eval races per level)}
+\label{tab:phase1-stoch}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{Level} & \textbf{Win rate} & \textbf{CI95 low} & \textbf{CI95 high} & \textbf{Tactical raw total} & \textbf{Outcome raw total} & \textbf{Seed var.} \\
+\hline
+s0 & 0.783 & 0.678 & 0.888 & $-11.0$ & $+17.0$ & 0.0033 \\
+s1 & 0.783 & 0.678 & 0.888 & $-17.5$ & $+17.0$ & 0.0033 \\
+s2 & 0.750 & 0.640 & 0.860 & $-27.5$ & $+15.0$ & 0.0100 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Risk level counts across stochasticity levels (train seed 101, 60 eval races per level)}
+\label{tab:phase1-risk-levels}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Level} & \textbf{CONSERVATIVE} & \textbf{NORMAL} & \textbf{AGGRESSIVE} & \textbf{Decisions} & \textbf{Attempt rate/run} \\
+\hline
+s0 & 60 & 42 & 10 & 118 & 1.87 \\
+s1 & 19 & 26 & 48 & 110 & 1.55 \\
+s2 & 18 & 30 & 49 &  97 & 1.62 \\
+\hline
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+\section{Phase 1 findings and implications}
+% ---------------------------------------------------------------
+
+\subsection{Win rate floor: La Source structural dominance}
+
+The win rate was flat from s0 to s1 (0.783 in both cases). This was not a sign of robustness. The dominant overtaking zone at La Source (difficulty 0.2) produced an 87--90\% success rate in all three levels with 100\% attempt rate. Adding a noise standard deviation of 0.02 to a near-certain probability event is insufficient to flip race outcomes at La Source. The s1 noise level fell below the La Source erosion threshold, making the s0-to-s1 comparison uninformative about true policy robustness.
+
+The tactically informative metric was the win rate from position-two starts. Stripping out the structural position-one advantage, the agent won approximately 57\% of P2-start races at both s0 and s1, falling to 50\% at s2. This 7 percentage point reduction at s2 was the genuine sensitivity signal.
+
+\subsection{AGGRESSIVE flip as a DQN overestimation indicator}
+
+The risk level distribution reversed completely between s0 and s1. At s0 the agent used CONSERVATIVE in 53\% of attempts. At s1 and s2 it used AGGRESSIVE in 52--51\% of attempts. This reversal persisted across stochasticity levels once noise was introduced.
+
+The root cause was Q-value overestimation under high-variance rewards. Vanilla DQN uses a max operator in the Bellman update, which preferentially propagates optimistic samples. Under noisy outcomes, AGGRESSIVE occasionally produced high-reward events. These upward noise samples inflated Q-values for AGGRESSIVE in training, biasing the policy toward the highest-penalty failure strategy at evaluation. The consequence appeared directly in the tactical component, which worsened from $-11.0$ at s0 to $-27.5$ at s2, a 2.5$\times$ increase despite fewer total decisions.
+
+This overestimation pattern under noise is the documented failure mode that motivated Double~DQN and is empirically visible here. It provides direct motivation for the Phase~2 algorithm comparison.
+
+\subsection{Zone discrimination collapse at s2}
+
+At s0 the agent applied a partial HOLD policy at Les Combes (87\% attempt rate). At s1 this discrimination strengthened to 73\% attempt rate, and the Raidillon HOLD rate improved to 90\%. At s2 both zones reverted to 100\% attempt rate. The learned discrimination did not persist beyond moderate noise. This indicated that the Q-value signal was too weak at 200 training episodes to maintain zone-specific HOLD behaviour when outcome variance exceeded the signal from the penalty gradient.
+
+\subsection{Seed variance as a robustness indicator}
+
+Seed variance was stable at 0.0033 across s0 and s1, then tripled to 0.010 at s2. This was the first measurable instability signal and the entry point for the RQ1 robustness analysis. Policy sensitivity to training seed increased at s2, confirming that higher noise was beginning to disrupt convergence reliability even within the 200-episode budget.
+
+\subsection{Phase 1 gate summary}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phase 1 gate G1 checklist}
+\label{tab:phase1-gate}
+\begin{tabular}{|p{8.5cm}|p{2.0cm}|}
+\hline
+\textbf{Criterion} & \textbf{Outcome} \\
+\hline
+At least one of three s0 seeds shows win rate above 0.50 & Met (all three) \\
+All CI95 lower bounds above 0.50 at s0 & Met (lowest: 0.659) \\
+Fairness violations equal zero (start position imbalance) & Met (ratio 0.0) \\
+s1 and s2 show interpretable degradation direction & Met (see note) \\
+\hline
+\end{tabular}
+\end{table}
+
+The degradation direction was interpretable but structurally attenuated. The headline win rate was flat at s1 due to La Source dominance, and only the s2 comparison showed a reduction. The behavioural degradation signal (AGGRESSIVE flip, zone discrimination collapse, rising tactical penalty, increased seed variance) was present and mechanistically consistent across s1 and s2. Gate~G1 was cleared and Phase~2 proceeded with this understanding recorded.
+
+\chapter{DQN variant formulations and training specifics}
+\label{appendix:dqn-specifics}
+
+This appendix gives the formal equations for each DQN variant, the network and replay specifications, the exploration and optimisation hyperparameters, and the protocol by which those hyperparameters were selected. The conceptual descriptions in Section~\ref{sec:dqn-variants} summarise what each formulation does. This appendix gives the corresponding equations for readers who want the formal definitions alongside.
+
+\section{Variant TD targets}
+
+Every variant trains its Q-network by adjusting its predictions toward a target value $y$. The target is derived from the observed reward plus a discounted estimate of future value. The target is what differs between variants, and each variant's choice of target corresponds to the mechanism described in the main text.
+
+\textbf{Vanilla DQN.} The vanilla TD target takes the maximum Q-value over next-state actions under the target network,
+\[
+y = r + \gamma \max_{a'} Q_{\text{target}}(s', a')
+\]
+where $r$ is the reward received after the action, $\gamma$ is the discount factor controlling how much future rewards are weighted relative to immediate ones, $s'$ is the next state, and $a'$ is the action taken there \citep{mnih2015human}.
+
+\textbf{Double DQN.} Double DQN splits action selection from action evaluation, using the online network to pick the action and the target network to grade it,
+\[
+y = r + \gamma Q_{\text{target}}\!\left(s',\, \mathop{\arg\max}_{a'} Q_{\text{online}}(s', a')\right)
+\]
+This prevents noise in the online network from feeding back into inflated target values \citep{vanhasselt2016double}.
+
+\textbf{Dueling DQN.} The dueling architecture reconstructs the Q-value from a state-value stream $V(s)$ and an action-advantage stream $A(s,a)$,
+\[
+Q(s,a) = V(s) + \left(A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')\right)
+\]
+Subtracting the mean advantage ensures $V$ and $A$ are uniquely identified from their sum \citep{wang2016dueling}.
+
+\textbf{Rainbow-lite.} Rainbow-lite combines double targeting, the dueling architecture, and two further mechanisms. Multi-step returns use three consecutive rewards before bootstrapping,
+\[
+y = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \gamma^3 \max_{a'} Q_{\text{target}}(s_{t+3}, a')
+\]
+which propagates reward signal faster than single-step targets \citep{hessel2018rainbow}. Prioritised experience replay samples transitions with probability proportional to $|TD_{\text{error}}|^{\alpha_{\text{PER}}}$, where $|TD_{\text{error}}|$ is the magnitude of the temporal-difference prediction error and the priority exponent $\alpha_{\text{PER}} = 0.6$ (distinct from the reward-sharing $\alpha$ used elsewhere in the report). Importance-sampling weights are annealed from $\beta = 0.4$ to $1.0$ over 100{,}000 steps to correct the introduced bias \citep{schaul2016prioritized}.
+
+\section{Network and replay specifications}
+
+All variants use a two-hidden-layer feedforward neural network with rectified linear unit (ReLU) activations and a hidden layer width of 512 units. Vanilla, Double, and Dueling variants use a uniform circular replay buffer of capacity 150{,}000 transitions, with samples drawn uniformly at random. Rainbow-lite uses the same buffer capacity with prioritised sampling as described above. The target network is a periodically refreshed copy of the online network, synchronised by hard copy every 1{,}000 gradient steps.
+
+\section{Exploration and optimisation schedule}
+
+Epsilon starts at 1.0 (fully random action selection) and decays multiplicatively by a factor of 0.995 per episode toward a minimum floor. At the 500-episode Phase~2 budget this leaves $\epsilon \approx 0.08$, so the agent selects a random action roughly 8 per cent of the time at the end of training and exploits its learned policy the rest of the time. The Adam optimiser is used with a learning rate of $7 \times 10^{-4}$, and batch size is 64 throughout.
+
+\section{Hyperparameter tuning protocol}
+
+The shared hyperparameters were determined using Autoresearch \citep{karpathy2024autoresearch}, a tuning tool that iteratively proposes and evaluates single-parameter changes against a scored objective. Thirty iterations were run, each scored across three seeds with fifty training runs per seed, before the configuration was committed. Tuning ran against the Phase~2 single-agent contract, so the hyperparameters reflect single-agent stability rather than multi-agent dynamics. This keeps the DQN-variant comparisons fair within Phase~2 and avoids tuning bias that could favour any particular variant in later phases.
+
+\chapter{DQN Training Loop}
+\label{appendix:dqnloop}
+
+The figure below shows the training loop shared across all four DQN-family variants. Each episode the agent selects an action via epsilon-greedy policy, stores the transition in the replay buffer, samples a minibatch, computes the TD target, and updates network weights. The variant-specific logic is confined entirely to the TD target computation step. All other steps are identical across vanilla, double, dueling, and rainbow-lite.
+
+\begin{figure}[p]
+\centering
+\begin{minipage}[c]{0.56\textwidth}
+    \centering
+    \includegraphics[width=\textwidth,height=0.80\textheight,keepaspectratio]{diagrams/DQN-loop.png}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.40\textwidth}
+    \centering
+    \includegraphics[width=\textwidth,height=0.80\textheight,keepaspectratio]{diagrams/DQN_loop_legend.png}
+\end{minipage}
+\caption{DQN training loop shared across all four variants. Variant-specific logic is confined to the TD target computation step.}
+\label{fig:dqn-loop}
+\end{figure}
+
+\chapter{System Class Diagram}
+\label{appendix:classdiagram}
+
+\section{Per-module responsibilities}
+
+The simulator is structured as a set of well-separated Python modules, each with a single responsibility. The entry point for a single train-then-evaluate trial resolves the active complexity profile from configuration and passes it to the simulator engine. A companion orchestration script sequences calls across the full algorithm comparison matrix.
+
+The simulator engine owns the tick-by-tick race loop, maintaining race state that tracks all driver positions, lap counts, and time gaps at each simulation step. At each overtaking zone decision point, the engine constructs the observation vector for the approaching driver and queries the driver's agent for an action. The overtake resolution outcome is sampled from the probability function described in Section~\ref{sec:overtake-prob} and logged to telemetry. At the end of each episode the engine computes terminal reward components and triggers epsilon decay for each DQN-type driver.
+
+All agents implement a common interface providing an action-selection method that the simulator calls uniformly. This abstraction means the simulator does not need to distinguish between algorithm variants at the engine level. It receives a structured action containing a risk level and an overtake attempt flag regardless of which variant is active.
+
+A real-time visualisation mode renders the circuit with agent positions, lap count, and time gap annotations, used during development to verify zone sequencing and reward log consistency. Figure~\ref{fig:simulator-realtime-snapshot} shows a representative frame. The mode is disabled for benchmark runs.
+
+\section{UML class diagram}
+
+The figure below shows the full UML class diagram for the simulator core. All DQN-family agent types inherit from the abstract \texttt{BaseAgent} interface. \texttt{RaceSimulator} owns runtime state through \texttt{RaceState} and delegates observation construction to \texttt{DriverFeedback}. The \texttt{DQNAgent} class is parameterised via \texttt{dqn\_params.algo} in \texttt{config.json}, selecting the active variant without changing any interface contract.
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.88\textheight,keepaspectratio]{diagrams/class_diagram.png}
+\caption{UML class diagram of the F1 simulator core.}
+\label{fig:class-diagram}
+\end{figure}
+
+\chapter{Simulator specification details}
+\label{appendix:simulator-details}
+
+This appendix gives the full specifications of simulator elements summarised in Chapters~\ref{chapter2} and~\ref{chapter3}.
+
+\section{Stochasticity levels}
+
+The three stochasticity levels differ only in the standard deviation $\sigma$ of the Gaussian noise term $\epsilon$ applied to the overtake success probability (Section~\ref{sec:overtake-prob}). All other scaling factors in the probability function are held constant across levels.
+
+\begin{itemize}
+    \item \textbf{s0:} $\sigma = 0$. The success probability is fixed for a given state, though outcomes still resolve through Bernoulli sampling. This is the primary comparison track.
+    \item \textbf{s1:} $\sigma = 0.02$. Introduces modest outcome variance while preserving zone difficulty ordering.
+    \item \textbf{s2:} $\sigma = 0.05$. Sufficient to flip borderline outcomes while still preserving zone ordering in expectation.
+\end{itemize}
+
+\section{Base Agent specification}
+
+The Base Agent is a gap-aware heuristic policy used as the fixed non-learning comparator. Its decision logic is as follows.
+
+At each simulation step the agent only considers overtaking when (a) a car ahead is within 100\,m and (b) an overtaking zone is imminent. If either condition fails, the agent holds position.
+
+Within the decision window the agent identifies the upcoming overtaking zone, reads its difficulty and the gap to the car ahead, and constructs a soft preference distribution over the three risk levels. Easier zones and closer gaps increase the weight on \textsc{AGGRESSIVE}. Harder zones and larger gaps increase the weight on \textsc{CONSERVATIVE}. A risk level is sampled from this distribution, and an overtake attempt is then made with a probability that depends on the sampled risk level and the gap. The agent's policy is deterministic in its structure but stochastic in its sampling, and does not update across episodes.
+
+\section{Run reproducibility through telemetry}
+
+Every run writes its executed configuration into the output metrics file. The embedded snapshot contains the active \texttt{config.json} state, the training and evaluation budgets, the seed assignments for training and evaluation runs, and the complexity and stochasticity profile. Downstream analysis reads algorithm, hyperparameter, and scenario fields from the telemetry output rather than from the config file on disk, so any mismatch between what was intended to run and what actually ran shows up during analysis rather than silently. Any experiment can be reproduced from the telemetry record alone without recovering the repository state at the time the run was performed.
+
+\chapter{Benchmark infrastructure specification}
+\label{appendix:benchmark-infra}
+
+This appendix expands the benchmark infrastructure summary in Chapter~\ref{chapter3}.
+
+\section{Single-trial runner}
+
+The single-trial runner executes one train-then-evaluate trial for a given algorithm variant. It accepts arguments for the training budget, evaluation budget, training seed, evaluation seeds, complexity profile, stochasticity level, and output path. The script first runs training episodes with the agent in exploration mode, then freezes the policy and runs evaluation episodes with exploration disabled. At the end of the run it writes a structured metrics file containing the win rate, objective score, fairness diagnostics, and full behavioural diagnostics including the per-zone attempt and success breakdown and risk distribution.
+
+\section{Benchmark matrix orchestrator}
+
+The benchmark orchestrator sequences single-trial runs across the full comparison matrix, which contains every combination of algorithm, seed, and stochasticity level. Each combination runs as an independent trial. The orchestrator checks fairness against a declared contract specifying the training and evaluation budgets, seed sets, complexity profile, and stochasticity level that all algorithms must share. If any violation is detected, the orchestrator aborts. On completion it writes per-algorithm statistics with 95\% CIs and a summary table for rapid inspection.
+
+A companion aggregation script collects the per-seed metrics files produced by Phase~2 and computes means, standard deviations, and 95\% CIs across seeds. The Phase~2 algorithm comparison in Chapter~\ref{chapter4} is derived from this script, while later phases use the MARL evaluation runner described in Section~\ref{sec:marl-methodology}.
+
+\section{Telemetry schema}
+
+Every race produces a JSON Lines (JSONL) entry containing the full per-driver result. Each entry includes the driver name, final race position, total reward, per-component reward totals, stochasticity level, complexity profile, and a \texttt{decision\_events} array. Each decision event records the zone identifier, lap number, action label, attempt flag, success flag, success probability, reward received, individual reward component values, and a \texttt{reward\_component\_sum\_error} field that verifies the arithmetic consistency of the reward decomposition. The telemetry schema is validated in Phase~0 Group~C tests (Appendix~\ref{appendix:phase01}).
+
+\chapter{Phase 3 crossplay bias arithmetic}
+\label{appendix:phase3-crossplay}
+
+This appendix gives the detailed arithmetic behind the crossplay bias correction summarised in Chapter~\ref{chapter4}.
+
+A crossplay protocol ran for rainbow-lite at s2 across three seeds, using the self-play and swapped conditions described in Chapter~\ref{chapter3}. The self-play condition revealed an 11 percentage point structural bias against the A1 evaluation slot, meaning identical policies evaluated in A1 won about 0.445 of races against their copies in A2 rather than the expected 0.500.
+
+Two diagnostic follow-up seeds (404 and 505) were added to the original three to test whether the observed A1 deficit across rainbow-lite seeds reflected systematic policy asymmetry or an evaluation artefact. Seed 505 produced an A1 win rate of 0.560 at s2, breaking the apparent ceiling established by the original three seeds and indicating that the A2 edge was not a property of the trained policies themselves.
+
+Applying the 11 percentage point bias correction to raw A1 win rates places four of five rainbow-lite seeds at or above parity. Only seed 101 retains a genuine A2 edge after correction. The apparent A2 dominance at s2 therefore largely dissolves under correction, supporting the evaluation-bias interpretation as opposed to a systematic policy effect. Collapse classification is unaffected by this correction because collapse is determined by attempt rates and reward trajectories rather than by the win-rate comparison between slots.
+
+\chapter{Phase 4 secondary patterns}
+\label{appendix:phase4-patterns}
+
+This appendix expands the two secondary patterns summarised in Chapter~\ref{chapter4}'s Phase~4 discussion.
+
+\section{Non-monotonic zone convention formation}
+
+Non-degenerate zone differentiation across the Phase~4 $\alpha$ sweep peaks at $\alpha = 0.25$ and declines thereafter. Partial alignment initially promotes differentiation as agents coordinate on complementary zones, with each agent specialising in a subset of zones rather than both contesting the same high-value locations. As alignment strengthens past this peak, the convention erases. Both agents converge to a risk-averse policy under shared cooperative reward, which flattens zone differentiation back toward zero even before collapse sets in. Convention formation and threshold stability therefore sit at different $\alpha$ values. The zone-convention peak at $\alpha = 0.25$ is well below the collapse threshold between $\alpha = 0.5$ and $\alpha = 0.75$.
+
+\section{Stochasticity role inversion}
+
+Stochasticity plays different roles on either side of the collapse threshold. At $\alpha \le 0.5$ noise is stabilising, breaking potential lock-in patterns before they consolidate. Agents that might otherwise settle into a premature equilibrium are jolted into further exploration by outcome variance. At $\alpha \ge 0.75$ the same noise accelerates collapse, because once the cooperative reward term dominates, any early failed attempt under high noise reinforces the passive equilibrium faster than under deterministic outcomes.
+
+Noise also weakens zone conventions themselves. The $\alpha = 0.25$ zone differentiation peak attenuates sharply under increasing stochasticity, with the clearest conventions visible at s0 and the weakest at s2. This pattern reinforces the main-text finding that low-$\alpha$ competitive conventions emerge through precise best-response dynamics, which noise disrupts, while high-$\alpha$ passive equilibria are reached through reward-gradient dominance, which noise reinforces.
+
+\chapter{MARL and phase extensions}
+\label{appendix:phase-extensions}
+
+This appendix gives the full specification of codebase extensions made for Phases~3 to~10, summarised in Section~\ref{sec:phase-extensions}.
+
+\section{Phase 3: Concurrent learners}
+
+Phase~3 required the codebase to support two concurrent DQN learners. The complexity profile layer was extended with a two-DQN competitor selector that initialises both agents from the same hyperparameter block, each with separate replay buffers, network parameters, and epsilon schedules. The simulator engine required no changes, as it already triggers a training step on every DQN-type driver at the end of each episode.
+
+\section{Phases 4 to 10: Reward, team, curriculum, and agent extensions}
+
+Phases~4 to~10 were controlled through configuration with no changes to agent learning code. The reward calculation was extended with an $\alpha$ blending step, where setting $\alpha$ to zero reproduces the original reward contract exactly. A team-grouping selector was added to assign agents to named teams for $\alpha$ mixing. A curriculum scheduler was implemented as a thin wrapper around the training loop, reading the target $\alpha$ and episode boundaries from config and hooking into the existing episode-end callback. A difference reward mode computes the mean-field approximation described in Section~\ref{sec:difference-rewards}. The LLM agent implements the same common interface as all other agents, with its prompt programmatically constructed from simulator state and track configuration around a fixed hand-authored system template (Section~\ref{sec:llm-baseline}). The agent queries Claude Haiku, a language model API provided by Anthropic, once per lap and outputs a structured zone plan. On parse failure it retains the previous lap's plan or installs a default plan, which still allows attempts at easy zones.
+
+\end{appendices}

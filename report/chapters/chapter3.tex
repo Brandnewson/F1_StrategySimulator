@@ -1,0 +1,105 @@
+\chapter{Implementation and Validation}
+\label{chapter3}
+
+\section{System architecture}
+
+\subsection{Module overview}
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}[c]{0.62\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{diagrams/system_component_design.png}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.30\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{diagrams/system_component_design_legend.png}
+\end{minipage}
+\caption{System architecture overview. Configuration and track settings flow downward through experiment orchestration and runtime setup to the simulation core. The simulation core exchanges action requests and decisions with the policy layer and writes run artefacts to the output layer.}
+\label{fig:system-architecture}
+\end{figure}
+
+The simulator is built as a layered Python system represented in figure~\ref{fig:system-architecture}. A configuration and orchestration layer resolves the active complexity profile and sequences calls across the algorithm comparison matrix. A simulation core owns the tick-by-tick race loop and queries agents for actions at each overtaking zone. All agents implement a common interface returning a structured action, so the engine is variant-agnostic. Per-module responsibilities and the UML class diagram are in Appendix~\ref{appendix:classdiagram}.
+
+\subsection{Config-driven design as a fairness control}
+
+All parameters that affect the experimental outcome are externalised to a single configuration file. This covers hyperparameters, the reward component schema and weights, the observation feature list, stochasticity presets, evaluation protocol budgets, and seed sets. No algorithm implementation reads or modifies these values directly. They are injected at construction time.
+
+This design ensures that the only difference between a given run is the learning algorithm itself. An external reviewer can fully reconstruct any comparison from the recorded output of each run, which embeds the executed configuration, budgets, and seed assignments.
+
+\section{Agent implementations}
+
+\subsection{DQN-family agents}
+\label{sec:dqn-variants}
+
+All four DQN variants are parameterisations of a single agent class, selected via a config field. The training loop, action space, exploration schedule (the $\epsilon$-greedy policy that decays the rate of random action selection as training progresses), and feedback interface are shared across variants, and only the variant-specific elements differ. The shared training loop structure is illustrated in Appendix~\ref{appendix:dqnloop}, and the full variant formulations and hyperparameters are in Appendix~\ref{appendix:dqn-specifics}.
+
+\textbf{Vanilla DQN.} The vanilla variant uses a small feedforward neural network to approximate the Q-value function, which predicts the expected long-term reward for each action in a given state. Past decisions are stored in a replay buffer and resampled to break the correlation in training data, and a slowly updated target network provides a stable prediction target during learning. This is the baseline against which all other variants are compared \citep{mnih2015human}.
+
+\textbf{Double DQN.} Vanilla DQN tends to be over-optimistic about how good certain actions are, especially when rewards are noisy. Double DQN splits the decision into two steps. The online network picks the best next action, and the older target network grades it. This decouples action selection from evaluation, so random noise in the estimates stops compounding into systematic overestimation \citep{vanhasselt2016double}. The architecture and uniform replay are otherwise the same as vanilla.
+
+\textbf{Dueling DQN.} Dueling DQN makes learning more efficient by recognising that action choice does not always matter. In many states (for example, when the car ahead is far away), every action leads to roughly the same outcome, so the agent only needs to learn that the state is fine. The dueling architecture splits the network into two output heads, a state-value head that estimates how good a state is overall and an action-advantage head that estimates how much better or worse each specific action is relative to the average. This architecture improves learning efficiency in states where the choice of action has little effect on the outcome, which is common at overtaking zones where the car ahead is far away and \textsc{HOLD} is clearly dominant \citep{wang2016dueling}.
+
+\textbf{Rainbow-lite.} Rainbow-lite combines the three previous variants with two additions, which together make it the strongest in the DQN family. It uses double DQN target computation, the dueling architecture, prioritised experience replay (PER), and multi-step returns. PER replays transitions that caused large prediction errors more often than transitions the agent already understands well, focusing learning effort where it is most useful \citep{schaul2016prioritized}. Multi-step returns let each update use rewards from the next three steps rather than just one, which propagates useful information through the network faster \citep{hessel2018rainbow}.
+
+
+Table~\ref{tab:dqn-variants} summarises the distinguishing properties of each variant.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{DQN-family variant properties}
+\label{tab:dqn-variants}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Variant} & \textbf{Network} & \textbf{Double target} & \textbf{PER} & \textbf{n-step} \\
+\hline
+Vanilla       & MLP         & No  & No  & 1 \\
+Double        & MLP         & Yes & No  & 1 \\
+Dueling       & Dueling MLP & No  & No  & 1 \\
+Rainbow-lite  & Dueling MLP & Yes & Yes & 3 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Base agent}
+
+The Base Agent is a fixed, reproducible heuristic opponent used as the non-learning comparator in Phase~2 and from Phase~5 onwards as the common adversary in non-zero-sum configurations. Holding its policy constant across episodes isolates DQN-side learning from opponent drift, so any change in win rate attributes cleanly to the learning agent. Its decision logic is specified in Appendix~\ref{appendix:simulator-details}.
+
+\subsection{Shared training infrastructure}
+
+The epsilon-greedy exploration schedule is shared across variants. The agent selects a random action with probability $\epsilon$ and the best-known action otherwise, with $\epsilon$ decaying from fully exploratory at the start of training to near-converged at the end. The \textsc{Adam} optimiser \citep{kingma2015adam} updates network weights across all variants. Adam adapts the step size for each network parameter based on the history of its gradients, which stabilises training when gradients vary in magnitude. The specific decay schedule, learning rate, target network synchronisation frequency, and batch size are given in Appendix~\ref{appendix:dqn-specifics}.
+
+The shared hyperparameters were selected via automated single-parameter search against the Phase~2 single-agent contract (Appendix~\ref{appendix:dqn-specifics}). Tuning targeted single-agent stability rather than multi-agent dynamics, which keeps DQN-variant comparisons fair within Phase~2 and avoids tuning bias that could favour any particular variant in later phases.
+
+\section{Benchmark infrastructure}
+
+Benchmark runs use a single-trial runner that executes one train-then-evaluate cycle for a given algorithm variant and writes a structured metrics file with the win rate, fairness diagnostics, and per-zone behavioural breakdown. A benchmark matrix orchestrator sequences these trials across the full comparison matrix (algorithm $\times$ seed $\times$ stochasticity level), audits fairness against a declared contract, and promotes only runs that satisfy it. Every race additionally produces a JSON Lines entry recording per-decision telemetry, with arithmetic consistency of the reward decomposition verified by the Phase~0 integrity tests. Full specifications for the runner, orchestrator, and telemetry schema are in Appendix~\ref{appendix:benchmark-infra} and Appendix~\ref{appendix:phase01}.
+
+\subsection{MARL evaluation runner}
+
+A separate evaluation runner handles MARL trials from Phase~3 onwards, supporting agent counts from two through five. The runner operates in two complementary modes that share the same simulator, seed management, and telemetry infrastructure.
+
+In pairwise mode, used for Phase~3 and crossplay validation, two trained DQN policies are loaded into fixed evaluation slots A1 and A2. Agent~1 and Agent~2 refer to the policies loaded into those slots, and the primary metric is the fraction of evaluation races in which Agent~1 finishes ahead of Agent~2. A zone differentiation index (the mean absolute difference in per-zone attempt rates) and a risk differentiation index (the mean absolute difference in attempt-conditioned risk proportions) characterise strategic differentiation between the pair. A non-stationarity drift metric records the change in Agent~1's win rate between the first and last third of the evaluation window, testing whether the advantage relationship is stable.
+
+In team-level mode, used from Phase~5 onwards where three or more DQN agents race against Base, the runner records joint beat-base rate (the fraction of races in which all active DQN agents finish ahead of Base), per-agent beat-base rate, positional statistics across the full field, and intra-team position-delta correlations where teams are defined. These measure cooperative performance as opposed to relative DQN performance and are the central metrics for RQ2, RQ3, and RQ4.
+
+A crossplay protocol validates the evaluation setup itself. In the self-play condition, both slots are loaded with the same trained weights, so any systematic deviation from a 0.500 A1 win rate indicates positional bias. In the swapped condition, the A1 and A2 model files are exchanged, isolating policy quality from slot assignment. Results are reported in Appendix~\ref{appendix:phase3-crossplay} and incorporated into the validity threat discussion in Section~\ref{sec:validity}.
+
+\subsection{MARL and phase extensions}
+\label{sec:phase-extensions}
+
+The codebase was extended phase by phase to support multi-agent learning (Phase~3), $\alpha$ reward blending (Phase~4), team grouping (Phase~6), curriculum scheduling (Phase~8), mean-field difference rewards (Phase~10), and the Claude Haiku LLM agent (Phase~9). All extensions were controlled through configuration with no changes to agent learning code. The full specification is in Appendix~\ref{appendix:phase-extensions}.
+
+\subsection{Challenges and resolutions}
+
+Three significant issues were encountered during implementation. The first was a missing gap attribute on the Base Agent, which collapsed its overtake attempt probability to roughly 19 per cent at La Source instead of the intended 77 per cent. The second was a scoping error in \texttt{test\_one\_decision\_per\_zone\_per\_lap}, where the deduplication set was keyed on driver name alone rather than on the (run number, driver name) pair, triggering false failures on legitimate across-run repetitions. Both defects surfaced during Phase~0 testing rather than being caught by face-value inspection, validating the value of automated integrity tests. The third issue arose during Phase~10 analysis, when a configuration file specified the wrong algorithm variant. The error was caught by reading the algorithm field from the telemetry output rather than the config file, confirming the value of config snapshots embedded in run metrics. Each case points to the same methodological pattern. Integrity machinery that reads from output rather than input catches silent-failure bugs that face-value checks miss. Full defect details for the Phase~0 cases are in Appendix~\ref{appendix:phase01}.
+
+\section{Traceability to methodology and research questions}
+
+Together, these components instantiate the Chapter~\ref{chapter2} methodology. The config-driven simulator and telemetry contract realise the first objective of a controlled apparatus that varies game structure, agent count, and reward formulation within a single system. The DQN-family agents, shared training infrastructure, benchmark orchestrator, and MARL evaluation runner provide the substrate and comparison machinery for Phase~2 selection and the Phase~3 RQ1 investigation. The $\alpha$ blending, team grouping, and curriculum scheduler extensions support the RQ2 and RQ3 sweeps across the scaling boundary. The mean-field difference reward mode and the LLM agent support the RQ4 reward-formulation test and the Phase~9 validity check respectively. Every extension was added through configuration rather than by altering agent learning code, keeping algorithm behaviour identical across phases and preserving the attribution of results to incentive structure rather than implementation drift.
+
+\section{Gate validation summary}
+
+Phases~0 and~1 served as pre-benchmark gates. Phase~0's 12-test integrity suite passed across all three groups after two defects were caught and corrected during development. Phase~1's single-agent smoke evaluation cleared the 0.50 win-rate threshold across three s0 seeds and one seed at each of s1 and s2, with the CI lower bound also clearing 0.50. The risk-distribution shift observed under increasing stochasticity is consistent with Q-value overestimation under noisy rewards \citep{vanhasselt2016double}, which motivates the Phase~2 double DQN comparison. Full test inventories, defect logs, and per-zone breakdowns are in Appendix~\ref{appendix:phase01}.
