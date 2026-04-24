@@ -11,6 +11,7 @@
 \usepackage{titlesec}
 \usepackage[round]{natbib}
 \usepackage{url}
+\usepackage{longtable}
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -19,7 +20,7 @@
 
 % Fill in the following fields.
 \newcommand{\projectTitle}{DQN-Family Algorithms for Competitive Race Strategy in a Stochastic MARL Simulator}
-\newcommand{\fullname}{Branson Tay Liang Quan}
+\newcommand{\fullname}{Tay Liang Quan, Branson}
 \newcommand{\degreeTitle}{BSc Computer Science}
 	% e.g. "BSc Computer Science"
 \newcommand{\session}{2025/26}
@@ -57,6 +58,28 @@
 \titlespacing*{\chapter}{0pt}{0pt}{15pt}
 
 \renewcommand\bibname{References}
+
+\newsavebox{\hiddenbibbox}
+\makeatletter
+\newcommand{\loadhiddenbibliography}[1]{%
+  \begingroup
+  \renewenvironment{thebibliography}[1]{%
+    \list{}{\leftmargin=0pt\itemindent=0pt\labelsep=0pt\labelwidth=0pt\parsep=0pt\itemsep=0pt}%
+    \def\newblock{}%
+    \sloppy
+    \clubpenalty4000
+    \widowpenalty4000
+    \sfcode`\.=\@m
+  }{\endlist}%
+  \begin{lrbox}{\hiddenbibbox}%
+  \begin{minipage}{\textwidth}%
+  \bibliographystyle{agsm}%
+  \bibliography{#1}%
+  \end{minipage}%
+  \end{lrbox}%
+  \endgroup
+}
+\makeatother
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Some shortcuts that maybe useful
@@ -115,8 +138,11 @@
 % Define a new environment for the dissertation summary
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \newenvironment{dissertationsummary}
- 	{\cleardoublepage \null
+ 	{\clearpage \null
+        \begingroup
+        \singlespacing
+        \setlength{\parskip}{0.45em}
  		\begin{center}%
 			\textbf{Summary}
 		\end{center}}%
-	{\vfill \null }
+	{\par\endgroup}

@@ -1,14 +1,26 @@
-# This script will give us the chance of an overtake at different parts of the circuit based on the fastF1 library 
+# This script estimates overtake density around the Spa lap using FastF1 data.
+
+from pathlib import Path
 
 import fastf1
-import pandas as pd
-import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+matplotlib.use("Agg")
+
+
+ROOT = Path(__file__).resolve().parents[1]
+REPORT_DIAGRAMS = ROOT / "report" / "diagrams"
+PROBABILITY_OUT = REPORT_DIAGRAMS / "OvertakeProbabilitySpa.png"
+ABSOLUTE_OUT = REPORT_DIAGRAMS / "NumberOfOvertakesSpa.png"
+MAPPING_OUT = REPORT_DIAGRAMS / "overtakingMapping.png"
 
 def main():
 
 	# Enable FastF1 cache for faster repeated runs
-	fastf1.Cache.enable_cache('fastf1_cache')
+	fastf1.Cache.enable_cache(str(ROOT / 'fastf1_cache'))
 
 	# Load a recent Spa race session (e.g., 2023)
 	year = 2023
@@ -99,6 +111,8 @@ def main():
 	hist, bin_edges = np.histogram(overtake_positions, bins=bins)
 	overtake_prob = hist / hist.sum()
 
+	REPORT_DIAGRAMS.mkdir(parents=True, exist_ok=True)
+
 	# Plot 1: Normalised probability
 	plt.figure(figsize=(12, 6))
 	bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -108,7 +122,8 @@ def main():
 	plt.ylabel("Overtake Probability (normalised)")
 	plt.grid(True, linestyle='--', alpha=0.5)
 	plt.tight_layout()
-	plt.show()
+	plt.savefig(PROBABILITY_OUT, dpi=220, bbox_inches='tight')
+	plt.close()
 
 	# Plot 2: Absolute overtakes
 	plt.figure(figsize=(12, 6))
@@ -118,11 +133,12 @@ def main():
 	plt.ylabel("Number of Overtakes")
 	plt.grid(True, linestyle='--', alpha=0.5)
 	plt.tight_layout()
-	plt.show()
+	plt.savefig(ABSOLUTE_OUT, dpi=220, bbox_inches='tight')
+	plt.close()
 	
 	# Plot 3: Track map with overtakes as color gradient
 	# Load Spa centre line coordinates
-	centreline_df = pd.read_csv("datasets/SpaCentreLine.csv")
+	centreline_df = pd.read_csv(ROOT / "datasets" / "SpaCentreLine.csv")
 	x = centreline_df['X'].values
 	y = centreline_df['Y'].values
 	n_points = len(x)
@@ -130,34 +146,40 @@ def main():
 	# Assume uniform spacing for simplicity
 	centreline_distances = np.linspace(0, track_length, n_points)
 
-	# Bin overtakes to nearest centreline point
-	overtake_density = np.zeros(n_points)
-	for pos in overtake_positions:
-		idx = np.abs(centreline_distances - pos).argmin()
-		overtake_density[idx] += 1
+	# Map each centreline point to the relative overtake density of its distance bin.
+	# This produces continuous coloured sections that match the bar-chart bins and
+	# keeps the colour bar honest by using the observed peak density, not an implied 1.0 full scale.
+	bin_indices = np.digitize(centreline_distances, bin_edges, right=False) - 1
+	bin_indices = np.clip(bin_indices, 0, len(overtake_prob) - 1)
+	relative_density = overtake_prob[bin_indices]
+	peak_relative_density = float(relative_density.max()) if len(relative_density) else 0.0
 
-	# Use absolute overtake density for color mapping
 	plt.figure(figsize=(14, 7))
 	from matplotlib.collections import LineCollection
 	points = np.array([x, y]).T.reshape(-1, 1, 2)
 	segments = np.concatenate([points[:-1], points[1:]], axis=1)
-	# Color by average density between segment endpoints (not normalized)
-	segment_colors = (overtake_density[:-1] + overtake_density[1:]) / 2
-	# Set color normalization to the true max of overtake_density
-	lc = LineCollection(segments, cmap='jet', norm=plt.Normalize(0, overtake_density.max() if overtake_density.max() > 0 else 1), zorder=2)
+	segment_colors = (relative_density[:-1] + relative_density[1:]) / 2
+	norm = plt.Normalize(0, peak_relative_density if peak_relative_density > 0 else 1.0)
+	lc = LineCollection(segments, cmap='turbo', norm=norm, zorder=2)
 	lc.set_array(segment_colors)
 	lc.set_linewidth(8)
 	plt.gca().add_collection(lc)
 	# Add a black outline for the track for contrast
 	plt.plot(x, y, color='black', linewidth=10, alpha=0.5, zorder=1)
 	plt.plot(x, y, color='gray', linewidth=1, alpha=0.3, zorder=0)
-	plt.colorbar(lc, label='Absolute Overtake Density')
-	plt.title(f"Overtake Density Along Spa Centre Line\nSpa-Francorchamps {year} Race (First Half)")
+	colorbar = plt.colorbar(lc, label='Relative Overtake Density')
+	if peak_relative_density > 0:
+		ticks = np.linspace(0.0, peak_relative_density, 5)
+		colorbar.set_ticks(ticks)
+		colorbar.set_ticklabels([f"{tick:.2f}" for tick in ticks])
+	plt.title(f"Relative Overtake Density Along Spa Centre Line\nSpa-Francorchamps {year} Race (First Half)")
 	plt.axis('equal')
 	plt.xlabel('X (m)')
 	plt.ylabel('Y (m)')
 	plt.tight_layout()
-	plt.show()
+	plt.savefig(MAPPING_OUT, dpi=220, bbox_inches='tight')
+	plt.close()
+	print(f"Saved figures to {REPORT_DIAGRAMS}")
 	
 
 if __name__ == "__main__":

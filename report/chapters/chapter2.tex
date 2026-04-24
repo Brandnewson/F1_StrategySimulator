@@ -9,18 +9,18 @@ The methodology combines a controlled apparatus that varies incentive alignment,
 \section{Simulator design}
 \label{sec:simulator-design}
 
-The simulator models a race as a sequence of discrete decision points at overtaking zones, rather than modelling lap-time physics at the second-by-second level \citep{heilmeier2018racesim}. This quasi-static approach keeps each race cheap enough to support multi-seed sweeps across $\alpha$, game structure, and agent count.
+The simulator models a race as a sequence of discrete decision points at overtaking zones, rather than modelling lap-time physics at the second-by-second level \citep{heilmeier2018racesim}. This quasi-static approach (abstracting away continuous car physics between zones and treating each overtake zone as the decision point) keeps each race cheap enough to support multi-seed sweeps across $\alpha$, game structure, and agent count.
 
 Zone difficulties are grounded in real race data. Using the FastF1 library, per-driver position changes from the 2023 Belgian Grand Prix were plotted against track distance. Position changes cluster at specific points on the circuit, indicating where overtaking happens in practice (Appendix~\ref{fig:overtakes-spa}). Because position changes are recorded at timing loops rather than exact on-track position, these values capture relative difficulty across zones rather than precise overtake points.
 
-The analysis gives nine zones at Spa-Francorchamps. La Source (the hairpin at the start of the lap) has a difficulty of 0.2, reflecting how frequently overtakes happen there. The remaining zones sit between 0.7 and 0.9, consistent with how rare overtakes are at those locations in real racing. The full mapping from track location to zone is in Appendix~\ref{fig:overtaking-mapping}.
+The analysis gives nine zones at Spa-Francorchamps. La Source (the hairpin at the start of the lap) has a difficulty of 0.2, reflecting how frequently overtakes happen there. The remaining zones sit between 0.7 and 0.9, consistent with how rare overtakes are at those locations in real racing. See Appendix~\ref{fig:overtaking-mapping} for the telemetry-derived density overlay and Appendix~\ref{fig:simulator-zone-map} for the simulator-native track and zone layout.
 
-The simulator supports three stochasticity levels (s0, s1, s2) for robustness testing, since RL evaluation is sensitive to environmental variance \citep{henderson2018deep, agarwal2021statistical, sankary2018stochastic}. The levels differ only in the standard deviation $\sigma$ of a Gaussian noise term $\epsilon$ applied to the overtake success probability. s0 uses $\sigma = 0$ as the primary comparison track. s1 uses $\sigma = 0.02$, introducing modest outcome variance while preserving zone difficulty ordering. s2 uses $\sigma = 0.05$, which is sufficient to flip borderline outcomes while still preserving zone ordering in expectation.
+The simulator supports three stochasticity levels (s0, s1, s2) for robustness testing, since RL evaluation is sensitive to environmental variance \citep{henderson2018deep, agarwal2021statistical, sankary2018stochastic}. s0 is the noise-free primary comparison track, while s1 and s2 introduce increasing outcome variance without altering zone difficulty ordering in expectation. Appendix~\ref{appendix:simulator-details} gives the full specification.
 
 \subsection{Overtake success probability}
 \label{sec:overtake-prob}
 
-When an agent chooses to attempt an overtake, the simulator resolves the outcome by computing a success probability and sampling from it. The probability is computed as
+The scientific unit of this simulator is the overtake decision, not millisecond vehicle control. A single Bernoulli resolution per attempted overtake keeps the decision model interpretable. Zone difficulty sets baseline opportunity, risk encodes the agent's tactical choice, gap encodes immediate feasibility, and stochasticity tests robustness. Modelling the same event with millisecond-by-millisecond physics would multiply state space and compute cost without adding strategic information that the agent can act on. When an agent chooses to attempt an overtake, the simulator resolves the outcome by computing a success probability and sampling from it,
 
 \[
 P_{\text{success}} = \text{clip}\!\left(\, p_{\text{base}} + \delta_{\text{risk}} + \delta_{\text{gap}} + \epsilon,\ p_{\min},\ p_{\max} \right)
@@ -43,12 +43,12 @@ p_{\text{base}} = 1 - d
 \]
 A more aggressive attempt therefore shifts the probability upward but also incurs a larger failure penalty in the reward signal, creating a risk-reward trade-off for the agent to learn.
 
-\textbf{Gap modifier.} A closer following distance increases the probability of a successful overtake the closer you are to the car in front. The gap $g$ in kilometres is normalised against a reference distance of 0.1\,km, giving
+\textbf{Gap modifier.} A smaller following gap increases the probability of a successful overtake. The gap $g$ in kilometres is normalised against a reference distance of 0.1\,km, giving
 \[
 \delta_{\text{gap}} = \left(1 - \frac{g}{0.1} - 0.5\right) \times 0.3
 \]
 
-\textbf{Stochastic noise.} Gaussian noise $\epsilon \sim \mathcal{N}(0, \sigma)$ is added to the probability before clipping, with $\sigma$ set by the active stochasticity level. At s0 ($\sigma = 0$) the success probability is fixed for a given state, though outcomes still resolve through Bernoulli sampling.
+\textbf{Stochastic noise.} Gaussian noise $\epsilon \sim \mathcal{N}(0, \sigma)$ is added to the probability before clipping, with $\sigma$ set by the active stochasticity level (see Appendix~\ref{appendix:simulator-details}).
 
 The final probability is clipped to $[0.02,\ 0.95]$ to avoid degenerate certainty in either direction.
 
@@ -99,11 +99,9 @@ The reward signal combines four components.
 R = R_{\text{outcome}} + R_{\text{persistent\_position}} + R_{\text{tactical}} + R_{\text{penalty}}
 \]
 
-The objective hierarchy prioritises the finishing position. Outcome reward is terminal and dominant (weight 2.0), rewarding start-to-finish position gain. Persistent-position reward provides dense shaping from position changes that survive decision resolution (weight 0.1). Tactical reward gives local feedback for overtake outcomes at the risk-scaled failure costs listed above (weight 0.05). Penalty reward is a defensive component for unfinished races at weight 2.0 and rarely fires in practice because races typically complete.
+The objective hierarchy prioritises the finishing position. Outcome reward is terminal and dominant (weight 2.0), rewarding start-to-finish position gain. Persistent-position reward provides dense shaping from position changes that survive decision resolution (weight 0.1). Tactical reward gives local feedback for overtake outcomes at the risk-scaled failure costs listed above (weight 0.05). A defensive penalty component for unfinished races is included for completeness at weight 2.0 but did not fire in any recorded run.
 
-Each experiment runs over five laps at Spa-Francorchamps. Agent composition varies by phase, ranging from one DQN plus the Base Agent up to four DQN agents plus Base, with the exact configuration per phase given in Table~\ref{tab:phases}.
-
-The Base Agent is a fixed stochastic heuristic comparator. It only considers overtaking when a car ahead is within 100\,m and an overtaking zone is imminent. Within that window, it samples a risk level (conservative, normal, or aggressive) using zone difficulty and gap information, then samples whether to attempt the pass from a risk-dependent and difficulty-dependent probability. The agent does not update over time, which gives DQN policies a stationary non-learning baseline to be evaluated against.
+The Base Agent is a fixed stochastic heuristic comparator. It samples a risk level from zone difficulty and gap information, then samples whether to attempt the pass from a risk-dependent and difficulty-dependent probability. The agent does not update over time, which gives DQN policies a stationary non-learning baseline to be evaluated against. The full specification is in Appendix~\ref{appendix:simulator-details}.
 
 \subsection{Design parameter choices}
 \label{sec:design-parameters}
@@ -113,16 +111,14 @@ Several numerical values in the simulator specification (risk adjustments, failu
 \section{Experimental methodology}
 \label{sec:marl-methodology}
 
+Each experiment runs over five laps at Spa-Francorchamps. Agent composition varies by phase, ranging from one DQN plus the Base Agent up to four DQN agents plus Base, with the exact configuration per phase given in Table~\ref{tab:phases}.
+
 \subsection{Phase-to-RQ mapping}
 \label{sec:phase-rq-mapping}
 
-Each phase in the experimental programme either answers a research question from Chapter~\ref{chapter1}, or establishes a prerequisite for phases that do. The rightmost column of Table~\ref{tab:phases} shows the mapping.
+Each phase in the experimental programme either answers a research question from Chapter~\ref{chapter1}, or establishes a prerequisite for phases that do. The programme forms a causal ladder. First validate the simulator (Phase~0), then confirm a learning signal exists (Phase~1), then select a stable single-agent substrate (Phase~2), then observe zero-sum multi-agent behaviour (Phase~3), then introduce a common adversary to open the non-zero-sum regime (Phase~4 $\alpha$ sweep, Phase~5 three-agent cooperation), then scale agent count (Phases~6 and~7), then test curriculum scheduling at the scaling boundary (Phase~8), then stress-test with a non-learning language-model comparator and an alternative reward formulation (Phases~9 and~10). Each step builds on the previous, so a failure at any earlier step would invalidate downstream claims.
 
-Phase~0 and Phase~1 are validation gates that confirm the simulator is correct and a learning signal exists before any experimental claim is made. Phase~2 selects the DQN substrate that all subsequent phases use, so that algorithm differences do not confound incentive-structure comparisons. Phase~3 onwards carry the research-question load.
-
-Several phases use an ablation design to isolate which specific mechanism drives a given effect. An ablation holds everything constant across conditions except the mechanism under test, so that any outcome difference is attributable to that mechanism. Phases~3, 5, and 7B all use this pattern for their respective isolations, detailed in each phase's subsection.
-
-Phase~9 sits outside the RQ structure because its question is not about cooperation dynamics but about whether the learning problem genuinely requires adaptive strategy. If a zero-shot Large-Language Model (LLM) matches a trained DQN agent, the basis for the MARL investigation is weakened, so Phase~9 is a validity check on the project as a whole.
+This ladder also grounds the Chapter~\ref{chapter1} objectives. Simulator construction lands in Phase~0 and Phase~1, substrate selection in Phase~2, the $\alpha$ sweep in Phases~4 and~5, scaling and curriculum tests in Phases~6 to~8, and alternative-formulation plus LLM validity checks in Phases~9 and~10. Phase~9 sits outside the RQ structure. It tests whether the learning problem genuinely requires adaptive strategy rather than something about cooperation dynamics, and if a zero-shot Large-Language Model (LLM) matches a trained DQN agent the basis for the MARL investigation is weakened. The rightmost column of Table~\ref{tab:phases} gives the phase-to-RQ mapping.
 
 \begin{table}[htbp]
 \centering
@@ -162,11 +158,11 @@ Phase~3 and later phases carry phase-specific validation rather than uniform gat
 \subsection{Measurement plan}
 \label{sec:measurement-plan}
 
-Each phase is evaluated at three stochasticity levels. s0 is the primary comparison track with noise removed. s1 and s2 are robustness tracks testing whether the s0 ranking survives under increasing outcome uncertainty. Within each level, multiple seeds estimate the variance of the learning process. A seed fixes the pseudo-random streams driving network initialisation, exploration, and replay sampling, so two runs at the same seed produce identical results. Different seeds produce different learning trajectories because RL is path-dependent, and multiple seeds therefore give a distribution of outcomes that is the basis for 95\% confidence intervals (CI95) across trials \citep{henderson2018deep}. Three seeds per evaluation cell is the design baseline, which is on the low end of current RL practice and widens confidence intervals relative to five- or ten-seed designs.
+Each phase is evaluated at three stochasticity levels. s0 is the primary comparison track with noise removed, while s1 and s2 are robustness tracks testing whether the s0 ranking survives under increasing outcome uncertainty. Within each level, multiple seeds estimate the variance of the learning process. Each seed fixes the pseudo-random streams driving initialisation, exploration, and replay sampling, so two runs at the same seed match exactly while different seeds produce different learning trajectories. Multiple seeds per cell therefore give a distribution of outcomes that forms the basis for 95\% confidence intervals (CI95) across trials \citep{henderson2018deep}. Three seeds per evaluation cell is the design baseline, which is on the low end of current RL practice and widens confidence intervals relative to five- or ten-seed designs.
 
-The core performance metrics are win rate, joint beat-base rate, per-agent beat-base rate, and positional advantage. Win rate is the proportion of evaluation races won by the relevant DQN agent, with 95\% CIs over evaluation races. Joint beat-base rate is the proportion of races in which every active DQN agent finishes ahead of the Base adversary, and becomes the central cooperative advantage metric from Phase~5 onwards. Per-agent beat-base rate applies the same test individually, distinguishing joint improvement from one agent carrying the result. Positional advantage is the mean finishing-position gap between two DQN agents.
+Each metric exists to answer a specific question the research questions raise. Win rate answers whether one policy beats another, and is the substrate-selection signal in Phase~2 and the pair comparison in Phase~3. Joint beat-base rate answers whether every active DQN agent improves against the shared Base adversary at once, and is the central cooperative advantage metric from Phase~5 onwards because it distinguishes real joint improvement from one agent carrying the result. Per-agent beat-base rate applies the same test individually as a check on that distinction. Positional advantage captures role imbalance between two DQN agents as the mean finishing-position gap. All four metrics are reported with 95\% CIs across seeds.
 
-Strategy is characterised through zone differentiation and risk differentiation indices. Zone differentiation is the mean absolute difference in per-zone attempt rates between the two agents. Risk differentiation is the mean absolute difference in attempt-conditioned risk proportions (the fraction of attempts at each risk level, computed over attempted overtakes only). These test RQ1's prediction of asymmetric role development.
+Strategy is characterised through zone differentiation and risk differentiation indices. Zone differentiation is the mean absolute difference in per-zone attempt rates between two agents. Risk differentiation is the mean absolute difference in attempt-conditioned risk proportions, the fraction of attempts at each risk level computed over attempted overtakes only. These measure whether agents learn different roles rather than just whether they win, which is the core prediction of RQ1 and which later phases use to show that role differentiation can increase without joint outcomes improving.
 
 \subsection{Phase 0: System integrity validation}
 \label{sec:phase0-design}
@@ -196,7 +192,7 @@ Phase~4 groups the two DQN agents into a single team and introduces a reward-sha
 R_{\text{mixed}} = (1 - \alpha) \cdot R_{\text{own}} + \alpha \cdot R_{\text{teammate}}
 \]
 
-At $\alpha = 0$ each agent receives only its own reward, reproducing the Phase~3 IQL setup. At $\alpha = 1$ each agent receives only its teammate's reward. Intermediate values produce partial alignment. The team structure carries through every subsequent phase.
+At $\alpha$ = 0 each agent receives only its own reward, reproducing the Phase~3 IQL setup. At $\alpha$ = 1 each agent receives only its teammate's reward. Intermediate values produce partial alignment, illustrated in Figure~\ref{fig:alpha-sweep}. The team structure carries through every subsequent phase. Intermediate values produce partial alignment. The team structure carries through every subsequent phase.
 
 Five $\alpha$ values are tested in Phase~4 (0.0, 0.25, 0.50, 0.75, and 1.0) to identify whether there is a threshold beyond which cooperative incentive causes learning to collapse rather than cooperate. This sweep distinguishes a gradual performance degradation at high $\alpha$ from a structural passivity failure, which is the core empirical question of RQ2.
 
@@ -252,13 +248,7 @@ The five project deliverables map to sprint groups. Deliverable~3 (minimal viabl
 
 \subsection{Version control and gate discipline}
 
-Version control uses Git with one feature branch per phase. A phase branch starts from the current main, carries all development for that phase, and merges back only after the phase's gate or validation criteria are met. This rule means the main branch always reflects a gate-passed simulator state, and any commit on main can be checked out and reproduced in full.
-
-Commit messages document phase-level findings at meaningful checkpoints. These include zone behaviour observations, collapse events, and implementation details that affected results. The commit history therefore doubles as an engineering log, with each phase's development trail preserved for later audit.
-
-\subsection{Reproducibility through telemetry}
-
-Every run embeds its executed configuration in the output metrics. The active configuration, training and evaluation budgets, and seed assignments are serialised into the recorded output, so any experiment can be reproduced from that record without recovering the repository state at the time. Downstream analysis reads the algorithm, hyperparameter, and scenario fields from the telemetry output rather than from the config file on disk, so any mismatch between what was meant to run and what actually ran shows up during analysis.
+Version control uses Git with one feature branch per phase. A branch merges back to main only after its gate or validation criteria are met, so main always reflects a gate-passed simulator state. Commit messages document phase-level findings including zone behaviour observations, collapse events, and implementation details that affected results, giving the commit history the role of an engineering log. Every run additionally embeds its executed configuration, seed assignments, and training and evaluation budgets into its output metrics (Appendix~\ref{appendix:simulator-details}).
 
 \subsection{Research question independence}
 

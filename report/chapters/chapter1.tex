@@ -3,7 +3,7 @@
 
 \section{Introduction}
 
-In multi-agent reinforcement learning (MARL), agents that learn alongside each other do not just solve a task. They adapt to one another. Learning stability and emergent strategy both depend on how incentives are structured between agents, and that dependency is not well characterised. Much of MARL has historically focused on fully cooperative or fully competitive extremes, with many methods tailored to those cases. The partially-aligned or general-sum regime is an emerging research area that remains less mature.
+In multi-agent reinforcement learning (MARL), agents that learn alongside each other do not just solve a task. They adapt to one another. Learning stability and emergent strategy both depend on how incentives are structured between agents, and that dependency is not well characterised. Much of MARL has historically focused on fully cooperative or fully competitive extremes, with many methods tailored to those cases. The partially-aligned or general-sum regime, where agents' interests overlap without perfectly aligning, is an emerging research area that remains less mature.
 
 The question this project investigates is whether shared incentive between concurrently learning agents produces genuine cooperative advantage, or merely redistributes competitive outcomes. When two agents race head-to-head, one agent's gain is the other's loss by definition, so no reward formula can produce net joint improvement. Introducing a common adversary lifts that constraint, and both agents can then improve simultaneously by outperforming the third party. Whether shared incentive actually exploits that opening, and how far it can be pushed before learning destabilises, is underexplored in existing literature.
 
@@ -24,7 +24,7 @@ The Formula E literature narrows the gap. Multi-car extensions of RL-based race 
 
 \subsection{Reinforcement learning in competitive environments}
 
-Reinforcement learning frames decision-making as an agent that observes a state, selects an action, and receives a reward. Across repeated episodes the agent adjusts its policy, the mapping from states to actions, to maximise long-term reward. Value-based methods estimate a Q-value for each action in each state, and select the action with the highest Q-value at each step \citep{mnih2015human}.
+Reinforcement learning frames decision-making as an agent that observes a state, selects an action, and receives a reward. Across repeated episodes the agent adjusts its policy, the mapping from states to actions, to maximise long-term reward. Value-based methods estimate a Q-value for each action in each state, the agent's estimate of how much future reward it expects if it takes that action from the current state, and select the action with the highest Q-value at each step \citep{mnih2015human}.
 
 Applied to competitive settings, the framework has produced strong results over the past decade, from board games \citep{silver2018alphazero} to real-time strategy at scale \citep{berner2019dota2, vinyals2019alphastar}. These systems span three substrate families. Value-based methods pick the action with the highest estimated Q-value and suit small discrete action spaces. Policy-based methods learn a policy directly and scale to continuous control. Actor-critic combines both and has become the default for large-scale domains. Discrete decisions with a modest compute budget suit value-based learning. Within that family, the Deep Q-Network (DQN) was the first to scale value-based learning to high-dimensional state spaces using deep neural networks \citep{mnih2015human}. Section~\ref{sec:dqn-foundations} returns to DQN with the specific requirements of this project in view and selects a variant for the experimental matrix.
 
@@ -39,11 +39,9 @@ Mixed-motive settings, where agents' interests are partially aligned and partial
 
 Independent learners are the natural first baseline. Each agent stores past experience in a replay buffer and samples from it to update its own policy. When the opponent's policy changes, stored experience from an earlier version of that opponent misdirects updates, and learning can become unstable \citep{foerster2017stabilising, matignon2012independent}. Both non-stationarity and the difficulty of assigning credit for shared outcomes worsen as more agents are added \citep{agogino2004unifying, zhao2025maca}.
 
-Credit assignment is the problem of distributing a shared team reward among agents in proportion to their individual contribution, and it remains unsolved in team reward settings \citep{panait2005cooperative, ningxie2024marl}. Two broad families of solutions exist at the reward-signal level. The first mixes individual and team rewards to balance credit assignment against cooperative alignment \citep{wang2022irat}, which is the mechanism the $\alpha$ coefficient implements. The second gives each agent a reward based on how the team would have performed in its absence. This counterfactual subtraction isolates an agent's individual contribution, and difference rewards are the canonical form \citep{wolpert2001optimal, devlin2014potential}. Exact computation is impractical at scale, so the team's observed mean is often substituted as a stand-in for the counterfactual \citep{yang2018meanfield}. The two are not the same quantity, and conflating them can lose the alignment property that difference rewards rely on \citep{devlin2014potential}.
+Credit assignment is the problem of distributing a shared team reward among agents in proportion to their individual contribution, and it remains unsolved in team reward settings \citep{panait2005cooperative, ningxie2024marl}. Two broad families of solutions exist at the reward-signal level. The first mixes individual and team rewards to balance credit assignment against cooperative alignment \citep{wang2022irat}, which is the mechanism the $\alpha$ coefficient implements. The second gives each agent a reward based on how the team would have performed in its absence, isolating individual contribution through counterfactual subtraction \citep{wolpert2001optimal, devlin2014potential}. Both families are investigated in this project.
 
 Two failure modes arise in this space. Training-order collapse happens when cooperative reward is introduced before individual policies have stabilised, overwriting competent baselines with passive behaviour \citep{matignon2012independent}. Credit-assignment failure happens when overlapping individual contributions prevent team reward from producing useful per-agent gradients \citep{panait2005cooperative, rashid2018qmix}. Telling them apart in practice requires varying incentive alignment across training rather than holding it fixed. An alternative route to the same credit-assignment problem is at the level of training setup rather than reward signal, through centralised training with decentralised execution (CTDE) \citep{rashid2018qmix}.
-
-The field has mapped each piece in isolation. How they interact under independent concurrent learning, across reward-signal design, agent count, and game structure, remains less well understood.
 
 \section{The research gap and this project's contribution}
 
@@ -54,11 +52,11 @@ This project builds the apparatus that can answer that joint question. The simul
 \section{DQN substrate as the measurement apparatus}
 \label{sec:dqn-foundations}
 
-The project's central measurement is whether changes in emergent strategy can be attributed to incentive structure, which requires controlling for algorithm-level differences \citep{henderson2018deep, agarwal2021statistical}. The substrate needs variants that are small and well-characterised, a decision space that matches discrete action selection at a small number of zones, and off-policy learning so rare overtaking events can be revisited during training \citep{mnih2015human, schaul2016prioritized}.
+The project's central measurement is whether changes in emergent strategy can be attributed to incentive structure, which requires controlling for algorithm-level differences \citep{henderson2018deep, agarwal2021statistical}. The fixed learning algorithm held constant across those comparisons is referred to throughout as the substrate. The substrate needs variants that are small and well-characterised, a decision space that matches discrete action selection at a small number of zones, and off-policy learning so rare overtaking events can be revisited during training \citep{mnih2015human, schaul2016prioritized}.
 
 The DQN family has this structure by design. Each variant in the lineage was introduced to correct a named failure mode of the previous one. Double DQN targets Q-value overestimation under noisy rewards \citep{vanhasselt2016double}. Dueling DQN separates state value from action advantage to stabilise learning where the choice of action has little effect on the outcome \citep{wang2016dueling}. Prioritised experience replay addresses uniform sampling when informative transitions are rare \citep{schaul2016prioritized}. Rainbow combines these into a single algorithm \citep{hessel2018rainbow}. Because each mechanism has a clear target, differences between variants map onto specific known biases rather than unrelated implementation choices. Independent Q-learning, the standard value-based MARL baseline \citep{rashid2018qmix}, places the family within the multi-agent literature.
 
-The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rainbow-style variant (rainbow-lite) combining the three with prioritised replay. Chapter~\ref{chapter2} sets out the experimental methodology, and Chapter~\ref{chapter3} covers the implementation.
+The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rainbow-style variant (rainbow-lite) combining the three with prioritised replay.
 
 \section{Aim, objectives, and research questions}
 
@@ -66,7 +64,6 @@ The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rain
 
 The aim of this project is to characterise how cooperation between self-interested learning agents changes as incentive alignment, agent count, and reward formulation are varied within a single controlled simulator. Where cooperation fails or breaks down, the project identifies the underlying mechanism, distinguishing between training-order effects, credit-assignment limits at scale, and formulation-specific failures.
 
-\newpage
 \subsection{Research questions and hypotheses}
 \label{sec:research-questions}
 \begin{description}[leftmargin=3em, labelindent=0em, style=sameline]    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition?
@@ -78,7 +75,7 @@ The aim of this project is to characterise how cooperation between self-interest
     \item[RQ3.] How many agents can a non-zero-sum race hold before cooperation stops working, and does gradual scheduling change the answer?
     \item[H3.] Beyond a certain agent count, no value of $\alpha$ and no training schedule brings cooperation back, because the problem is credit assignment rather than training order.
 
-    \item[RQ4.] Do alternative cooperative reward formulations preserve the advantage that $\alpha$-based mixing produces?
+    \item[RQ4.] Can alternative cooperative reward formulations recover cooperative advantage at the scaling boundary where $\alpha$-based mixing breaks down?
     \item[H4.] The mean-field substitute for the true counterfactual inverts the cooperative signal, so the advantage observed under $\alpha$-based mixing will not reproduce under this approximation.
 \end{description}
 
