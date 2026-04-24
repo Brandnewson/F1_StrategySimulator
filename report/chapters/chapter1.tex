@@ -3,8 +3,7 @@
 
 \section{Introduction}
 
-In multi-agent reinforcement learning (MARL), agents that learn alongside each other do not just solve a task. They adapt to one another. Learning stability and emergent strategy both depend on how incentives are structured between agents, and that dependency is not well characterised. Much of MARL has historically focused on fully cooperative or fully competitive extremes, with many methods tailored to those cases. The partially-aligned or general-sum regime, where agents' interests overlap without perfectly aligning, is an emerging research area that remains less mature.
-
+In multi-agent reinforcement learning (MARL), agents that learn alongside each other do not just solve a task. They adapt to one another. Learning stability and emergent strategy depend on how incentives are structured between agents, and the shape of that dependency is what this project investigates. Foundational MARL methods were developed primarily for the two extremes of incentive alignment, where agents share a single team reward or where one agent's gain is exactly another's loss \citep{busoniu2008survey}. The partially-aligned or general-sum regime, where agents' interests overlap without perfectly aligning, has since become an active research area in its own right \citep{leibo2017multiagent, hughes2018inequity}. How reward-sharing between teammates interacts with team size in this regime is comparatively less well mapped, and is the gap the project addresses.
 The question this project investigates is whether shared incentive between concurrently learning agents produces genuine cooperative advantage, or merely redistributes competitive outcomes. When two agents race head-to-head, one agent's gain is the other's loss by definition, so no reward formula can produce net joint improvement. Introducing a common adversary lifts that constraint, and both agents can then improve simultaneously by outperforming the third party. Whether shared incentive actually exploits that opening, and how far it can be pushed before learning destabilises, is underexplored in existing literature.
 
 Formula 1 overtaking zone decisions are a well-suited environment to study this. Decisions are discrete and repeated, outcomes are probabilistic given the same zone and gap, and the opponent adapts across laps. The game structure is also adjustable. The same simulator, agents, and reward formula can be tested with or without a common adversary, isolating game structure as an independent variable.
@@ -62,11 +61,12 @@ The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rain
 
 \subsection{Aim}
 
-The aim of this project is to characterise how cooperation between self-interested learning agents changes as incentive alignment, agent count, and reward formulation are varied within a single controlled simulator. Where cooperation fails or breaks down, the project identifies the underlying mechanism, distinguishing between training-order effects, credit-assignment limits at scale, and formulation-specific failures.
+The aim of this project is to characterise how cooperation between self-interested learning agents changes as incentive alignment, agent count, and reward formulation are varied within a single controlled simulator. Where cooperation fails or breaks down, the project seeks to identify the underlying mechanism, separating training-order effects, credit-assignment limits at scale, and formulation-specific failures.
 
 \subsection{Research questions and hypotheses}
 \label{sec:research-questions}
-\begin{description}[leftmargin=3em, labelindent=0em, style=sameline]    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition?
+\begin{description}[leftmargin=3em, labelindent=0em, style=sameline]    
+    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition?
     \item[H1.] Concurrent training produces differentiated zone coverage and opposing risk profiles through iterated best-response dynamics. No explicit coordination mechanism is required.
 
     \item[RQ2.] How does varying the reward-sharing coefficient $\alpha$ alter emergent strategy and learning stability in two-agent zero-sum and non-zero-sum settings, and can curriculum scheduling recover cooperative performance when fixed $\alpha$ fails?
@@ -80,6 +80,8 @@ The aim of this project is to characterise how cooperation between self-interest
 \end{description}
 
 \subsection{Objectives}
+The following objectives are set out to provide the basis for investigating the above research questions and verify the hypotheses.
+
 \begin{itemize}
     \item Build a racing simulator with configurable game structure, agent count, and diagnostic output that distinguishes cooperative advantage from redistributed competitive outcomes.
     \item Pick a DQN variant that trains stably in the single-agent setting to act as a controlled substrate for the comparisons that follow.

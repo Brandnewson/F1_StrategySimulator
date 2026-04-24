@@ -48,9 +48,7 @@ A more aggressive attempt therefore shifts the probability upward but also incur
 \delta_{\text{gap}} = \left(1 - \frac{g}{0.1} - 0.5\right) \times 0.3
 \]
 
-\textbf{Stochastic noise.} Gaussian noise $\epsilon \sim \mathcal{N}(0, \sigma)$ is added to the probability before clipping, with $\sigma$ set by the active stochasticity level (see Appendix~\ref{appendix:simulator-details}).
-
-The final probability is clipped to $[0.02,\ 0.95]$ to avoid degenerate certainty in either direction.
+\textbf{Stochastic noise.} Gaussian noise $\epsilon \sim \mathcal{N}(0, \sigma)$ is added to the probability before clipping, with $\sigma$ set by the active stochasticity level (see Appendix~\ref{appendix:simulator-details}). The final probability is clipped to $[0.02,\ 0.95]$ to avoid degenerate certainty in either direction.
 
 \subsection{Config-driven action and feedback contracts}
 
@@ -72,10 +70,10 @@ Cooldown    & Driver is not in post-attempt cooldown window \\
 \hline
 \multicolumn{2}{l}{\textbf{Action space (4 discrete actions)}} \\
 \hline
-0 & Hold position \\
-1 & Conservative overtake attempt \\
-2 & Normal overtake attempt \\
-3 & Aggressive overtake attempt \\
+0 & HOLD position \\
+1 & CONSERVATIVE overtake attempt \\
+2 & NORMAL overtake attempt \\
+3 & AGGRESSIVE overtake attempt \\
 \hline
 \multicolumn{2}{l}{\textbf{Observation vector (6 features)}} \\
 \hline
@@ -89,7 +87,7 @@ $o_6$ & Laps remaining (normalised) \\
 \end{tabular}
 \end{table}
 
-A conservative attempt reduces the success probability by 0.08 relative to normal, while an aggressive attempt raises it by 0.12. However, failure penalties in the reward signal scale in the opposite direction. A failed conservative attempt costs $-0.5$, a normal failure $-1.0$, and an aggressive failure $-1.5$. The optimal risk level therefore depends on zone difficulty, current gap, and positional context.
+A conservative attempt reduces the success probability by 0.08 relative to normal, while an aggressive attempt raises it by 0.12. However, failure penalties in the reward signal scale in the opposite direction. A failed conservative attempt costs $-0.5$, a normal failure $-1.0$, and an aggressive failure $-1.5$. A failed attempt also causes the attempting driver to fall back in distance within the simulator, so the reward penalty is paired with a real positional cost on the track. The optimal risk level therefore depends on zone difficulty, current gap, and positional context.
 
 \subsection{Finish-first reward contract}
 
@@ -106,7 +104,7 @@ The Base Agent is a fixed stochastic heuristic comparator. It samples a risk lev
 \subsection{Design parameter choices}
 \label{sec:design-parameters}
 
-Several numerical values in the simulator specification (risk adjustments, failure penalties, reward weights, clipping bounds, stochasticity sigmas, gap modifier scaling, episode budgets, lap counts) are calibration choices made during early development. What is load-bearing for the methodology is the structural relationships between them, not the magnitudes. The risk-adjustment ordering, the failure-penalty inverse ordering, the reward weight hierarchy, and the s0 / s1 / s2 variance progression must all hold for the methodology to work. Specific values could differ without changing the conclusions. The structural design choices themselves (the zero-sum to non-zero-sum game structure switch, the agent-count progression, the $\alpha$ sweep across $[0,1]$, the curriculum warm-up then ramp then hold, and the Phase~10 mean-field approximation) are described in their respective phase subsections.
+Several numerical values in the simulator specification (risk adjustments, failure penalties, reward weights, clipping bounds, stochasticity sigmas, gap modifier scaling, episode budgets, lap counts) are calibration choices made during early development. What is load-bearing for the methodology is the structural relationships between them, not the magnitudes. The risk-adjustment ordering, the failure-penalty inverse ordering, the reward weight hierarchy, and the stochasticity (s0/s1/s2) variance progression must all hold for the methodology to work. Specific values could differ without changing the conclusions. The structural design choices themselves (the zero-sum to non-zero-sum game structure switch, the agent-count progression, the $\alpha$ sweep across $[0,1]$, the curriculum warm-up then ramp then hold, and the Phase~10 mean-field approximation) are described in their respective phase subsections.
 
 \section{Experimental methodology}
 \label{sec:marl-methodology}
@@ -149,16 +147,14 @@ This ladder also grounds the Chapter~\ref{chapter1} objectives. Simulator constr
 \subsection{Phase validation and promotion criteria}
 \label{sec:promotion-gates}
 
-Each phase is validated against criteria appropriate to its scope before downstream phases proceed. Early phases carry heavier gates because they establish the foundations for everything that follows.
-
-Three formal gates govern the early phases. Gate~G0 is a hard automated integrity gate where all 12 simulator, reward, and telemetry tests pass or the gate fails (Appendix~\ref{appendix:phase01}). Gate~G1 is a methodological smoke gate verifying that a positive learning signal exists before the experimental matrix is committed to. Gate~G2 is a formal benchmark promotion gate that selects the DQN variant used for Phases~3 onwards.
+Three formal gates govern the early phases and are heavier gates because they establish the foundations for everything that follows. Gate~G0 is a hard automated integrity gate where all 12 simulator, reward, and telemetry tests pass or the gate fails (Appendix~\ref{appendix:phase01}). Gate~G1 is a methodological smoke gate verifying that a positive learning signal exists before the experimental matrix is committed to. Gate~G2 is a formal benchmark promotion gate that selects the DQN variant used for Phases~3 onwards.
 
 Phase~3 and later phases carry phase-specific validation rather than uniform gates. Each phase has documented pass criteria tied to its experimental role, with the pass decision recorded alongside the phase analysis. A failed validation does not proceed. The phase is corrected and re-run under the same protocol. Validation is part pre-committed (pass criteria defined before the phase runs) and part investigation-driven (additional robustness checks or bias controls added in response to what the phase data shows). Both are reported alongside the phase results in Chapter~\ref{chapter4}.
 
 \subsection{Measurement plan}
 \label{sec:measurement-plan}
 
-Each phase is evaluated at three stochasticity levels. s0 is the primary comparison track with noise removed, while s1 and s2 are robustness tracks testing whether the s0 ranking survives under increasing outcome uncertainty. Within each level, multiple seeds estimate the variance of the learning process. Each seed fixes the pseudo-random streams driving initialisation, exploration, and replay sampling, so two runs at the same seed match exactly while different seeds produce different learning trajectories. Multiple seeds per cell therefore give a distribution of outcomes that forms the basis for 95\% confidence intervals (CI95) across trials \citep{henderson2018deep}. Three seeds per evaluation cell is the design baseline, which is on the low end of current RL practice and widens confidence intervals relative to five- or ten-seed designs.
+Each phase is evaluated at three stochasticity levels. s0 is the primary comparison track with noise removed, while s1 and s2 are robustness tracks testing whether the s0 ranking survives under increasing outcome uncertainty. Within each level, multiple seeds estimate the variance of the learning process. Each seed fixes the pseudo-random streams driving initialisation, exploration, and replay sampling, so two runs at the same seed match exactly while different seeds produce different learning trajectories. Multiple seeds per cell therefore give a distribution of outcomes that forms the basis for 95\% confidence intervals (CI95) across trials \citep{henderson2018deep}. Three seeds per evaluation cell is the design baseline, which is on the low end of current RL practice and widens confidence intervals relative to five- or ten-seed designs but chosen in the interest of a lack of research budget and time.
 
 Each metric exists to answer a specific question the research questions raise. Win rate answers whether one policy beats another, and is the substrate-selection signal in Phase~2 and the pair comparison in Phase~3. Joint beat-base rate answers whether every active DQN agent improves against the shared Base adversary at once, and is the central cooperative advantage metric from Phase~5 onwards because it distinguishes real joint improvement from one agent carrying the result. Per-agent beat-base rate applies the same test individually as a check on that distinction. Positional advantage captures role imbalance between two DQN agents as the mean finishing-position gap. All four metrics are reported with 95\% CIs across seeds.
 
@@ -229,14 +225,7 @@ The purpose is to establish whether domain reasoning with structured priors can 
 
 \subsection{Phase 10: Difference rewards}
 \label{sec:difference-rewards}
-
-Phase~10 tests difference rewards as an alternative cooperative formulation at the three-DQN-plus-Base configuration (four total agents). $\alpha$ mixing is a heuristic that does not formally separate individual contributions, so its passivity failure is fundamentally a credit assignment problem. Difference rewards address this by giving each agent credit only for its counterfactual contribution to collective performance \citep{wolpert2001optimal}. Computing the true counterfactual is costly, so a mean-field approximation is used where each agent's reward is its position delta plus the deviation from the team mean.
-
-\[
-R_{\text{diff},i} = \Delta_i + (\Delta_i - \bar{\Delta}_{\text{team}})
-\]
-
-Whether this approximation preserves the cooperative gradient property is the central question of Phase~10.
+Phase~10 tests difference rewards as an alternative cooperative formulation at the three-DQN-plus-Base configuration (four total agents). $\alpha$ mixing is a heuristic that does not formally separate individual contributions, so its passivity failure is fundamentally a credit assignment problem. Difference rewards address this by giving each agent credit only for its counterfactual contribution to collective performance \citep{wolpert2001optimal}. Computing the true counterfactual is costly, so a mean-field approximation is used (full derivation in Appendix~\ref{appendix:difference-rewards}). Whether this approximation preserves the cooperative gradient property is the central question of Phase~10.
 
 \section{Project management}
 

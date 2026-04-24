@@ -20,20 +20,20 @@
 \label{fig:system-architecture}
 \end{figure}
 
-Figure~\ref{fig:system-architecture} summarises the layered design. The simulator is built as a layered Python system. A configuration and orchestration layer resolves the active complexity profile and sequences calls across the algorithm comparison matrix. A simulation core owns the tick-by-tick race loop and queries agents for actions at each overtaking zone. All agents implement a common interface returning a structured action, so the engine is variant-agnostic. Per-module responsibilities and the UML class diagram are in Appendix~\ref{appendix:classdiagram}.
+The simulator is built as a layered Python system represented in figure~\ref{fig:system-architecture}. A configuration and orchestration layer resolves the active complexity profile and sequences calls across the algorithm comparison matrix. A simulation core owns the tick-by-tick race loop and queries agents for actions at each overtaking zone. All agents implement a common interface returning a structured action, so the engine is variant-agnostic. Per-module responsibilities and the UML class diagram are in Appendix~\ref{appendix:classdiagram}.
 
 \subsection{Config-driven design as a fairness control}
 
 All parameters that affect the experimental outcome are externalised to a single configuration file. This covers hyperparameters, the reward component schema and weights, the observation feature list, stochasticity presets, evaluation protocol budgets, and seed sets. No algorithm implementation reads or modifies these values directly. They are injected at construction time.
 
-This design ensures that the only difference between a vanilla and a double DQN run is the learning algorithm itself. An external reviewer can fully reconstruct any comparison from the recorded output of each run, which embeds the executed configuration, budgets, and seed assignments.
+This design ensures that the only difference between a given run is the learning algorithm itself. An external reviewer can fully reconstruct any comparison from the recorded output of each run, which embeds the executed configuration, budgets, and seed assignments.
 
 \section{Agent implementations}
 
 \subsection{DQN-family agents}
 \label{sec:dqn-variants}
 
-All four DQN variants are parameterisations of a single agent class, selected via a config field. The training loop, action space, epsilon schedule, and feedback interface are shared across variants, and only the variant-specific elements differ. The shared training loop structure is illustrated in Appendix~\ref{appendix:dqnloop}, and the full variant formulations and hyperparameters are in Appendix~\ref{appendix:dqn-specifics}.
+All four DQN variants are parameterisations of a single agent class, selected via a config field. The training loop, action space, exploration schedule (the $\epsilon$-greedy policy that decays the rate of random action selection as training progresses), and feedback interface are shared across variants, and only the variant-specific elements differ. The shared training loop structure is illustrated in Appendix~\ref{appendix:dqnloop}, and the full variant formulations and hyperparameters are in Appendix~\ref{appendix:dqn-specifics}.
 
 \textbf{Vanilla DQN.} The vanilla variant uses a small feedforward neural network to approximate the Q-value function, which predicts the expected long-term reward for each action in a given state. Past decisions are stored in a replay buffer and resampled to break the correlation in training data, and a slowly updated target network provides a stable prediction target during learning. This is the baseline against which all other variants are compared \citep{mnih2015human}.
 
