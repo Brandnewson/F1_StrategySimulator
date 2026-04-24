@@ -17,6 +17,7 @@ Implemented runtime profiles:
 
 Not yet implemented:
 
+Simulator complexity levels of:
 - `medium`
 - `high`
 
