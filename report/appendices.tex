@@ -83,7 +83,7 @@ NumPy & v1.x & Numerical computation in simulator and metrics scripts & BSD \\
 \hline
 Pandas & v2.x & Metrics aggregation and results table generation & BSD \\
 \hline
-Anthropic Claude Haiku & API (2024) & Zero-shot LLM agent for Phase~9 semantic baseline & Commercial API terms of service \\
+Anthropic Claude Haiku & API (2025) & Zero-shot LLM agent for Phase~9 semantic baseline & Commercial API terms of service \\
 \hline
 \end{tabular}
 \end{table}
@@ -181,7 +181,7 @@ The following figures show the FastF1 telemetry analysis used to calibrate overt
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.92\textwidth]{diagrams/overtakingMapping.png}
-    \caption{Relative overtake density mapped to the Spa-Francorchamps circuit.}
+    \caption{Overtake density mapped to the Spa-Francorchamps circuit.}
     \label{fig:overtaking-mapping}
 \end{figure}
 
@@ -209,6 +209,8 @@ The following figures show the simulator's own track and visualisation views. Fi
 \label{appendix:phase01}
 
 This appendix documents the system integrity checks carried out in Phase~0 and the smoke evaluation results collected in Phase~1. Both phases are prerequisites to the Phase~2 DQN-family benchmark. Phase~0 verified that the simulator, reward accounting, stochasticity, and telemetry were correct before any learning claims were made. Phase~1 confirmed a learning signal at low compute cost and established the stochasticity sensitivity profile of the vanilla DQN baseline.
+
+
 
 % ---------------------------------------------------------------
 \section{Phase 0: System Integrity}
@@ -404,10 +406,29 @@ s1 and s2 show interpretable degradation direction & Met (see note) \\
 
 The degradation direction was interpretable but structurally attenuated. The headline win rate was flat at s1 due to La Source dominance, and only the s2 comparison showed a reduction. The behavioural degradation signal (AGGRESSIVE flip, zone discrimination collapse, rising tactical penalty, increased seed variance) was present and mechanistically consistent across s1 and s2. Gate~G1 was cleared and Phase~2 proceeded with this understanding recorded.
 
+\section{Phase 10: Mean-field difference reward derivation}
+\label{appendix:difference-rewards}
+
+The Phase~10 cooperative formulation uses a mean-field approximation to difference rewards. Each agent's reward is its own position delta plus a deviation term measuring how much it outperformed the team average on that step.
+
+\[
+R_{\text{diff},i} = \Delta_i + (\Delta_i - \bar{\Delta}_{\text{team}})
+\]
+
+where $\Delta_i$ is the position delta for agent $i$ and $\bar{\Delta}_{\text{team}}$ is the mean position delta across the $N$ DQN agents on the team. Expanding the expression gives
+
+\[
+R_{\text{diff},i} = 2\Delta_i - \frac{1}{N}\sum_{j=1}^{N}\Delta_j = \frac{2N-1}{N}\Delta_i - \frac{1}{N}\sum_{j \neq i}\Delta_j
+\]
+
+which makes the structural properties used in the Chapter~\ref{chapter4} analysis visible. The coefficient on $\Delta_i$ is $(2N-1)/N$, amplified relative to identity, and the coefficient on each teammate's $\Delta_j$ is $-1/N$, which is negative. This is the formulation analysed in Section~\ref{sec:rq4}.
+
+
 \chapter{DQN variant formulations and training specifics}
 \label{appendix:dqn-specifics}
 
 This appendix gives the formal equations for each DQN variant, the network and replay specifications, the exploration and optimisation hyperparameters, and the protocol by which those hyperparameters were selected. The conceptual descriptions in Section~\ref{sec:dqn-variants} summarise what each formulation does. This appendix gives the corresponding equations for readers who want the formal definitions alongside.
+
 
 \section{Variant TD targets}
 
@@ -538,6 +559,16 @@ A companion aggregation script collects the per-seed metrics files produced by P
 \section{Telemetry schema}
 
 Every race produces a JSON Lines (JSONL) entry containing the full per-driver result. Each entry includes the driver name, final race position, total reward, per-component reward totals, stochasticity level, complexity profile, and a \texttt{decision\_events} array. Each decision event records the zone identifier, lap number, action label, attempt flag, success flag, success probability, reward received, individual reward component values, and a \texttt{reward\_component\_sum\_error} field that verifies the arithmetic consistency of the reward decomposition. The telemetry schema is validated in Phase~0 Group~C tests (Appendix~\ref{appendix:phase01}).
+
+\section{Hardware and runtime environment}
+All experiments were executed on a single desktop workstation. The full specification is given below.
+
+\begin{tabular}{@{}ll@{}}
+\textbf{CPU}         & AMD Ryzen 5 2600 (6 cores, 12 threads, 3.4\,GHz base) \\
+\textbf{GPU}         & NVIDIA GeForce RTX 2060 (6\,GB GDDR6) \\
+\textbf{Memory}      & 32\,GB DDR4-3200 (G.Skill Trident Z) \\
+\textbf{Motherboard} & ASUS ROG Strix B450-F \\
+\end{tabular}
 
 \chapter{Phase 3 crossplay bias arithmetic}
 \label{appendix:phase3-crossplay}

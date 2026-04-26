@@ -10,7 +10,7 @@ Formula 1 overtaking zone decisions are a well-suited environment to study this.
 
 To answer this, the project builds an F1-inspired simulator and trains reinforcement learning (RL) agents across zero-sum and non-zero-sum game structures, with the reward-sharing coefficient $\alpha$ varied from pure competition to pure cooperation. The work draws on three fields, namely motorsport simulation, RL in competitive environments, and multi-agent incentive design.
 
-\section{What the research has established}
+\section{Related work}
 \label{sec:litreview}
 
 A structured comparison of related studies is in Appendix Table~\ref{tab:related-work-comparison}.
@@ -32,19 +32,21 @@ The central challenge in competitive RL is that a policy learned against a fixed
 
 \subsection{Multi-agent incentive design}
 
-In multi-agent settings, outcomes depend on joint actions rather than individual ones, and agents observe only local state \citep{busoniu2008survey}. Because all agents update at the same time, the environment any one agent experiences keeps shifting as the others' policies change. This effect, called non-stationarity, is the central technical challenge in multi-agent learning \citep{hernandezleal2019survey}.
+\subsection{Multi-agent incentive design}
+
+In multi-agent settings, outcomes depend on joint actions rather than individual ones, and agents observe only local state \citep{busoniu2008survey}. Because all agents update at the same time, the environment any one agent experiences keeps shifting as the others' policies change. This effect, called non-stationarity, is the central technical challenge in multi-agent learning \citep{hernandezleal2019survey}. Even without explicit coordination, two agents adapting to each other under pure competition can settle into differentiated risk profiles, a phenomenon classical game theory describes through the hawk-dove model \citep{maynardsmith1973hawkdove}.
 
 Mixed-motive settings, where agents' interests are partially aligned and partially conflicting, remain less developed than the pure cooperative and zero-sum cases in both benchmarking and realistic domains \citep{du2023cooperation}. In motorsport, this space is only recently emerging \citep{fieni2026learning}.
 
-Independent learners are the natural first baseline. Each agent stores past experience in a replay buffer and samples from it to update its own policy. When the opponent's policy changes, stored experience from an earlier version of that opponent misdirects updates, and learning can become unstable \citep{foerster2017stabilising, matignon2012independent}. Both non-stationarity and the difficulty of assigning credit for shared outcomes worsen as more agents are added \citep{agogino2004unifying, zhao2025maca}.
+Independent learners are the natural first baseline, where each agent treats the others as part of the environment and learns its own policy in isolation \citep{tan1993multiagent}. Each agent stores past experience in a replay buffer and samples from it to update its own policy. When the opponent's policy changes, stored experience from an earlier version of that opponent misdirects updates, and learning can become unstable \citep{foerster2017stabilising, matignon2012independent}. Both non-stationarity and the difficulty of assigning credit for shared outcomes worsen as more agents are added \citep{agogino2004unifying, zhao2025maca}.
 
-Credit assignment is the problem of distributing a shared team reward among agents in proportion to their individual contribution, and it remains unsolved in team reward settings \citep{panait2005cooperative, ningxie2024marl}. Two broad families of solutions exist at the reward-signal level. The first mixes individual and team rewards to balance credit assignment against cooperative alignment \citep{wang2022irat}, which is the mechanism the $\alpha$ coefficient implements. The second gives each agent a reward based on how the team would have performed in its absence, isolating individual contribution through counterfactual subtraction \citep{wolpert2001optimal, devlin2014potential}. Both families are investigated in this project.
+Credit assignment is the problem of distributing a shared team reward among agents in proportion to their individual contribution, and it remains unsolved in team reward settings \citep{panait2005cooperative, ningxie2024marl}. Two broad families of solutions exist at the reward-signal level. The first mixes individual and team rewards to balance credit assignment against cooperative alignment \citep{wang2022irat}, which is the mechanism the $\alpha$ coefficient implements. The second gives each agent a reward based on how the team would have performed in its absence, isolating individual contribution through counterfactual subtraction \citep{wolpert2001optimal, devlin2014potential}. The exact counterfactual is intractable beyond a few agents, so practical implementations rely on approximations such as mean-field substitution \citep{yang2018meanfield} or learned counterfactual baselines \citep{foerster2018coma}. Both families are investigated in this project.
 
-Two failure modes arise in this space. Training-order collapse happens when cooperative reward is introduced before individual policies have stabilised, overwriting competent baselines with passive behaviour \citep{matignon2012independent}. Credit-assignment failure happens when overlapping individual contributions prevent team reward from producing useful per-agent gradients \citep{panait2005cooperative, rashid2018qmix}. Telling them apart in practice requires varying incentive alignment across training rather than holding it fixed. An alternative route to the same credit-assignment problem is at the level of training setup rather than reward signal, through centralised training with decentralised execution (CTDE) \citep{rashid2018qmix}.
+Two failure modes arise in this space. Training-order collapse happens when cooperative reward is introduced before individual policies have stabilised, overwriting competent baselines with passive behaviour. This action-shadowing pathology was identified early in cooperative independent learning \citep{claus1998dynamics, matignon2012independent} and motivated update-rule interventions such as lenient learning \citep{wei2016lenient}. Credit-assignment failure happens when overlapping individual contributions prevent team reward from producing useful per-agent gradients \citep{panait2005cooperative, rashid2018qmix}. Telling them apart in practice requires varying incentive alignment across training rather than holding it fixed. An alternative route to the same credit-assignment problem is at the level of training setup rather than reward signal, through centralised training with decentralised execution (CTDE) \citep{rashid2018qmix}.
 
 \section{The research gap and this project's contribution}
 
-Multi-agent learning has been studied most extensively at the two ends of the incentive spectrum. Fully cooperative settings have produced a mature literature on credit assignment and centralised training. Fully competitive settings, especially two-player zero-sum games, have produced strong methods around opponent adaptation, self-play, and equilibrium-oriented learning. The mixed-motive regime between them is the space this project occupies, and studies in this regime typically isolate one factor at a time. What is less well understood is the joint behaviour of reward-signal design, agent count, and game structure when all three are varied together on the same learning substrate, with diagnostics that distinguish genuine cooperative advantage from redistribution of competitive outcomes.
+Multi-agent learning has been studied most extensively at the two ends of the incentive spectrum. Fully cooperative settings have produced a mature literature on credit assignment and centralised training. Fully competitive settings, especially two-player zero-sum games, have produced strong methods around opponent adaptation, self-play, and equilibrium-oriented learning. The mixed-motive regime between them is the space this project occupies, and studies in this regime typically isolate one factor at a time. What is less well understood is the joint behaviour of reward-signal design, agent count, and game structure when all three are varied together on the same learning substrate. Distinguishing genuine cooperative advantage from redistribution of competitive outcomes requires diagnostics that the existing literature does not consistently provide.
 
 This project builds the apparatus that can answer that joint question. The simulator is an F1-inspired race where game structure is switched by the presence or absence of a common adversary, and agent count is configurable from two to four DQN learners. A DQN-family substrate is selected to give stable single-agent learning before any multi-agent phase begins, so that algorithm-level differences do not confound the incentive-structure comparisons. The experimental programme sweeps the reward-sharing coefficient $\alpha$ across both game structures and the agent-count range, and evaluates alternative cooperative reward formulations against the $\alpha$-mixed baseline. The output is an empirical characterisation of how reward sharing, game structure, and agent count jointly shape emergent strategy and learning stability.
 
@@ -59,24 +61,29 @@ The comparison set is therefore vanilla DQN, Double DQN, Dueling DQN, and a Rain
 
 \section{Aim, objectives, and research questions}
 
+The project is scoped to a single simulator family, with claims tested across held-out seeds and stochasticity levels within that family rather than across different circuits or race models. Generalisation beyond this scope is a question for future work.
+
 \subsection{Aim}
 
 The aim of this project is to characterise how cooperation between self-interested learning agents changes as incentive alignment, agent count, and reward formulation are varied within a single controlled simulator. Where cooperation fails or breaks down, the project seeks to identify the underlying mechanism, separating training-order effects, credit-assignment limits at scale, and formulation-specific failures.
 
 \subsection{Research questions and hypotheses}
 \label{sec:research-questions}
+
+Each research question targets a specific gap in the literature surveyed in Section~\ref{sec:litreview}. Each hypothesis derives its prediction from a published mechanism rather than free-standing speculation. The citations on each RQ identify the body of work that motivates the question, and the citations on each H identify the mechanism the prediction extends.
+
 \begin{description}[leftmargin=3em, labelindent=0em, style=sameline]    
-    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition?
-    \item[H1.] Concurrent training produces differentiated zone coverage and opposing risk profiles through iterated best-response dynamics. No explicit coordination mechanism is required.
+    \item[RQ1.] What strategic behaviour emerges when independent reinforcement learning agents train concurrently under pure competition? \citep{tan1993multiagent, matignon2012independent}
+    \item[H1.] Concurrent training produces differentiated zone coverage and opposing risk profiles through iterated best-response dynamics. No explicit coordination mechanism is required \citep{maynardsmith1973hawkdove}.
 
-    \item[RQ2.] How does varying the reward-sharing coefficient $\alpha$ alter emergent strategy and learning stability in two-agent zero-sum and non-zero-sum settings, and can curriculum scheduling recover cooperative performance when fixed $\alpha$ fails?
-    \item[H2.] Above a threshold, sharing too much reward turns successful overtakes into a net penalty and both agents drift into passive play. In non-zero-sum races with a common rival, partial sharing helps up to that same threshold and then starts to hurt. Curriculum scheduling recovers some of the lost performance.
+    \item[RQ2.] How does varying the reward-sharing coefficient $\alpha$ alter emergent strategy and learning stability in two-agent zero-sum and non-zero-sum settings, and can curriculum scheduling recover cooperative performance when fixed $\alpha$ fails? \citep{wang2022irat, matignon2012independent}
+    \item[H2.] Above a threshold, sharing too much reward turns successful overtakes into a net penalty and both agents drift into passive play \citep{wei2016lenient, claus1998dynamics}. In non-zero-sum races with a common rival, partial sharing helps up to that same threshold and then starts to hurt. Curriculum scheduling recovers some of the lost performance.
 
-    \item[RQ3.] How many agents can a non-zero-sum race hold before cooperation stops working, and does gradual scheduling change the answer?
-    \item[H3.] Beyond a certain agent count, no value of $\alpha$ and no training schedule brings cooperation back, because the problem is credit assignment rather than training order.
+    \item[RQ3.] How many agents can a non-zero-sum race hold before cooperation stops working, and does gradual scheduling change the answer? \citep{agogino2004unifying, zhao2025maca}
+    \item[H3.] Beyond a certain agent count, no value of $\alpha$ and no training schedule brings cooperation back, because the problem is credit assignment rather than training order \citep{panait2005cooperative, rashid2018qmix}.
 
-    \item[RQ4.] Can alternative cooperative reward formulations recover cooperative advantage at the scaling boundary where $\alpha$-based mixing breaks down?
-    \item[H4.] The mean-field substitute for the true counterfactual inverts the cooperative signal, so the advantage observed under $\alpha$-based mixing will not reproduce under this approximation.
+    \item[RQ4.] Can alternative cooperative reward formulations recover cooperative advantage at the scaling boundary where $\alpha$-based mixing breaks down? \citep{wolpert2001optimal, devlin2014potential}
+    \item[H4.] The mean-field substitute for the true counterfactual inverts the cooperative signal, so the advantage observed under $\alpha$-based mixing will not reproduce under this approximation \citep{yang2018meanfield, foerster2018coma}.
 \end{description}
 
 \subsection{Objectives}

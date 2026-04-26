@@ -179,13 +179,13 @@ def sentence(value: str) -> str:
 
 
 def available_from(fields: dict[str, str]) -> str:
+    if fields.get("url"):
+        return f"Available from: \\url{{{fields['url'].strip()}}}"
     if fields.get("doi"):
         doi = fields["doi"].strip()
         if doi.startswith("http://") or doi.startswith("https://"):
             return f"Available from: \\url{{{doi}}}"
         return f"Available from: \\url{{https://doi.org/{doi}}}"
-    if fields.get("url"):
-        return f"Available from: \\url{{{fields['url'].strip()}}}"
     return ""
 
 
