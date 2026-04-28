@@ -65,9 +65,17 @@
                 "implemented": true,
                 "description": "Two DQN drivers + one Base adversary (non-zero-sum MARL)."
             },
+            "low_marl_3dqn_vs_base": {
+                "implemented": true,
+                "description": "Three DQN drivers + one Base adversary (3-vs-1 non-zero-sum MARL)."
+            },
             "low_marl_teams": {
                 "implemented": true,
                 "description": "Two teams of 2 DQN drivers + one Base adversary (team-based cooperative/competitive MARL)."
+            },
+            "low_llm_vs_base": {
+                "implemented": true,
+                "description": "One LLM agent against one Base agent."
             },
             "medium": {
                 "implemented": false,

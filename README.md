@@ -2,7 +2,7 @@
 
 An F1-inspired reinforcement learning simulator for studying overtaking strategy, incentive design, and multi-agent coordination under controlled complexity and stochasticity.
 
-Last updated: 2026-04-21
+Last updated: 2026-04-28
 
 ## What Is Implemented
 
@@ -39,11 +39,36 @@ Supported DQN variants:
 
 ## Install
 
+Use an isolated Python environment; `uv` or `conda` is recommended, though the commands below use standard `venv` for portability.
+
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
 ```
 
-Optional test tooling:
+Windows:
+
+```bash
+.\.venv\Scripts\activate
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Then install dependencies into the active environment:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+The commands below assume you are running them from the repository root with that
+environment activated. If you use a different interpreter, the scripts will fail
+at import time before parsing arguments.
+
+Smoke-test the integrity suite:
 
 ```bash
 python -m pytest tests/test_phase0_integrity.py tests/test_phase45_integrity.py
@@ -65,7 +90,11 @@ python src/main.py
 Important distinction:
 
 - `src/main.py` uses whatever `simulator.method` is set in `config.json`
+- `src/main.py` also uses the active complexity profile in `config.json`
 - the evaluator scripts force `batch` mode internally so experimental runs are headless and reproducible
+- `src/main.py` does not accept CLI overrides for mode or profile; change `config.json` first
+- real-time mode requires an interactive matplotlib backend and is intended for local desktop use
+- headless environments should use the `scripts/` evaluators instead of `real-time`
 
 So:
 
@@ -88,6 +117,10 @@ For benchmark-generated single-agent comparisons, per-trial configs are derived 
 ## Quick Start For Examiners
 
 These are the fastest useful reproductions from a clean checkout.
+
+Run MARL evaluator commands sequentially, not in parallel. Several profiles reuse
+the same checkpoint filenames under `models/`, so concurrent runs can overwrite
+each other's artifacts.
 
 ### 1. Reproduce A Fair Vanilla Vs Double Smoke Comparison
 
@@ -180,6 +213,8 @@ Then run:
 ```bash
 python scripts/evaluate_llm_agent.py --config config.json --eval-runs 20 --eval-seeds 101 --stochasticity-level s0 --alpha competitive --out metrics/examiner_llm.json
 ```
+
+The repository includes `.env.example` showing the expected variable name.
 
 ## Notes On Interpreting Smoke Runs
 

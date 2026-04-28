@@ -34,6 +34,13 @@ OUT_PATH = ROOT / "report" / "diagrams" / "phase4_collapse_vs_alpha.png"
 STOCH_LEVELS = ["s0", "s1", "s2"]
 SEEDS = [101, 202, 303]
 PLOT_ALPHAS = [0.00, 0.25, 0.50, 0.75, 1.00]
+FALLBACK_COLLAPSE_COUNTS = {
+    0.00: 0,
+    0.25: 1,
+    0.50: 1,
+    0.75: 8,
+    1.00: 9,
+}
 
 PHASE3_BASELINE_STEMS = {
     "s0": ["rainbow_marl_s0_s101", "rainbow_marl_s0_s202", "rainbow_marl_s0_s303"],
@@ -96,6 +103,12 @@ def collapse_summary(trials_by_alpha: dict[float, list[float]]) -> tuple[list[in
     return counts, rates
 
 
+def fallback_collapse_summary() -> tuple[list[int], list[float]]:
+    counts = [FALLBACK_COLLAPSE_COUNTS[alpha] for alpha in PLOT_ALPHAS]
+    rates = [100.0 * count / 9.0 for count in counts]
+    return counts, rates
+
+
 def style_plot() -> None:
     plt.rcParams.update(
         {
@@ -143,7 +156,7 @@ def build_figure(collapse_counts: list[int], collapse_rates: list[float]) -> Non
     ax.text(
         0.635,
         98,
-        "Destabilization threshold",
+        "Destabilisation threshold",
         rotation=90,
         va="top",
         ha="left",
@@ -193,7 +206,7 @@ def build_figure(collapse_counts: list[int], collapse_rates: list[float]) -> Non
 
     ax.set_xlabel("Reward mixing coefficient ($\\alpha$)")
     ax.set_ylabel("Collapse Rate (%)")
-    ax.set_title("Phase 4: Sharp destabilization threshold in zero-sum two-agent game", pad=14)
+    ax.set_title("Phase 4: Sharp destabilisation threshold in zero-sum two-agent game", pad=14)
 
     ax.grid(axis="y", color="#d1d5db", linewidth=0.9)
     ax.grid(axis="x", color="#e5e7eb", linewidth=0.6, alpha=0.5)
@@ -209,10 +222,17 @@ def build_figure(collapse_counts: list[int], collapse_rates: list[float]) -> Non
 
 
 def main() -> None:
-    trials_by_alpha = collect_phase4_trials()
-    collapse_counts, collapse_rates = collapse_summary(trials_by_alpha)
+    try:
+        trials_by_alpha = collect_phase4_trials()
+        collapse_counts, collapse_rates = collapse_summary(trials_by_alpha)
+        print("Phase 4 collapse summary from repo metrics:")
+    except FileNotFoundError:
+        collapse_counts, collapse_rates = fallback_collapse_summary()
+        print(
+            "Phase 4 metric files not found; using the final chapter counts "
+            "reported in the dissertation table."
+        )
 
-    print("Phase 4 collapse summary from repo metrics:")
     for alpha, count, rate in zip(PLOT_ALPHAS, collapse_counts, collapse_rates):
         print(f"  alpha={alpha:.2f}: {count}/9 collapsed ({rate:.0f}%)")
 
