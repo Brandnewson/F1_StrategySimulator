@@ -15,13 +15,14 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_DIR = ROOT / "report"
 REFS_PATH = REPORT_DIR / "refs.bib"
 OUT_PATH = REPORT_DIR / "references.tex"
-ACCESS_DATE = "23 April 2026"
+ACCESS_DATE = "28 April 2026"
 
 CITE_FILES = [
     REPORT_DIR / "acknowledge.tex",
@@ -179,14 +180,81 @@ def sentence(value: str) -> str:
 
 
 def available_from(fields: dict[str, str]) -> str:
-    if fields.get("doi"):
-        doi = fields["doi"].strip()
-        if doi.startswith("http://") or doi.startswith("https://"):
-            return f"Available from: \\url{{{doi}}}"
-        return f"Available from: \\url{{https://doi.org/{doi}}}"
-    if fields.get("url"):
-        return f"Available from: \\url{{{fields['url'].strip()}}}"
-    return ""
+    preferred = preferred_link(fields)
+    if preferred is None:
+        return ""
+    url, _label = preferred
+    return f"Available from: \\url{{{url}}}"
+ 
+ 
+def normalise_doi_url(doi: str) -> str:
+    doi = doi.strip()
+    if doi.startswith("http://") or doi.startswith("https://"):
+        return doi
+    return f"https://doi.org/{doi}"
+ 
+ 
+def arxiv_pdf_url(source: str) -> str | None:
+    text = source.strip()
+    patterns = [
+        r"arxiv\.org/abs/([0-9]+\.[0-9]+(?:v\d+)?)",
+        r"arxiv\.org/pdf/([0-9]+\.[0-9]+(?:v\d+)?)\.pdf",
+        r"10\.48550/arXiv\.([0-9]+\.[0-9]+(?:v\d+)?)",
+        r"arXiv:([0-9]+\.[0-9]+(?:v\d+)?)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return f"https://arxiv.org/pdf/{match.group(1)}.pdf"
+    return None
+ 
+ 
+def pmlr_pdf_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.netloc != "proceedings.mlr.press" or not parsed.path.endswith(".html"):
+        return None
+    stem = Path(parsed.path).stem
+    parent = parsed.path.rsplit("/", 1)[0]
+    return f"{parsed.scheme}://{parsed.netloc}{parent}/{stem}/{stem}.pdf"
+ 
+ 
+def springer_pdf_url(url: str, doi: str) -> str | None:
+    if "link.springer.com/article/" not in url or not doi:
+        return None
+    return f"https://link.springer.com/content/pdf/{doi}.pdf"
+ 
+ 
+def preferred_link(fields: dict[str, str]) -> tuple[str, str] | None:
+    pdf = fields.get("pdf", "").strip()
+    url = fields.get("url", "").strip()
+    doi = fields.get("doi", "").strip()
+ 
+    if pdf:
+        return pdf, "PDF"
+ 
+    for source in (url, doi):
+        arxiv_pdf = arxiv_pdf_url(source)
+        if arxiv_pdf:
+            return arxiv_pdf, "PDF"
+ 
+    if url:
+        if url.lower().endswith(".pdf"):
+            return url, "PDF"
+        pmlr_pdf = pmlr_pdf_url(url)
+        if pmlr_pdf:
+            return pmlr_pdf, "PDF"
+        springer_pdf = springer_pdf_url(url, doi)
+        if springer_pdf:
+            return springer_pdf, "PDF"
+        if "github.com" in url:
+            return url, "Repository"
+        if "doi.org" in url:
+            return url, "DOI"
+        return url, "Link"
+ 
+    if doi:
+        return normalise_doi_url(doi), "DOI"
+    return None
 
 
 def join_nonempty(parts: list[str]) -> str:
@@ -201,6 +269,13 @@ def format_pages(fields: dict[str, str]) -> str:
     if "-" in pages:
         return f"pp.{pages}"
     return f"p.{pages}"
+ 
+ 
+def format_article_number(fields: dict[str, str]) -> str:
+    article_number = fields.get("articleno", "").strip()
+    if not article_number:
+        return ""
+    return f"article {article_number}"
 
 
 def format_volume_issue(fields: dict[str, str]) -> str:
@@ -239,10 +314,15 @@ def format_article(entry: dict[str, object], year_label: str) -> str:
     ref_parts.append("[Online].")
     volume_issue = format_volume_issue(fields)
     pages = format_pages(fields)
+    article_number = format_article_number(fields)
     if volume_issue and pages:
         ref_parts.append(f"{volume_issue}, {pages}.")
+    elif volume_issue and article_number:
+        ref_parts.append(f"{volume_issue}, {article_number}.")
     elif volume_issue:
         ref_parts.append(sentence(volume_issue))
+    elif article_number:
+        ref_parts.append(sentence(article_number))
     elif pages:
         ref_parts.append(sentence(pages))
     ref_parts.append(f"[Accessed {ACCESS_DATE}].")

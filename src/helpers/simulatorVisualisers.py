@@ -10,6 +10,23 @@ def run_visualisation(simulator: Any) -> None:
     # Short aliases
     self = simulator
 
+    backend = str(plt.get_backend()).strip().lower()
+    non_interactive_backends = {
+        "agg",
+        "cairo",
+        "pdf",
+        "pgf",
+        "ps",
+        "svg",
+        "template",
+    }
+    if backend in non_interactive_backends or backend.endswith("agg"):
+        raise RuntimeError(
+            "Real-time mode requires an interactive matplotlib backend, "
+            f"but the active backend is '{plt.get_backend()}'. "
+            "Use batch mode for headless execution."
+        )
+
     print(f"\n{'='*60}")
     print(f"Starting Race: {self.total_laps} laps at {self.config['track']['name'].upper()}")
     print(f"{'='*60}\n")
