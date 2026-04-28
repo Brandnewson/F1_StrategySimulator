@@ -11,7 +11,7 @@ The config-driven fairness control was also effective. Because all experimental 
 
 The decision to continue beyond Phase~3 rather than stopping at the first successful result produced the most original contributions. The 83 per cent cooperative improvement in Phase~5 would not have been found if the project had ended at the Phase~3 competitive equilibrium results. The scaling failure in Phase~6, the boundary characterisation in Phase~7, the curriculum decomposition in Phase~8, and the difference rewards analysis in Phase~10 all followed from the decision to keep asking the next question.
 
-The algorithm confound in Phase~10 was the main area that did not work well. The \texttt{config.json} file still contained \texttt{"algo": "vanilla"} when rainbow-lite was intended for Phase~10A. The first batch of trials therefore tested the wrong algorithm. The error was caught by reading the \texttt{"algorithm"} field embedded in the output metric JSON rather than by reviewing the config file before running. The lesson is that config inspection at the start of every experiment batch is a necessary check, not an optional one. Embedding config snapshots in telemetry output is an effective safeguard, but it should not be the only one.
+The algorithm confound in Phase~10 was the main area that did not work well. The \texttt{config.json} file still contained \texttt{"algo": "vanilla"} when rainbow-lite was intended for Phase~10. The first batch of trials therefore tested the wrong algorithm. The error was caught by reading the \texttt{"algorithm"} field embedded in the output metric JSON rather than by reviewing the config file before running. The lesson is that config inspection at the start of every experiment batch is a necessary check, not an optional one. Embedding config snapshots in telemetry output is an effective safeguard, but it should not be the only one.
 
 Writing pace was a second area for improvement. Chapters~1 to~3 were drafted while Phases~1 to~3 were active, which made them detailed and timely. Phases~4 to~10 were completed before the corresponding chapters were written, which made the retrospective write-up harder. Writing contemporaneously with experimentation is a better practice.
 
@@ -22,6 +22,8 @@ Motorsport has always been an interest of mine, but I came into this project wit
 I proposed my own project rather than selecting a pre-defined one. That gave me creative freedom, but it also removed the guardrails that a well-scoped brief would have provided. At several points during Phase development, the natural next question pulled me further from the original aim. Staying grounded within the scope I had committed to required a discipline that does not always come naturally when curiosity takes over.
 
 The project I submitted is not the project I originally proposed. My initial aim was to study how MARL agents respond to different levels of stochasticity and environmental complexity. That turned out to be a precursor question rather than the central one. Once the stochasticity baseline was established in Phases~0 to~2, the more interesting question emerged. What happens when the incentive structure between agents shifts? The cooperative thinking metric became the actual investigation. Recognising that mid-project and pivoting without losing coherence was the right call, even if it added pressure.
+
+The simulator's reward schema reflects the same evolution. The original design included pace and pit-stop components alongside outcome, position, and tactical rewards, anticipating a richer race-modelling scope. As the investigation narrowed to incentive structure at low complexity, those two components became inactive by construction and were left at zero throughout the experiments reported here. The Phase~0 integrity tests verify they remain zero (Appendix~\ref{appendix:phase01}), and the simulator retains them so the same codebase can support the richer-race extensions outlined in the future-directions section.
 
 One thread that runs through the project is game theory, a field I had an existing interest in before connecting it explicitly to MARL. The connection became clearer as the experimentation progressed. The alpha sweep in Phase~4 is essentially a parameterisation of the cooperate/defect trade-off from a prisoner's dilemma. Phase~5's non-zero-sum structure breaks the zero-sum constraint in exactly the way game theory predicts cooperation becomes possible. The hawk-dove risk equilibria observed in Phase~3 are a direct empirical instance of a mixed-strategy Nash equilibrium. The Phase~10 difference rewards analysis is a formal question about incentive compatibility, a concept from mechanism design that predates reinforcement learning entirely. Seeing these connections emerge through experimental results rather than being designed in from the start was one of the more satisfying parts of the project.
 
@@ -37,32 +39,37 @@ I came into this trying to combine interests I had not previously brought togeth
 
 \subsection{Legal issues}
 
-All external libraries used in this project are open-source. FastF1 is released under the MIT licence. PyTorch is released under a BSD-style licence. NumPy and Pandas are released under BSD licences. The Anthropic Claude Haiku API was used under Anthropic's standard commercial terms of service. The FastF1 telemetry data is drawn from publicly available Formula~1 race data intended for non-commercial research use, consistent with the library's intended purpose and licence terms.
+The project relies on external libraries and one external API. Each was vetted against its licence terms before use. FastF1 (MIT), PyTorch, NumPy, and Pandas (all BSD-family) are permissive licences that allow research and personal use without redistribution obligations. No modifications were made to any of these libraries, and no derivative work is distributed. The project codebase is private and submitted only to the supervisor and assessor, which falls within the personal-use permissions of all four licences.
+
+The FastF1 library exposes Formula 1 timing data drawn from F1's public live timing service. The library's documentation specifies non-commercial use only. This project is academic and non-commercial, no telemetry data is redistributed, and only derived statistics (zone-aggregated overtake counts) appear in the report. Raw telemetry stays on the local machine and is not committed to the repository. This satisfies the library's stated boundary on permitted use.
+
+The Anthropic Claude Haiku API is used under standard commercial terms. The Phase 9 prompts contain only synthetic race state and no personal data, which keeps the use within Anthropic's acceptable use policy. API request and response logs are retained locally for reproducibility but are not redistributed.
 
 \subsection{Social issues}
 
-This project does not interact with human participants and does not collect or process personal data. The research question concerns the behaviour of autonomous software agents in a simulated environment. There are no direct social impacts from the project itself.
+No human participants are involved and no personal data is processed, so the project itself has no direct social footprint. The deliberate choice was to use synthetic agents in a simulated environment specifically to avoid scenarios where racing strategies could be derived from or applied to real competitors without their knowledge.
 
-The broader research area has social relevance. Autonomous agents with configurable incentive structures are deployed in domains beyond motorsport simulation, including financial trading, logistics optimisation, and competitive resource allocation. The finding that incentive formula design shapes emergent agent behaviour as strongly as algorithm choice is relevant to anyone designing the reward contracts for multi-agent systems in these domains. The project provides controlled evidence that poorly designed cooperative incentives can produce competitive or even harmful agent behaviour, which is a meaningful contribution to the broader conversation about AI alignment in multi-agent settings.
+The findings have indirect social relevance. The project shows empirically that poorly designed cooperative incentives can degrade rather than improve multi-agent performance, including in ways that benefit a third-party adversary. The same pattern matters in financial trading, logistics optimisation, and competitive resource allocation, where incentive structures between automated agents are designed by humans who may not appreciate how the structure interacts with the learning algorithm. Reporting the negative results clearly, including the Phase 6 cooperative-team degradation that benefited the Base adversary, contributes to the broader literature on multi-agent alignment by documenting a failure mode that simpler reward designs can hide.
 
 \subsection{Ethical issues}
 
-No human participants were involved at any stage of this project. No consent forms were required. All data generated and used was produced by me and does not involve external parties, which limits the risk of data mishandling or unintended data linkage.
+\textbf{Reliability of policies the system produces.} The most direct ethical concern is that overtaking strategies optimised in this simulator may transfer poorly to real racing. The simulator abstracts away tyre degradation, pit stops, weather, and driver fatigue, all of which interact with overtaking decisions in ways the model does not capture. A team using strategies derived from this system without understanding the abstraction would risk advising attempts that the simulator rates favourably but that carry materially higher real-world risk. The Phase 9 finding sharpens this concern. A zero-shot language model with no training matched rainbow-lite within two percentage points, which suggests the learned policy may be partly an artefact of the simulator's narrow strategy space rather than a transferable racing skill. The La Source dominance is a concrete example of a simulator-specific bias that would not generalise to circuits without a similar opening braking zone. The report is explicit about these limitations, and any real-world application would require validation against the circuits and conditions the simulator was not built to model.
 
-The LLM baseline in Phase~9 uses the Anthropic Claude Haiku API. No personal data was transmitted to the API at any point. All race state information is synthetic and contains no identifying information.
+\textbf{Compute and energy.} Running RL training over extended periods has a real energy cost. The phase-gated structure addressed this directly by requiring each phase to pass its gate before the next phase's compute budget was committed, so failed configurations did not propagate into wasted training runs. The three-seed design instead of five was chosen partly for time and partly to keep total compute proportionate to the project's scope, with the trade-off made explicit in the methodology.
 
-External literature is used as reference material throughout the report. I have been careful to cite sources accurately, to check that referenced works are openly available for academic use, and to confirm that each source is a legitimate published work. One citation was found to be unverifiable during the final review process and was removed.
+\textbf{Use of generative AI.} The use of Claude during writing and the autoresearch tool during hyperparameter exploration are declared in the Acknowledgements. The decision to declare both proactively, including the autoresearch tuning visible in the commit history, reflects the principle that ethical AI use depends on transparency about where the tool's contribution starts and ends.
 
-Running simulations and training agents over extended periods carries a non-trivial energy cost. I was mindful of this throughout and avoided running experiments whose outputs I had no intention of using. The phase-gated structure supported this by requiring a gate to pass before the next phase's compute was committed.
-
-The most direct ethical concern for this type of project is the reliability of the policies it produces. This simulator abstracts away substantial physical complexity. There is no tyre degradation, no pit stop timing, no weather variation, and no driver fatigue. A policy that performs well in this environment may behave very differently under real race conditions, where these factors interact with overtaking decisions in ways the simulator does not capture. If a real driver or team adopted strategies derived from this system without understanding those limitations, they could make overtaking attempts that the simulator rates as favourable but that carry materially higher real-world risk. The Phase~9 result is instructive. A zero-shot language model with no training matched rainbow-lite within two per cent win rate, which suggests the learned strategy may be less general than win rates alone imply. The La Source dominance artefact is a concrete example of a simulator-specific bias that would not transfer to circuits without a structurally straightforward first braking zone. Any real-world application of this system would require explicit validation against the circuits, conditions, and risk tolerances it was not designed to cover.
+\textbf{Citation accuracy.} One citation in an early draft was found to be unverifiable during final review and was removed rather than retained behind plausible-looking metadata. AI-generated paper summaries were not used as substitutes for reading primary sources, and every citation appearing in the final report was checked against the original publication.
 
 \subsection{Professional issues}
 
-This project follows the reproducibility standards identified as necessary for trustworthy reinforcement learning comparisons \citep{henderson2018deep,agarwal2021statistical}. Matched compute budgets, fixed seeds, confidence interval reporting, and behavioural diagnostics that go beyond outcome-only metrics are treated as professional obligations rather than optional additions. The git repository provides a full audit trail of experimental code, configuration changes, and metric outputs. All claims in the main report are traceable to specific metric files or mathematical derivations.
+The project follows the reproducibility standards identified as necessary for trustworthy reinforcement learning comparisons \citep{henderson2018deep, agarwal2021statistical}. Matched compute budgets, fixed seeds, confidence intervals across multiple seeds, and behavioural diagnostics that go beyond outcome-only metrics are treated as professional obligations. The git repository provides a full audit trail of experimental code, configuration changes, and metric outputs, with each phase's pass criteria committed before the phase ran rather than retrofitted afterwards.
+
+A specific professional discipline worth naming is the handling of negative results. Phase 6, Phase 7B, and Phase 10 all produced findings that were unfavourable to the original hypotheses. Each is reported in full rather than buried, with the mechanism analysed and the implication for future work identified. Reporting failures with the same care as successes is a professional norm that is easy to compromise under deadline pressure, and one this project deliberately upheld.
 
 \chapter{External Material}
 \label{appendix:external}
+\markboth{APPENDIX B. EXTERNAL MATERIAL}{APPENDIX B. EXTERNAL MATERIAL}
 
 All materials not developed by the student are listed below.
 
@@ -165,6 +172,7 @@ This dissertation & F1-inspired competitive simulator with staged complexity & R
 \endgroup
 
 
+
 \section*{Overtaking zone calibration figures}
 \label{sec:overtaking-figures}
 \addcontentsline{toc}{section}{Overtaking zone calibration figures}
@@ -205,6 +213,29 @@ The following figures show the simulator's own track and visualisation views. Fi
     \label{fig:simulator-realtime-snapshot}
 \end{figure}
 
+\chapter{Literature review methodology}
+\label{appendix:litreview-method}
+
+\section{Search strategy}
+
+The review was structured around the three fields the project draws on, namely motorsport simulation, reinforcement learning in competitive environments, and multi-agent incentive design. A separate search was conducted for each, with keywords drawn from the project's research questions.
+
+For motorsport simulation, queries combined "race strategy" with "simulation", "reinforcement learning", and "multi-agent". For competitive RL, queries combined "deep reinforcement learning" with "competitive games", "self-play", and named algorithm families such as DQN and PPO. For multi-agent incentive design, queries combined "multi-agent reinforcement learning" with "credit assignment", "reward shaping", "mixed-motive", and "non-stationarity".
+
+\section{Databases and inclusion criteria}
+
+The primary databases were Google Scholar, arXiv, the ACM Digital Library, IEEE Xplore, and the SpringerLink and PMLR proceedings indexes. Inclusion criteria prioritised peer-reviewed publications in major venues such as NeurIPS, ICML, AAAI, AAMAS, Nature, and Science, alongside recent arXiv preprints where the work either established a foundational concept the project relies on or reported state-of-the-art results post-dating the most recent venue publication.
+
+Exclusion criteria removed papers without verifiable provenance, papers in languages other than English, and papers whose topic overlapped with the project's keywords without engaging the substantive question being asked. The time range spans foundational game-theory work from the 1970s to multi-agent RL conference proceedings from 2026, reflecting the project's reliance on both classical equilibrium concepts and recent benchmarking results.
+
+\section{Citation tracing}
+
+Snowballing was applied to high-relevance papers through backward citation tracing of references and forward tracing through Google Scholar's citing-articles function. This identified foundational references the keyword search would not have surfaced directly, including Maynard Smith and Price's 1973 hawk-dove model and Tan's 1993 independent-learners paper.
+
+\section{Structured comparison}
+
+The structured comparison of the most directly related studies, organised by the variables they manipulate and the failure modes they engage with, is in Appendix Table~\ref{tab:related-work-comparison}.
+
 \chapter{Phase 0 and Phase 1 Experimental Validation}
 \label{appendix:phase01}
 
@@ -221,7 +252,6 @@ This appendix documents the system integrity checks carried out in Phase~0 and t
 Phase~0 contained twelve white-box unit and integration tests grouped into three categories. Group~A checked simulator correctness. Group~B validated the stochastic probability calculations statistically. Group~C verified the telemetry contract. All tests were implemented in \texttt{tests/test\_phase0\_integrity.py} and executed under a fixed random seed with the Spa circuit at low complexity and stochasticity level s0.
 
 \subsection{Test inventory}
-
 \begin{table}[htbp]
 \centering
 \scriptsize
@@ -240,7 +270,7 @@ A & \texttt{test\_terminal\_reward\_correctness} & \texttt{outcome\_raw} equals 
 \hline
 A & \texttt{test\_reward\_sum\_identity} & \texttt{reward\_component\_sum\_error} is below $10^{-4}$ for every decision event & Pass \\
 \hline
-A & \texttt{test\_inactive\_components\_zero} & \texttt{pace} and \texttt{tyre\_pit} components are exactly 0.0 in every event at low complexity & Pass \\
+A & \texttt{test\_inactive\_components\_zero}\textsuperscript{*} & \texttt{pace} and \texttt{tyre\_pit} components are exactly 0.0 in every event at low complexity & Pass \\
 \hline
 B & \texttt{test\_aggression\_increases\_probability} & Mean success probability across 1000 samples satisfies AGGRESSIVE $>$ NORMAL $>$ CONSERVATIVE at fixed zone and gap & Pass \\
 \hline
@@ -253,6 +283,8 @@ C & \texttt{test\_jsonl\_schema} & Required top-level keys present in every race
 C & \texttt{test\_decision\_event\_schema} & Required per-decision keys present including \texttt{reward\_component\_sum\_error} and \texttt{success\_probability} & Pass \\
 \hline
 C & \texttt{test\_component\_totals\_match\_events} & Per-driver \texttt{reward\_component\_totals} match the sum of individual decision events for decision-time components & Pass \\
+\hline
+\multicolumn{4}{|p{17.4cm}|}{\textsuperscript{*}\,\texttt{pace} and \texttt{tyre\_pit} exist in the simulator but are deliberately inactive at the low-complexity profile used throughout this project. The simulator retains them so the same codebase can support richer race-modelling extensions outlined in the future-directions section. The test ensures any accidental activation surfaces as an integrity failure rather than as quietly contaminated reward data.} \\
 \hline
 \end{tabular}
 }
@@ -529,6 +561,12 @@ The three stochasticity levels differ only in the standard deviation $\sigma$ of
     \item \textbf{s2:} $\sigma = 0.05$. Sufficient to flip borderline outcomes while still preserving zone ordering in expectation.
 \end{itemize}
 
+
+\subsection{Design parameter choices}
+\label{sec:design-parameters}
+
+Several numerical values in the simulator specification (risk adjustments, failure penalties, reward weights, clipping bounds, stochasticity sigmas, gap modifier scaling, episode budgets, lap counts) are calibration choices made during early development. What is load-bearing for the methodology is the structural relationships between them, not the magnitudes. The risk-adjustment ordering, the failure-penalty inverse ordering, the reward weight hierarchy, and the stochasticity (s0/s1/s2) variance progression must all hold for the methodology to work. Specific values could differ without changing the conclusions. The structural design choices themselves (the zero-sum to non-zero-sum game structure switch, the agent-count progression, the $\alpha$ sweep across $[0,1]$, the curriculum warm-up then ramp then hold, and the Phase~10 mean-field approximation) are described in their respective phase subsections.
+
 \section{Base Agent specification}
 
 The Base Agent is a gap-aware heuristic policy used as the fixed non-learning comparator. Its decision logic is as follows.
@@ -609,4 +647,162 @@ Phase~3 required the codebase to support two concurrent DQN learners. The comple
 
 Phases~4 to~10 were controlled through configuration with no changes to agent learning code. The reward calculation was extended with an $\alpha$ blending step, where setting $\alpha$ to zero reproduces the original reward contract exactly. A team-grouping selector was added to assign agents to named teams for $\alpha$ mixing. A curriculum scheduler was implemented as a thin wrapper around the training loop, reading the target $\alpha$ and episode boundaries from config and hooking into the existing episode-end callback. A difference reward mode computes the mean-field approximation described in Section~\ref{sec:difference-rewards}. The LLM agent implements the same common interface as all other agents, with its prompt programmatically constructed from simulator state and track configuration around a fixed hand-authored system template (Section~\ref{sec:llm-baseline}). The agent queries Claude Haiku, a language model API provided by Anthropic, once per lap and outputs a structured zone plan. On parse failure it retains the previous lap's plan or installs a default plan, which still allows attempts at easy zones.
 
+
+\chapter{Engineering log}
+\label{appendix:engineering-log}
+
+This appendix presents the full Git commit graph for the project repository, generated with \texttt{git log --graph --oneline --all}. The history shows the phase-numbered feature branches that correspond to the sprint structure in Section~\ref{sec:engineering}, alongside the supporting infrastructure work (simulator construction, DQN substrate tuning, autoresearch hyperparameter exploration) that preceded the formal phase numbering.
+
+\begin{small}
+\begin{verbatim}
+*   390cc2b (HEAD -> main, origin/main, origin/HEAD) Merge pull request #1 from Brandnewson/develop
+|\  
+| *   6f9a0ca (origin/develop) Merge branch 'develop' of https://github.com/Brandnewson/F1_StrategySimulator into develop
+| |\  
+| |/  
+|/|   
+* | 63f6ce8 (develop, claude/blissful-cray-533300) implemented batch and real-time simulator logic, with scope for implementing the AI agents
+| * 7a8d089 (origin/report-refinement, report-refinement) minor file change cleanups
+| * 66b2196 final adjustments for readability
+| * b1a9c07 updates and final revisions
+| * deeaaed simplification and condensation of words
+| * 728fa07 final final changes before condensation pass
+| * 59748fa small rewords in chapter 1-3 before chapter 4 rewrite
+| * e2ff321 Stop tracking model checkpoints
+| * a6565ff update report chapter 3
+| * 28547fd updated readME and reproducibility scripts
+| * 705edce report chapter 2 final and chapter 3 draft rewrite
+| * a349ccf old draft of chapter 2 bits
+| * 28acd79 changes to the chapter 1 framing tbc
+| * 248e583 config edits to be in line with report template
+| * 7bedb06 First proper draft to let Brandon review
+| * 3b52bc8 Add scripts to generate figures for Phase 3 to Phase 7 metrics
+| * 9449b42 Refactor code structure for improved readability and maintainability
+| * 49abaeb (origin/phase-10-qmix-ctde) edited report for phase 10 and revised entire report
+| * 678edc1 fix: Task 9 style pass ΓÇö remove prose colons, semi-colons, em-dashes and flagged violations
+| * 99ae46c feat: rewrite Appendix A self-appraisal and Appendix B external materials
+| * 936f3b3 feat: Chapter 4 sections 4.4-4.7 ΓÇö RQ3, discussion, validity, future work
+| * 54ccbeb fix: remove filler opener in Section 4.3 Phase 7 paragraph
+| * a7f6435 fix: remove prose colons and split compound sentence in Section 4.3
+| * 1b6227f feat: Chapter 4 Section 4.3 ΓÇö RQ2 results covering Phases 4-8
+| * c9a5f8d feat: Chapter 4 sections 4.1 and 4.2 ΓÇö preliminary validation and RQ1
+| * 6dd5b0f fix: remove colon and semi-colons from Chapter 3 Phase 0 defects sentence
+| * d6a5cfa feat: fix Chapter 3 placeholder, tighten Phase 0 reference, add Section 3.8 for Phase 4-10 infra
+| * 9950636 fix: split compound sentences in Chapter 2 Section 2.7 multi-team scaling
+| * ab5d411 feat: add Section 2.7 MARL reward modes covering Phases 4-10 methodology
+| * 8869909 fix: remove mid-sentence colon from Chapter 1 contributions paragraph
+| * 95a2fa7 feat: update Chapter 1 contributions, objectives, and hypotheses for full 10-phase scope
+| * d737b29 fix: Leeds Harvard bib style and rewrite abstract for full 10-phase scope
+| * e2dd4d3 docs: Add implementation plan for full dissertation rewrite
+| * 62bf80a docs: Add prose style rules to report rewrite spec
+| * c1ed7c4 docs: Add report rewrite design spec for full 10-phase dissertation
+| * 489a78c (origin/phase-9-LLM-racer) feat: Add LLM-based strategic agent and tuning harness
+| * 40cf51b (origin/phase-8-sweeping-alphas-training) Update model weights and add full research journey documentation
+| * ec9eb3e (origin/phase-7-credit-assignment-boundary) phase 7 omplete
+| * 4b4b3d2 (origin/phase-6-MARK-intrateam-dynamics, phase-6-MARK-intrateam-dynamics) phase 6 completion
+| * 34e822b recorded known overtaking zone limitation at zones 6-9 due to nature of circuit.
+| * d39b0d0 (origin/phase-5-MARL-stronger-experiment) phase 5 integrity checks and ablation tests
+| * 3068c1d phase 5 MARL research completed
+| * 3a1df91 (origin/phase-4-reward-sharing) phase 4 initial experiment
+| * e612c1b (origin/phase-3-IMARL) Completed phase 3 investigation with double and dueling
+| * dd47089 phase 3 IMARL RQ1 and RQ2
+| * 01c5a7f (origin/refinement-thesis, refinement-thesis) attempting to benchmark different DQNs
+| * 3609a9d phase 0 and 1 done
+| * 9c5b209 refine research to MARL, using DQN
+| * 3709322 added a "low" level complexity redo for the sim
+| * 7f9b37a refined chapter 1 introduction, and ensured overtaking visualisation is correct
+| * 016de6b (origin/simplicity-experiment) Adjust graph to correctly reflect overtakes instead of absolute value as before
+| * 08166c2 Attempt 1: Slower epsilon decay allows the agent to maintain higher exp
+| * 0a8a39f (origin/dev/bt/refactor-simplicity) simplified simulator
+| * 756b777 (origin/dqn-experiment) dueling DQN working
+| *   3c390ae Merge branch 'dqn-experiment' of https://github.com/Brandnewson/F1_StrategySimulator into dqn-experiment
+| |\  
+| | * b320d75 Attempt 1: Slower epsilon decay allows the agent to explore longer duri
+| * | dda182c Attempt 28: Current best score (0.716667) was achieved with learning_rat
+| * | c247f49 Attempt 12: Increasing buffer capacity will allow the agent to retain mo
+| * | 9d972c4 Attempt 8: Increasing network capacity from 256 to 512 hidden units wil
+| * | 78f780c Attempt 7: Even slower epsilon decay will allow the agent to maintain e
+| * | 6672323 Attempt 6: Current learning rate may be too conservative for convergenc
+| |/  
+| * 9178532 (origin/dev/bt/include-other-DQNs) added DQNs and updated readME
+| * bd5551e (origin/autoresearch/0317) Verified a DQN that actually equals to base agent.
+| * 703d777 Attempt 26: Increasing target network update frequency will reduce Q-val
+| * 95c64f8 Attempt 21: Lower epsilon_min will force more aggressive exploitation in
+| * aa2ee3d Attempt 20: Larger replay buffer will capture more diverse racing scenar
+| * 2e31067 Attempt 10: Increasing epsilon_min from 0.02 to 0.05 will maintain more
+| * b2e55c3 Attempt 6: Larger replay buffer capacity allows the agent to retain mor
+| * 88489ab Attempt 2: Increasing hidden layer capacity allows the DQN to learn mor
+| * 7e13ed1 Attempt 1: Slower epsilon decay allows the agent to explore more thorou
+| * d106d4e Attempt 1: Slower epsilon decay will maintain exploration longer during
+| * 7f4f11c Attempt 1: Slower epsilon decay allows the agent to explore more thorou
+| * 248765c test research on just 1 base agent, vs DQN agent
+| * 7d63d7a (origin/dev/bt/DQN-shaping, origin/autoresearch/0314) Attempt 29: Lowering epsilon_min from 0.05 to 0.02 reduces residual expl
+| * 3cea6ee Attempt 21: Increasing replay buffer capacity allows the agent to retain
+| * 4d50cf2 Attempt 16: Increasing epsilon_min from 0.01 to 0.05 maintains more expl
+| * 8277f19 Attempt 13: Lower learning rate will allow more stable convergence and p
+| * 18a778a Attempt 10: Less frequent target network updates (every 200 steps instea
+| * 96d2e7f Attempt 9: Increasing replay buffer capacity allows the agent to retain
+| * dbe0604 Attempt 7: Lower epsilon_min increases exploitation in later training s
+| * 4cc7c68 Attempt 2: Current learning rate is too low, slowing convergence. Incre
+| * 98abc74 added .env for api key
+| * b8eb23c Attempt 3: Reducing learning rate further will prevent overwriting lear
+| * ad46ff2 Attempt 1: Slower epsilon decay will keep the agent exploring longer du
+| * 2a6e0eb Attempt 3: The current decay of 0.99 causes epsilon to drop too quickly
+| * 029d020 Attempt 2: A lower learning rate will allow more stable gradient update
+| * 676aab0 Attempt 1: Slower epsilon decay keeps exploration higher for longer, al
+| * 5735b6a modified autoresearch prompts to benefit my specific use-cases
+| * c4f047b (origin/autoresearch/0313) Attempt 17: Reduce learning rate from 0.01 to 0.005 to stabilize Q-value
+| * d6c3bcf Attempt 1: Increase learning rate from 5e-3 to 1e-2 to accelerate conve
+| * 343b228 Attempt 2: Reduce learning rate from 1e-2 to 5e-3 to stabilize Q-networ
+| * 8c2d91d remove the 600 second timeout
+| * 51c296e Attempt 1: Double the learning rate from 5e-3 to 1e-2 to accelerate Q-v
+| * c6a4708 Attempt 3: Reduce learning rate from 0.01 to 0.005 to stabilize Q-value
+| * a395077 Attempt 2: Double the learning rate to 0.01 to accelerate convergence d
+| * a800401 Attempt 2: Increase learning rate from 1e-3 to 5e-3 to allow faster Q-v
+| * 7368f63 Attempt 2: Complete the incomplete initialization block to properly sto
+| * 0a62e22 (origin/add_agentic_training) Attempt 1: Faster epsilon decay (0.995 vs 0.9993) accelerates the trans
+| * fc4e5de Attempt at getting autoresearcher to work
+| * 2ac0fdb Add autoresearch submodule
+| * 704dab8 Add autoresearch as git submodule in tools/
+| * d942de4 prepping the evaluation of candidate script for autoresearch
+| * 02dfcec add helper script for autoresearch to reference
+| * 69486d6 (origin/implementAI, implementAI) run against 2 random agents and measure DQN effectiveness
+| * 6849475 Overhauled logging logic. When runs are 0, it visualises instead.
+| * 15efbe3 Optimised epsilon and feedback for DQN training
+| * ffed324 added starting position and results graph but requires more race state monitoring for performance analysis
+| * 2664607 added DQN agent, but it is ineffective
+|/  
+* 14fea41 let drivers behind still finish their races despite winner having crossed the line
+* c77274a got batch runs to work with proper initialisation upon each run
+*   37a6755 Merge branch 'grabHistoricalF1Metrics' into implementAI
+|\  
+| * df6694b (origin/grabHistoricalF1Metrics, grabHistoricalF1Metrics) added fastF1 library, and created script for grabbing position overtake data
+* | b2fd1bf edit la source difficulty
+* | 8caddab added colour mapping to driver
+|/  
+* fee4d6e (origin/addSimulatorLogic) refactor to prevent simulator.py from being too bloated
+* 685f7fe made speeds be smoothed using a cubic spline based on distance and base lap time instead
+* 637227e implemented slight tweak to make gaps be a function of distance and time, and added corner names on visualisation
+* 6b0cfee implemented distance penalty for overtake attempt
+* 23f1788 2nd iteration for simulator logic
+* cdd3c37 (origin/refactorAlpha) added debug mode
+* a3b996c first demo workout of the new overtaking logic
+* 48376ff added race state and driver state init
+* b2e8922 created spa track with miniloops for new logic
+* 9380629 (origin/implementAlgo) remove redundant text
+* 36fc592 update naming and readME
+* c1ff91d upload MVP
+* 48991cd Initial commit
+
+\end{verbatim}
+\end{small}
+
+\chapter{Use of generative AI tools}
+\label{appendix:genai}
+
+I acknowledge the use of Claude (Anthropic, \url{https://claude.ai}), specifically the Sonnet 4.6 and Opus 4.7 models, as a writing assistant during the preparation of this report. The tool was used in line with the AMBER category of the University of Leeds Generative AI guidance, in the assistive role of drafting and structuring content, identifying unclear or overlong sentences, and providing alternative phrasings for the author to evaluate. All drafted content was reviewed, edited, and integrated by the author, and the intellectual content of the report (research questions, methodology design, results interpretation, and conclusions) is the author's own work.
+
+I additionally acknowledge the use of the autoresearch framework \citep{karpathy2024autoresearch}, an open-source tool that uses Claude to propose and evaluate hyperparameter configurations, as a development-time experimental tool during Phase~2 of the project. The tool was used to support iterative testing of DQN hyperparameters, with proposed configurations treated as experimental candidates to evaluate rather than as final design decisions. The resulting tuning attempts are recorded in the commit history (Appendix~\ref{appendix:engineering-log}). The author analysed the experimental outputs and selected the final substrate configuration.
+
+The Phase~9 LLM baseline described in Section~\ref{sec:llm-baseline} uses a large language model as a research subject within the experimental programme rather than as a development tool, and is not covered by this acknowledgement.
 \end{appendices}
